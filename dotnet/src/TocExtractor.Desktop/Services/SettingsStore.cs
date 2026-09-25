@@ -1,7 +1,33 @@
 using System.Text.Json;
-using TocExtractor.App.Session;
+using TocExtractor.App;
 
 namespace TocExtractor.Desktop.Services;
+
+/// <summary>What the window remembers between launches.</summary>
+public sealed record DesktopSettings
+{
+    public string NovelUrl { get; init; } = "";
+
+    public string OutputDirectory { get; init; } = AppPaths.DefaultOutputDirectory;
+
+    public bool Text { get; init; } = true;
+
+    public bool Pdf { get; init; }
+
+    /// <summary>Write a CSV log of every scan and download next to the book.</summary>
+    public bool KeepLog { get; init; } = true;
+
+    /// <summary>Chapters fetched at once. One is kindest to a site and least likely to trip its checks.</summary>
+    public int AtOnce { get; init; } = 1;
+
+    public double MinDelay { get; init; } = 2;
+
+    public double MaxDelay { get; init; } = 4;
+
+    public bool IncludeLinks { get; init; }
+
+    public bool StripAds { get; init; } = true;
+}
 
 /// <summary>Remembers the form between launches, so a person picks up where they left off.</summary>
 /// <remarks>
@@ -13,26 +39,26 @@ public sealed class SettingsStore(string path)
 {
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 
-    public SessionSettings Load()
+    public DesktopSettings Load()
     {
         try
         {
             return File.Exists(path)
-                ? JsonSerializer.Deserialize<SessionSettings>(File.ReadAllText(path), Options) ?? new SessionSettings()
-                : new SessionSettings();
+                ? JsonSerializer.Deserialize<DesktopSettings>(File.ReadAllText(path), Options) ?? new DesktopSettings()
+                : new DesktopSettings();
         }
         catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException)
         {
-            return new SessionSettings();
+            return new DesktopSettings();
         }
     }
 
-    public void Save(SessionSettings settings)
+    public void Save(DesktopSettings settings)
     {
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, JsonSerializer.Serialize(settings with { Force = false }, Options));
+            File.WriteAllText(path, JsonSerializer.Serialize(settings, Options));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {

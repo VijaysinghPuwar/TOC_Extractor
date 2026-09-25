@@ -51,7 +51,7 @@ public sealed record RangePreview(RangePlan Plan, int From, int To, string Summa
 /// work carries on by itself once the person has passed it.
 /// </para>
 /// </remarks>
-public sealed class NovelSession(NovelEnvironment environment) : IAsyncDisposable
+public sealed class NovelSession(NovelEnvironment environment) : INovelService
 {
     /// <summary>Pages visited only to reach a range, above which the window asks first.</summary>
     public const int SlowWalkThreshold = 60;
@@ -99,8 +99,9 @@ public sealed class NovelSession(NovelEnvironment environment) : IAsyncDisposabl
     }
 
     /// <summary>Plan a range and describe it, with the cost of any walking.</summary>
-    public RangePreview Preview(ScanResult scan, int from, int to)
+    public RangePreview Preview(ScanResult scan, int first, int last)
     {
+        var (from, to) = (first, last);
         ArgumentNullException.ThrowIfNull(scan);
         var plan = RangePlanner.Plan(scan, from, to);
         var low = Math.Max(Math.Min(from, to), scan.FirstNumber);
@@ -219,7 +220,7 @@ public sealed class NovelSession(NovelEnvironment environment) : IAsyncDisposabl
 
     public async ValueTask DisposeAsync() => await this.CloseAsync().ConfigureAwait(false);
 
-    internal static string SignInNeeded(string? rule) =>
+    public static string SignInNeeded(string? rule) =>
         "Sign in required. This site only lets signed-in readers' tools open chapters"
         + (rule is null ? "" : $" ({rule})")
         + ". Press Sign in, sign in in the browser window, then press Done and scan again.";

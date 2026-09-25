@@ -1,10 +1,10 @@
-using System.Net;
 using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Threading;
+using TocExtractor.App.Pipeline;
+using TocExtractor.App.Scanning;
 using TocExtractor.App.Session;
-using TocExtractor.Core.Politeness;
-using TocExtractor.Core.Tests.Fetching;
+using TocExtractor.Core.Models;
 using TocExtractor.Desktop.Services;
 using TocExtractor.Desktop.ViewModels;
 using TocExtractor.Desktop.Views;
@@ -23,19 +23,10 @@ public static class TestApp
             .WithInterFont();
 }
 
-internal sealed class PublicResolver : IHostResolver
-{
-    public IReadOnlyList<IPAddress> Resolve(string host) => [IPAddress.Parse("93.184.216.34")];
-}
-
 /// <summary>Records what the window asked the operating system for.</summary>
 internal sealed class FakeShell : IShell
 {
     public string? NextFolder { get; set; }
-
-    public string? NextProfileToOpen { get; set; }
-
-    public string? NextProfileToSave { get; set; }
 
     public List<string> Opened { get; } = [];
 
@@ -43,10 +34,9 @@ internal sealed class FakeShell : IShell
 
     public Task<string?> PickFolderAsync(string? startIn) => Task.FromResult(this.NextFolder);
 
-    public Task<string?> PickProfileToOpenAsync(string startIn) => Task.FromResult(this.NextProfileToOpen);
+    public Task<string?> PickProfileToOpenAsync(string startIn) => Task.FromResult<string?>(null);
 
-    public Task<string?> PickProfileToSaveAsync(string startIn, string suggestedName) =>
-        Task.FromResult(this.NextProfileToSave);
+    public Task<string?> PickProfileToSaveAsync(string startIn, string suggestedName) => Task.FromResult<string?>(null);
 
     public Task OpenFolderAsync(string path)
     {
@@ -61,50 +51,154 @@ internal sealed class FakeShell : IShell
     }
 }
 
-/// <summary>A window over a small fake book, with nothing real behind it.</summary>
-internal sealed class Harness
+/// <summary>A session that plays out a scan and a download of a made-up book.</summary>
+internal sealed class FakeNovelService : INovelService
 {
-    public const string Toc = "https://novel.example/book/contents";
+    public const string NovelUrl = "https://novel.example/book/the-lighthouse";
 
-    // broken: chapter numbers whose content selector matches nothing.
-    public Harness(int chapters = 6, bool browserReady = true, string? robots = null, int[]? broken = null)
+    private static readonly string[] Titles =
+    [
+        "The Lighthouse Keeper", "A Letter Arrives", "Low Tide", "The Storm Road", "Harbour Lights",
+        "What the Gulls Knew", "The Second Letter", "Fog Signal", "Beacon", "Homecoming",
+    ];
+
+    public event EventHandler<string?>? PersonNeeded;
+
+    public int Chapters { get; set; } = 40;
+
+    /// <summary>When set, the scan says the chapters need a signed-in reader.</summary>
+    public bool RequireSignIn { get; set; }
+
+    public bool SignInSucceeds { get; set; } = true;
+
+    public HashSet<int> Failing { get; } = [];
+
+    /// <summary>Held open mid-save so a test can look at the window while the person is needed.</summary>
+    public TaskCompletionSource? PauseAt { get; set; }
+
+    public int PauseBefore { get; set; }
+
+    public bool SignedIn { get; private set; }
+
+    public SessionSettings Pace { get; set; } = new();
+
+    public List<string> Scanned { get; } = [];
+
+    public Task<ScanResult> ScanAsync(string novelUrl, Action<string>? log, CancellationToken cancellationToken = default)
     {
-        this.Output = Scratch();
-        this.Pages = Book(chapters);
-        foreach (var number in broken ?? [])
+        this.Scanned.Add(novelUrl);
+        log?.Invoke("scan: read " + novelUrl);
+        var chapters = Enumerable.Range(1, this.Chapters)
+            .Select(n => new ScannedChapter(n, Title(n), $"https://novel.example/book/the-lighthouse/{n}"))
+            .ToList();
+        var scan = new ScanResult
         {
-            this.Pages[$"https://novel.example/book/chapter-{number}"] = new StubPage { MissingSelector = true };
+            NovelUrl = novelUrl,
+            BookTitle = "The Lighthouse",
+            Chapters = chapters,
+            Layout = new ChapterLayout("h1", "article", "a[rel=next]", "a[rel=prev]"),
+            Notes = ["Read the chapter list at https://novel.example/book/the-lighthouse/chapters."],
+        };
+        return Task.FromResult(this.RequireSignIn && !this.SignedIn
+            ? scan with { Problem = NovelSession.SignInNeeded(null), Obstacle = Obstacle.SignIn }
+            : scan);
+    }
+
+    public RangePreview Preview(ScanResult scan, int first, int last)
+    {
+        var plan = RangePlanner.Plan(scan, first, last);
+        var from = Math.Max(Math.Min(first, last), scan.FirstNumber);
+        var to = Math.Min(Math.Max(first, last), scan.LastNumber);
+        return new RangePreview(plan, from, to, $"{to - from + 1} chapter(s), each opened directly. about 1 min.", false);
+    }
+
+    public async Task<RangeResult> SaveAsync(
+        ScanResult scan,
+        RangePreview preview,
+        string outputRoot,
+        bool text,
+        bool pdf,
+        bool csvLog,
+        bool force,
+        IPipelineObserver observer,
+        CancellationToken cancellationToken = default)
+    {
+        List<int> missing = [];
+        for (var n = preview.From; n <= preview.To; n++)
+        {
+            if (n == this.PauseBefore && this.PauseAt is { } pause)
+            {
+                this.PersonNeeded?.Invoke(this, "The site wants to check you're a person. Complete it in the browser window; saving carries on by itself.");
+                await pause.Task.WaitAsync(cancellationToken);
+                this.PersonNeeded?.Invoke(this, null);
+            }
+
+            var url = $"https://novel.example/book/the-lighthouse/{n}";
+            if (this.Failing.Contains(n))
+            {
+                observer.Failure(new FailedChapter(n, url, "selector_not_found", "article matched nothing", 1));
+                missing.Add(n);
+                continue;
+            }
+
+            observer.Record(new ChapterRecord(
+                n, url, url, Title(n),
+                "The lamp had burned every night for forty years, and on the forty-first it went out.\n"
+                + "Below her the harbour was a dark bowl with a few lit windows floating in it.",
+                0, DateTimeOffset.Now, 1));
         }
 
-        this.Source = new StubPageSource(this.Pages, maxConcurrent: 3, authenticated: true);
-        var environment = new SessionEnvironment
+        List<string> files = [];
+        if (text)
         {
-            StartSource = (_, _, _) => Task.FromResult<Core.Pages.IPageSource>(this.Source),
-            FetchRobots = (_, _) => robots,
-            BrowserProfileDirectory = Scratch(),
-            Resolver = new PublicResolver(),
-        };
+            files.Add(Path.Combine(outputRoot, "The Lighthouse", $"The Lighthouse {preview.From}-{preview.To}.txt"));
+        }
 
+        if (pdf)
+        {
+            files.Add(Path.Combine(outputRoot, "The Lighthouse", $"The Lighthouse {preview.From}-{preview.To}.pdf"));
+        }
+
+        return new RangeResult(missing.Count > 0 ? PipelineOutcome.Failed : PipelineOutcome.Ok, null, files, missing);
+    }
+
+    public Task BeginSignInAsync(string novelUrl, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public Task<bool> FinishSignInAsync(CancellationToken cancellationToken = default)
+    {
+        this.SignedIn = this.SignInSucceeds;
+        return Task.FromResult(this.SignedIn);
+    }
+
+    public Task CloseAsync() => Task.CompletedTask;
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+    private static string Title(int n) => $"Chapter {n}: {Titles[(n - 1) % Titles.Length]}";
+}
+
+/// <summary>A window over the fake session, with nothing real behind it.</summary>
+internal sealed class Harness
+{
+    public Harness(bool browserReady = true)
+    {
         this.ViewModel = new MainViewModel(
-            environment,
+            this.Service,
             this.Shell,
             browserReady ? BrowserSetup.Present : new BrowserSetup(_ => Task.FromResult(false), (_, token) => Task.Delay(Timeout.Infinite, token)),
             new SettingsStore(Path.Combine(Scratch(), "settings.json")),
             action => Dispatcher.UIThread.Post(action));
+        this.ViewModel.OutputDirectory = Scratch();
         this.Window = new MainWindow { DataContext = this.ViewModel };
     }
 
-    public Dictionary<string, StubPage> Pages { get; }
-
-    public StubPageSource Source { get; }
+    public FakeNovelService Service { get; } = new();
 
     public FakeShell Shell { get; } = new();
 
     public MainViewModel ViewModel { get; }
 
     public MainWindow Window { get; }
-
-    public string Output { get; }
 
     public async Task StartAsync()
     {
@@ -113,25 +207,11 @@ internal sealed class Harness
         Pump();
     }
 
-    public void FillForm(int concurrency = 1)
+    public async Task ScannedAsync()
     {
-        this.ViewModel.TocUrl = Toc;
-        this.ViewModel.LinkSelector = "ol.chapters a";
-        this.ViewModel.TitleSelector = "h1.chapter-title";
-        this.ViewModel.ContentSelector = "div.chapter-body";
-        this.ViewModel.OutputDirectory = this.Output;
-        this.ViewModel.Concurrency = concurrency;
-        this.ViewModel.MinDelay = 0;
-        this.ViewModel.MaxDelay = 0;
+        this.ViewModel.NovelUrl = FakeNovelService.NovelUrl;
         Pump();
-    }
-
-    public async Task ThroughToReadyAsync()
-    {
-        this.FillForm();
-        await this.ViewModel.LaunchCommand.ExecuteAsync(null);
-        Pump();
-        await this.ViewModel.ConfirmCommand.ExecuteAsync(null);
+        await this.ViewModel.ScanCommand.ExecuteAsync(null);
         Pump();
     }
 
@@ -149,40 +229,5 @@ internal sealed class Harness
         var path = Path.Combine(Path.GetTempPath(), "toc-desktop-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         return path;
-    }
-
-    private static readonly string[] Titles =
-    [
-        "The Lighthouse Keeper", "A Letter Arrives", "Low Tide", "The Storm Road", "Harbour Lights",
-        "What the Gulls Knew", "The Second Letter", "Fog Signal", "Beacon", "Homecoming",
-    ];
-
-    private static Dictionary<string, StubPage> Book(int chapters)
-    {
-        Dictionary<string, StubPage> pages = new(StringComparer.Ordinal)
-        {
-            [Toc] = new StubPage
-            {
-                Links = [.. Enumerable.Range(1, chapters).Select(i => (object?)$"https://novel.example/book/chapter-{i}")],
-            },
-        };
-
-        foreach (var i in Enumerable.Range(1, chapters))
-        {
-            pages[$"https://novel.example/book/chapter-{i}"] = new StubPage
-            {
-                Title = $"Chapter {i}: {Titles[(i - 1) % Titles.Length]}",
-                Body = string.Join(
-                    "\n\n",
-                    "The lamp had burned every night for forty years, and on the forty-first it went out. Mara climbed "
-                    + "the spiral stair with the spare wick in her pocket and the wind pushing at the glass like a "
-                    + "hand that wanted in.",
-                    "Below her the harbour was a dark bowl with a few lit windows floating in it. Somewhere down there "
-                    + "a boat was late, and everyone in the village knew whose.",
-                    "She trimmed the wick, struck the match, and waited for the flame to take."),
-            };
-        }
-
-        return pages;
     }
 }

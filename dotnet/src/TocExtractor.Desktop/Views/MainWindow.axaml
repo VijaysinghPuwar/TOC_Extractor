@@ -8,108 +8,113 @@
         Width="1120" Height="760" MinWidth="760" MinHeight="560"
         WindowStartupLocation="CenterScreen">
 
-  <!-- Side by side when there is room, stacked when there is not. -->
-  <Window.Styles>
-    <Style Selector="UniformGrid#PreviewCards">
-      <Setter Property="Columns" Value="2" />
-    </Style>
-    <Style Selector="Border.card.first">
-      <Setter Property="Margin" Value="0,0,8,0" />
-    </Style>
-    <Style Selector="Border.card.second">
-      <Setter Property="Margin" Value="8,0,0,0" />
-    </Style>
-    <ContainerQuery Name="preview" Query="max-width:600">
-      <Style Selector="UniformGrid#PreviewCards">
-        <Setter Property="Columns" Value="1" />
-      </Style>
-      <Style Selector="Border.card.first">
-        <Setter Property="Margin" Value="0,0,0,16" />
-      </Style>
-      <Style Selector="Border.card.second">
-        <Setter Property="Margin" Value="0" />
-      </Style>
-    </ContainerQuery>
-  </Window.Styles>
-
   <Grid>
     <Grid>
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="0.34*" MinWidth="290" MaxWidth="400" />
+        <ColumnDefinition Width="0.36*" MinWidth="300" MaxWidth="420" />
         <ColumnDefinition Width="*" />
       </Grid.ColumnDefinitions>
 
-      <!-- Left: what to save and how -->
+      <!-- Left: which book, which chapters, how to save -->
       <Border Grid.Column="0" BorderBrush="{DynamicResource Rule}" BorderThickness="0,0,1,0">
-        <ScrollViewer Padding="24,24,24,24">
+        <ScrollViewer Padding="24">
           <StackPanel Spacing="24">
             <StackPanel Orientation="Horizontal" Spacing="12">
               <Image Source="/Assets/app-icon.png" Width="36" Height="36" />
               <TextBlock Classes="title" Text="TOC Extractor" VerticalAlignment="Center" />
             </StackPanel>
 
-            <StackPanel Spacing="6">
-              <TextBlock Classes="label" Text="Contents page" />
-              <TextBox x:Name="TocUrlBox" AutomationProperties.Name="Contents page" Text="{Binding TocUrl}" PlaceholderText="https://"
-                       IsEnabled="{Binding !FormLocked}" />
-            </StackPanel>
-
+            <!-- 1. Scan -->
             <StackPanel Spacing="8">
-              <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Classes="label" Text="Selectors" VerticalAlignment="Center" />
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
-                  <Button Classes="quiet small" Content="Load" Command="{Binding LoadProfileCommand}"
-                          ToolTip.Tip="Load a profile (.toml)" />
-                  <Button Classes="quiet small" Content="Save" Command="{Binding SaveProfileCommand}"
-                          ToolTip.Tip="Save as a profile (.toml)" />
-                </StackPanel>
-              </Grid>
-              <TextBox x:Name="LinkBox" AutomationProperties.Name="Chapter links selector" Text="{Binding LinkSelector}" PlaceholderText="Chapter links, e.g. ol.toc a"
-                       IsEnabled="{Binding !OptionsLocked}" />
-              <TextBox Text="{Binding TitleSelector}" AutomationProperties.Name="Title selector" PlaceholderText="Title, e.g. h1"
-                       IsEnabled="{Binding !OptionsLocked}" />
-              <TextBox Text="{Binding ContentSelector}" AutomationProperties.Name="Text selector" PlaceholderText="Text, e.g. article"
-                       IsEnabled="{Binding !OptionsLocked}" />
+              <TextBlock Classes="label" Text="Novel page" />
+              <TextBox x:Name="NovelUrlBox" Text="{Binding NovelUrl}" PlaceholderText="https://"
+                       AutomationProperties.Name="Novel page" IsEnabled="{Binding !FormLocked}" />
+              <Button x:Name="ScanButton" Classes="primary" Content="Scan" Command="{Binding ScanCommand}"
+                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
             </StackPanel>
 
-            <StackPanel Spacing="8" IsEnabled="{Binding !OptionsLocked}">
-              <TextBlock Classes="label" Text="Save to" />
-              <Grid ColumnDefinitions="*,8,Auto">
+            <Border x:Name="ScanCard" Classes="card" IsVisible="{Binding HasScan}">
+              <StackPanel Spacing="6">
+                <TextBlock x:Name="BookTitleText" Classes="label" Text="{Binding BookTitle}" TextWrapping="Wrap" />
+                <TextBlock x:Name="ScanSummaryText" Classes="hint" Text="{Binding ScanSummary}" TextWrapping="Wrap" />
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0"
+                            IsVisible="{Binding NeedsSignIn}">
+                  <Button x:Name="SignInButton" Classes="quiet" Content="Sign in" Command="{Binding SignInCommand}"
+                          IsVisible="{Binding !IsSigningIn}" />
+                  <Button x:Name="DoneButton" Classes="primary" Content="Done" Command="{Binding FinishSignInCommand}"
+                          IsVisible="{Binding IsSigningIn}" />
+                </StackPanel>
+                <Expander Header="Details" Margin="0,6,0,0" HorizontalAlignment="Stretch"
+                          IsVisible="{Binding HasNotes}">
+                  <ItemsControl ItemsSource="{Binding ScanNotes}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="x:String">
+                        <TextBlock Classes="hint" Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,6" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </Expander>
+              </StackPanel>
+            </Border>
+
+            <!-- 2. Choose -->
+            <StackPanel Spacing="8" IsVisible="{Binding ScanReady}" IsEnabled="{Binding !FormLocked}">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="label" Text="Chapters" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Classes="quiet small" Content="All" Command="{Binding WholeBookCommand}" />
+              </Grid>
+              <Grid ColumnDefinitions="*,Auto,*">
+                <NumericUpDown x:Name="FromBox" Value="{Binding From}" Minimum="{Binding FirstChapter}"
+                               Maximum="{Binding LastChapter}" FormatString="0" AutomationProperties.Name="From chapter" />
+                <TextBlock Grid.Column="1" Classes="hint" Text="to" Margin="10,0" VerticalAlignment="Center" />
+                <NumericUpDown x:Name="ToBox" Grid.Column="2" Value="{Binding To}" Minimum="{Binding FirstChapter}"
+                               Maximum="{Binding LastChapter}" FormatString="0" AutomationProperties.Name="To chapter" />
+              </Grid>
+              <TextBlock x:Name="PlanText" Classes="hint" Text="{Binding PlanSummary}" TextWrapping="Wrap"
+                         IsVisible="{Binding HasPlan}" />
+              <TextBlock Classes="hint" FontWeight="SemiBold" TextWrapping="Wrap" IsVisible="{Binding PlanIsSlow}"
+                         Text="This will take a while. Signing in to the site may let the app open these chapters directly." />
+            </StackPanel>
+
+            <!-- 3. Save -->
+            <StackPanel Spacing="8" IsVisible="{Binding ScanReady}">
+              <TextBlock Classes="label" Text="Save as" />
+              <StackPanel Orientation="Horizontal" Spacing="16" IsEnabled="{Binding !FormLocked}">
+                <CheckBox Content="TXT" IsChecked="{Binding Text}" />
+                <CheckBox Content="PDF" IsChecked="{Binding Pdf}" />
+              </StackPanel>
+              <Grid ColumnDefinitions="*,8,Auto" IsEnabled="{Binding !FormLocked}">
                 <TextBox Text="{Binding OutputDirectory}" AutomationProperties.Name="Output folder" />
                 <Button Grid.Column="2" Classes="quiet" Content="Choose" Command="{Binding ChooseFolderCommand}" />
               </Grid>
-              <WrapPanel>
-                <CheckBox Content="Text" IsChecked="{Binding FormatText}" Margin="0,0,16,0" />
-                <CheckBox Content="Markdown" IsChecked="{Binding FormatMarkdown}" Margin="0,0,16,0" />
-                <CheckBox Content="JSONL" IsChecked="{Binding FormatJsonl}" />
-              </WrapPanel>
+              <Grid ColumnDefinitions="*,8,Auto" Margin="0,8,0,0">
+                <Button x:Name="SaveButton" Classes="primary" Content="Save" Command="{Binding SaveCommand}"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                <Button Grid.Column="2" Classes="quiet" Content="Stop" Command="{Binding StopCommand}"
+                        IsVisible="{Binding IsBusy}" />
+              </Grid>
             </StackPanel>
 
-            <Expander Header="Options" HorizontalAlignment="Stretch" IsEnabled="{Binding !OptionsLocked}">
+            <Expander Header="Settings" HorizontalAlignment="Stretch" IsEnabled="{Binding !FormLocked}">
               <StackPanel Spacing="16">
+                <CheckBox Content="Keep a log (CSV) of every run" IsChecked="{Binding KeepLog}"
+                          ToolTip.Tip="Saved next to the book: every step, and the reason for anything that failed." />
                 <Grid ColumnDefinitions="*,12,*" RowDefinitions="Auto,6,Auto">
-                  <TextBlock Classes="label" Text="Max chapters" />
-                  <NumericUpDown Grid.Row="2" Value="{Binding MaxChapters}" Minimum="1" Maximum="5000"
-                                 Increment="10" FormatString="0" />
-                  <TextBlock Grid.Column="2" Classes="label" Text="At once" />
-                  <NumericUpDown Grid.Row="2" Grid.Column="2" Value="{Binding Concurrency}" Minimum="1"
-                                 Maximum="8" FormatString="0" IsEnabled="{Binding !FormLocked}" />
-                </Grid>
-                <StackPanel Spacing="6">
-                  <TextBlock Classes="label" Text="Delay between pages (s)" />
-                  <Grid ColumnDefinitions="*,Auto,*">
-                    <NumericUpDown Value="{Binding MinDelay}" Minimum="0" Maximum="60" Increment="0.5"
-                                   FormatString="0.0" />
-                    <TextBlock Grid.Column="1" Classes="hint" Text="to" Margin="10,0" VerticalAlignment="Center" />
-                    <NumericUpDown Grid.Column="2" Value="{Binding MaxDelay}" Minimum="0" Maximum="120"
-                                   Increment="0.5" FormatString="0.0" />
+                  <TextBlock Classes="label" Text="At once" />
+                  <NumericUpDown Grid.Row="2" Value="{Binding AtOnce}" Minimum="1" Maximum="4" FormatString="0" />
+                  <TextBlock Grid.Column="2" Classes="label" Text="Delay (s)" />
+                  <Grid Grid.Row="2" Grid.Column="2" ColumnDefinitions="*,4,*">
+                    <NumericUpDown Value="{Binding MinDelay}" Minimum="0" Maximum="60" Increment="0.5" FormatString="0.0"
+                                   ShowButtonSpinner="False" />
+                    <NumericUpDown Grid.Column="2" Value="{Binding MaxDelay}" Minimum="0" Maximum="120" Increment="0.5"
+                                   FormatString="0.0" ShowButtonSpinner="False" />
                   </Grid>
-                </StackPanel>
+                </Grid>
                 <StackPanel Spacing="4">
                   <CheckBox Content="Keep links in text" IsChecked="{Binding IncludeLinks}" />
                   <CheckBox Content="Remove ad markers" IsChecked="{Binding StripAds}" />
                   <CheckBox Content="Start over" IsChecked="{Binding StartOver}"
-                            ToolTip.Tip="Ignore progress saved in this folder" />
+                            ToolTip.Tip="Ignore chapters saved earlier for this book" />
                 </StackPanel>
               </StackPanel>
             </Expander>
@@ -117,63 +122,41 @@
         </ScrollViewer>
       </Border>
 
-      <!-- Right: the steps and what happened -->
-      <Grid Grid.Column="1" RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="32,24,32,24">
+      <!-- Right: progress and what happened -->
+      <Grid Grid.Column="1" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" Margin="32,24,32,24">
 
-        <!-- Step strip -->
-        <Grid ColumnDefinitions="Auto,*,Auto,*,Auto,*,Auto">
+        <Grid ColumnDefinitions="Auto,*,Auto,*,Auto">
           <StackPanel Orientation="Horizontal">
             <Border Classes="step" Classes.current="{Binding IsStep1}" Classes.done="{Binding Step1Done}">
               <TextBlock Text="1" />
             </Border>
-            <TextBlock Classes="steplabel" Classes.current="{Binding IsStep1}" Text="Open" />
+            <TextBlock Classes="steplabel" Classes.current="{Binding IsStep1}" Text="Scan" />
           </StackPanel>
           <Rectangle Grid.Column="1" Height="1" Fill="{DynamicResource Rule}" Margin="10,0" MinWidth="12" />
           <StackPanel Grid.Column="2" Orientation="Horizontal">
             <Border Classes="step" Classes.current="{Binding IsStep2}" Classes.done="{Binding Step2Done}">
               <TextBlock Text="2" />
             </Border>
-            <TextBlock Classes="steplabel" Classes.current="{Binding IsStep2}" Text="Sign in" />
+            <TextBlock Classes="steplabel" Classes.current="{Binding IsStep2}" Text="Choose" />
           </StackPanel>
           <Rectangle Grid.Column="3" Height="1" Fill="{DynamicResource Rule}" Margin="10,0" MinWidth="12" />
           <StackPanel Grid.Column="4" Orientation="Horizontal">
-            <Border Classes="step" Classes.current="{Binding IsStep3}" Classes.done="{Binding Step3Done}">
+            <Border Classes="step" Classes.current="{Binding IsStep3}">
               <TextBlock Text="3" />
             </Border>
-            <TextBlock Classes="steplabel" Classes.current="{Binding IsStep3}" Text="Test" />
-          </StackPanel>
-          <Rectangle Grid.Column="5" Height="1" Fill="{DynamicResource Rule}" Margin="10,0" MinWidth="12" />
-          <StackPanel Grid.Column="6" Orientation="Horizontal">
-            <Border Classes="step" Classes.current="{Binding IsStep4}">
-              <TextBlock Text="4" />
-            </Border>
-            <TextBlock Classes="steplabel" Classes.current="{Binding IsStep4}" Text="Save" />
+            <TextBlock Classes="steplabel" Classes.current="{Binding IsStep3}" Text="Save" />
           </StackPanel>
         </Grid>
 
-        <!-- Actions -->
-        <WrapPanel Grid.Row="1" Margin="0,24,0,0">
-          <Button x:Name="LaunchButton" Classes="primary" Content="Open browser" Command="{Binding LaunchCommand}"
-                  IsVisible="{Binding IsStep1}" Margin="0,0,8,8" />
-          <Button x:Name="ConfirmButton" Classes="primary" Content="I'm ready" Command="{Binding ConfirmCommand}"
-                  IsVisible="{Binding IsStep2}" Margin="0,0,8,8" />
-          <Button x:Name="TestButton" Classes="quiet" Content="Test selectors" Command="{Binding TestSelectorsCommand}"
-                  IsVisible="{Binding !IsStep1}" Margin="0,0,8,8" />
-          <Button x:Name="StartButton" Classes="primary" Content="Start" Command="{Binding ExtractCommand}"
-                  IsVisible="{Binding !IsStep1}" Margin="0,0,8,8" />
-          <Button Classes="quiet" Content="Stop" Command="{Binding StopCommand}" IsVisible="{Binding IsBusy}"
-                  Margin="0,0,8,8" />
-          <Button Classes="quiet" Content="Close" Command="{Binding CloseBrowserCommand}"
-                  IsVisible="{Binding !IsStep1}" Margin="0,0,8,8" />
-          <Button Classes="quiet" Content="Open folder" Command="{Binding OpenFolderCommand}"
-                  IsVisible="{Binding HasOutput}" Margin="0,0,8,8" />
-        </WrapPanel>
+        <TextBlock Grid.Row="1" x:Name="StatusText" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,20,0,0"
+                   Foreground="{DynamicResource Muted}" FontSize="13"
+                   IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
 
-        <TextBlock Grid.Row="2" x:Name="StatusText" Text="{Binding Status}" TextWrapping="Wrap"
-                   IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                   Foreground="{DynamicResource Muted}" FontSize="13" Margin="0,4,0,0" />
+        <Border Grid.Row="2" x:Name="PersonNotice" Classes="notice" Margin="0,16,0,0" IsVisible="{Binding PersonNeeded}">
+          <TextBlock x:Name="PersonText" Text="{Binding PersonMessage}" TextWrapping="Wrap" FontWeight="SemiBold"
+                     Foreground="{DynamicResource Ink}" />
+        </Border>
 
-        <!-- Problem notice -->
         <Border Grid.Row="3" Classes="notice" Margin="0,16,0,0" IsVisible="{Binding HasProblem}">
           <Grid ColumnDefinitions="*,Auto">
             <SelectableTextBlock x:Name="ProblemText" Text="{Binding Problem}" TextWrapping="Wrap"
@@ -183,67 +166,30 @@
           </Grid>
         </Border>
 
-        <!-- Panels -->
-        <Grid Grid.Row="4" RowDefinitions="Auto,*" Margin="0,24,0,0">
+        <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,16,0,0" IsVisible="{Binding HasOutput}">
+          <ItemsControl ItemsSource="{Binding Files}" VerticalAlignment="Center">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="x:String">
+                <TextBlock Classes="hint mono" Text="{Binding}" TextTrimming="CharacterEllipsis" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <Button Grid.Column="1" Classes="quiet" Content="Open folder" Command="{Binding OpenFolderCommand}"
+                  Margin="12,0,0,0" />
+        </Grid>
+
+        <Grid Grid.Row="5" RowDefinitions="Auto,*" Margin="0,24,0,0">
           <Border BorderBrush="{DynamicResource Rule}" BorderThickness="0,0,0,1">
             <StackPanel Orientation="Horizontal">
-              <Button Classes="tab" Classes.selected="{Binding ShowPreview}" Content="Preview"
-                      Command="{Binding ShowPanelCommand}" CommandParameter="{x:Static vm:Tab.Preview}" />
               <Button Classes="tab" Classes.selected="{Binding ShowChapters}" Content="Chapters"
-                      Command="{Binding ShowPanelCommand}" CommandParameter="{x:Static vm:Tab.Chapters}" />
+                      Command="{Binding ShowTabCommand}" CommandParameter="{x:Static vm:Tab.Chapters}" />
               <Button Classes="tab" Classes.selected="{Binding ShowReader}" Content="Reader"
-                      Command="{Binding ShowPanelCommand}" CommandParameter="{x:Static vm:Tab.Reader}" />
+                      Command="{Binding ShowTabCommand}" CommandParameter="{x:Static vm:Tab.Reader}" />
               <Button Classes="tab" Classes.selected="{Binding ShowActivity}" Content="Activity"
-                      Command="{Binding ShowPanelCommand}" CommandParameter="{x:Static vm:Tab.Activity}" />
+                      Command="{Binding ShowTabCommand}" CommandParameter="{x:Static vm:Tab.Activity}" />
             </StackPanel>
           </Border>
 
-          <!-- Preview -->
-          <ScrollViewer Grid.Row="1" IsVisible="{Binding ShowPreview}" Margin="0,16,0,0">
-            <StackPanel Spacing="16" Container.Name="preview" Container.Sizing="Width">
-              <TextBlock Classes="hint" IsVisible="{Binding !HasPreview}" Text="Test selectors to preview. Nothing is saved." />
-
-              <UniformGrid x:Name="PreviewCards" IsVisible="{Binding HasPreview}">
-                <Border Classes="card first">
-                  <StackPanel Spacing="6">
-                    <TextBlock x:Name="PreviewHeadline" Classes="big" Text="{Binding PreviewHeadline}" />
-                    <TextBlock Classes="hint" Text="{Binding SkippedLine}" />
-                    <ItemsControl ItemsSource="{Binding Preview.FirstChapters}" Margin="0,6,0,0">
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="x:String">
-                          <TextBlock Classes="mono hint" Text="{Binding}" TextWrapping="NoWrap"
-                                     TextTrimming="CharacterEllipsis" />
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                  </StackPanel>
-                </Border>
-                <Border Classes="card second">
-                  <StackPanel Spacing="6">
-                    <TextBlock Classes="label" Margin="0" Text="robots.txt" />
-                    <TextBlock Classes="hint" Text="{Binding RobotsLine}" />
-                    <TextBlock Classes="mono hint" Text="{Binding Preview.Robots.RobotsUrl}" TextWrapping="NoWrap"
-                               TextTrimming="CharacterEllipsis" />
-                  </StackPanel>
-                </Border>
-              </UniformGrid>
-
-              <Border Classes="card" IsVisible="{Binding HasPreview}">
-                <StackPanel Spacing="8">
-                  <TextBlock Classes="hint" Text="Chapter 1" />
-                  <TextBlock x:Name="SampleProblem" Text="{Binding Preview.SampleProblem}" TextWrapping="Wrap"
-                             FontWeight="SemiBold" IsVisible="{Binding Preview.SampleProblem, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                  <TextBlock x:Name="SampleTitle" Classes="title" Text="{Binding Preview.SampleTitle}" TextWrapping="Wrap" />
-                  <TextBlock Classes="hint" Text="{Binding Preview.SampleWords, StringFormat='{}{0:N0} words'}"
-                             IsVisible="{Binding Preview.SampleTitle, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                  <SelectableTextBlock Text="{Binding SampleText}" TextWrapping="Wrap" LineHeight="22"
-                                       Foreground="{DynamicResource Ink}" />
-                </StackPanel>
-              </Border>
-            </StackPanel>
-          </ScrollViewer>
-
-          <!-- Chapters -->
           <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*" IsVisible="{Binding ShowChapters}" Margin="0,16,0,0">
             <TextBlock x:Name="ProgressLine" Text="{Binding ProgressLine}" FontWeight="SemiBold"
                        Foreground="{DynamicResource Ink}" />
@@ -252,13 +198,13 @@
                      SelectedItem="{Binding SelectedChapter}" Background="Transparent">
               <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="vm:ChapterRow">
-                  <Grid ColumnDefinitions="28,48,*,Auto">
+                  <Grid ColumnDefinitions="28,56,*,Auto">
                     <TextBlock Text="{Binding Symbol}" FontSize="14" VerticalAlignment="Center" />
-                    <TextBlock Grid.Column="1" Classes="mono hint" Text="{Binding NumberText}" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" Classes="mono hint" Text="{Binding Number}" VerticalAlignment="Center" />
                     <TextBlock Grid.Column="2" Text="{Binding Heading}" TextTrimming="CharacterEllipsis"
                                VerticalAlignment="Center" Foreground="{DynamicResource Ink}" />
                     <TextBlock Grid.Column="3" Classes="hint" Text="{Binding StatusText}" Margin="16,0,0,0"
-                               VerticalAlignment="Center" MaxWidth="360" TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center" MaxWidth="340" TextTrimming="CharacterEllipsis"
                                ToolTip.Tip="{Binding StatusText}" />
                   </Grid>
                 </DataTemplate>
@@ -266,11 +212,8 @@
             </ListBox>
           </Grid>
 
-          <!-- Reader -->
           <Grid Grid.Row="1" IsVisible="{Binding ShowReader}" Margin="0,16,0,0">
-            <Border Classes="card" IsVisible="{Binding !HasReaderChapter}" VerticalAlignment="Top">
-              <TextBlock Classes="hint" Text="Pick a saved chapter to read it." />
-            </Border>
+            <TextBlock Classes="hint" IsVisible="{Binding !HasReaderChapter}" Text="Pick a saved chapter to read it." />
             <Grid RowDefinitions="Auto,*" IsVisible="{Binding HasReaderChapter}">
               <Grid ColumnDefinitions="*,Auto">
                 <TextBlock x:Name="ReaderTitle" Classes="title" Text="{Binding ReaderTitle}" TextWrapping="Wrap" />
@@ -283,7 +226,6 @@
             </Grid>
           </Grid>
 
-          <!-- Activity -->
           <ListBox Grid.Row="1" IsVisible="{Binding ShowActivity}" ItemsSource="{Binding Activity}" Margin="0,16,0,0"
                    Background="Transparent">
             <ListBox.ItemTemplate>

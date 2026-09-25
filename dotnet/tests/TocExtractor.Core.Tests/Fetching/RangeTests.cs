@@ -208,7 +208,10 @@ public sealed partial class RangeTests
         var pages = Chain(3);
         pages[Url(2)] = new StubPage
         {
-            Title = "Chapter 2", Body = "Body 2.", Next = Url(3), FailTimes = 1,
+            Title = "Chapter 2",
+            Body = "Body 2.",
+            Next = Url(3),
+            FailTimes = 1,
             Failure = static message => new HumanCheckException(message),
         };
         var asked = 0;

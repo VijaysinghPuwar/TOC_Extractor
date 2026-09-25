@@ -4,13 +4,12 @@ using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Styling;
 using Avalonia.VisualTree;
-using TocExtractor.App.Profiles;
-using TocExtractor.App.Session;
+using TocExtractor.Desktop.Services;
 using TocExtractor.Desktop.ViewModels;
 
 namespace TocExtractor.Desktop.Tests;
 
-/// <summary>The real window, driven the way a person would, with a fake book behind it.</summary>
+/// <summary>The real window, driven the way a person would, with a made-up book behind it.</summary>
 public sealed class WindowTests
 {
     public static TheoryData<int, int, string> Sizes() => new()
@@ -31,13 +30,15 @@ public sealed class WindowTests
         harness.Window.Width = width;
         harness.Window.Height = height;
         await harness.StartAsync();
-        await harness.ThroughToReadyAsync();
-        await harness.ViewModel.TestSelectorsCommand.ExecuteAsync(null);
+        await harness.ScannedAsync();
+        harness.ViewModel.From = 12;
+        harness.ViewModel.To = 20;
+        await harness.ViewModel.SaveCommand.ExecuteAsync(null);
         Harness.Pump();
 
         Save(harness.Window, $"size-{width}x{height}-{theme.ToLowerInvariant()}");
 
-        foreach (var name in new[] { "TocUrlBox", "LinkBox", "TestButton", "StartButton", "StatusText", "PreviewHeadline" })
+        foreach (var name in new[] { "NovelUrlBox", "ScanButton", "FromBox", "ToBox", "SaveButton", "StatusText", "ProgressLine", "BookTitleText" })
         {
             var control = harness.Window.FindControl<Control>(name);
             Assert.NotNull(control);
@@ -50,193 +51,241 @@ public sealed class WindowTests
     }
 
     [AvaloniaFact]
-    public async Task The_step_strip_follows_the_flow()
+    public async Task Before_a_scan_only_the_novel_page_is_asked_for()
+    {
+        UseTheme("Light");
+        var harness = new Harness();
+        await harness.StartAsync();
+
+        Assert.True(Visible(harness, "NovelUrlBox"));
+        Assert.False(Visible(harness, "FromBox"));
+        Assert.False(Visible(harness, "SaveButton"));
+        Assert.False(harness.ViewModel.ScanCommand.CanExecute(null));
+        Save(harness.Window, "start");
+    }
+
+    [AvaloniaFact]
+    public async Task A_scan_shows_the_book_and_offers_its_whole_range()
     {
         var harness = new Harness();
         await harness.StartAsync();
-        Assert.Equal(1, harness.ViewModel.Step);
-        Assert.True(Visible(harness, "LaunchButton"));
-        Assert.False(Visible(harness, "StartButton"));
 
-        harness.FillForm();
-        await harness.ViewModel.LaunchCommand.ExecuteAsync(null);
-        Harness.Pump();
+        await harness.ScannedAsync();
+
+        Assert.Equal("The Lighthouse", Text(harness, "BookTitleText"));
+        Assert.Equal("Chapters 1 to 40.", Text(harness, "ScanSummaryText"));
+        Assert.Equal(1, harness.ViewModel.From);
+        Assert.Equal(40, harness.ViewModel.To);
+        Assert.True(Visible(harness, "PlanText"));
         Assert.Equal(2, harness.ViewModel.Step);
-        Assert.True(Visible(harness, "ConfirmButton"));
-        Assert.False(Visible(harness, "LaunchButton"));
-
-        await harness.ViewModel.ConfirmCommand.ExecuteAsync(null);
-        Harness.Pump();
-        Assert.Equal(3, harness.ViewModel.Step);
-
-        await harness.ViewModel.ExtractCommand.ExecuteAsync(null);
-        Harness.Pump();
-        Assert.Equal(4, harness.ViewModel.Step);
     }
 
     [AvaloniaFact]
-    public async Task Open_browser_waits_for_the_download_on_first_run()
-    {
-        var harness = new Harness(browserReady: false);
-        harness.Window.Show();
-        _ = harness.ViewModel.StartAsync();
-        Harness.Pump();
-        harness.FillForm();
-
-        Assert.False(harness.ViewModel.BrowserReady);
-        Assert.False(harness.ViewModel.LaunchCommand.CanExecute(null));
-        Assert.True(harness.ViewModel.Installing);
-        Save(harness.Window, "first-run");
-    }
-
-    [AvaloniaFact]
-    public async Task Testing_selectors_shows_the_count_and_the_first_chapter()
-    {
-        var harness = new Harness(chapters: 6, robots: "User-agent: *\nCrawl-delay: 2\n");
-        await harness.StartAsync();
-        await harness.ThroughToReadyAsync();
-
-        await harness.ViewModel.TestSelectorsCommand.ExecuteAsync(null);
-        Harness.Pump();
-
-        Assert.Equal("6 chapters found", Text(harness, "PreviewHeadline"));
-        Assert.Equal("Chapter 1: The Lighthouse Keeper", Text(harness, "SampleTitle"));
-        Assert.Contains("2s delay", harness.ViewModel.RobotsLine, StringComparison.Ordinal);
-        Assert.False(Directory.EnumerateFileSystemEntries(harness.Output).Any(), "a test must write nothing");
-    }
-
-    [AvaloniaFact]
-    public async Task A_bad_content_selector_is_explained_in_the_preview()
-    {
-        var harness = new Harness(broken: [1]);
-        await harness.StartAsync();
-        await harness.ThroughToReadyAsync();
-
-        await harness.ViewModel.TestSelectorsCommand.ExecuteAsync(null);
-        Harness.Pump();
-
-        Assert.Contains("matched nothing", Text(harness, "SampleProblem"), StringComparison.Ordinal);
-        Assert.True(Visible(harness, "SampleProblem"));
-    }
-
-    [AvaloniaFact]
-    public async Task Saving_fills_the_chapter_list_and_the_reader()
+    public async Task Saving_a_range_saves_exactly_those_chapters_in_order()
     {
         UseTheme("Light");
-        var harness = new Harness(chapters: 8);
+        var harness = new Harness();
         await harness.StartAsync();
-        await harness.ThroughToReadyAsync();
+        await harness.ScannedAsync();
+        harness.ViewModel.From = 12;
+        harness.ViewModel.To = 20;
+        harness.ViewModel.Pdf = true;
 
-        await harness.ViewModel.ExtractCommand.ExecuteAsync(null);
+        await harness.ViewModel.SaveCommand.ExecuteAsync(null);
         Harness.Pump();
 
-        Assert.Equal(8, harness.ViewModel.Chapters.Count);
+        Assert.Equal([12, 13, 14, 15, 16, 17, 18, 19, 20], harness.ViewModel.Chapters.Select(r => r.Number));
         Assert.All(harness.ViewModel.Chapters, row => Assert.Equal(ChapterState.Saved, row.State));
-        Assert.Equal("8 of 8 saved", Text(harness, "ProgressLine"));
+        Assert.Equal("9 of 9 saved", Text(harness, "ProgressLine"));
+        Assert.Equal(["The Lighthouse 12-20.txt", "The Lighthouse 12-20.pdf"], harness.ViewModel.Files);
+        Assert.Equal("Done. 9 of 9 saved.", harness.ViewModel.Status);
         Assert.True(harness.ViewModel.HasOutput);
-        Assert.True(File.Exists(Path.Combine(harness.Output, "001 - Chapter 1_ The Lighthouse Keeper.txt"))
-            || Directory.GetFiles(harness.Output, "001 - *.txt").Length == 1);
-        Save(harness.Window, "chapters");
+        Assert.Equal(3, harness.ViewModel.Step);
+        Save(harness.Window, "saved");
 
         harness.ViewModel.SelectedChapter = harness.ViewModel.Chapters[2];
         Harness.Pump();
-
         Assert.Equal(Tab.Reader, harness.ViewModel.CurrentTab);
-        Assert.Equal("Chapter 3: Low Tide", Text(harness, "ReaderTitle"));
+        Assert.Equal("Chapter 14: The Storm Road", Text(harness, "ReaderTitle"));
         Save(harness.Window, "reader");
     }
 
     [AvaloniaFact]
-    public async Task A_failed_chapter_is_marked_and_counted()
+    public async Task The_range_cannot_leave_the_book()
     {
-        var harness = new Harness(chapters: 4, broken: [2]);
+        var harness = new Harness();
         await harness.StartAsync();
-        await harness.ThroughToReadyAsync();
+        await harness.ScannedAsync();
 
-        await harness.ViewModel.ExtractCommand.ExecuteAsync(null);
+        var from = harness.Window.FindControl<NumericUpDown>("FromBox")!;
+        var to = harness.Window.FindControl<NumericUpDown>("ToBox")!;
+
+        Assert.Equal(1, from.Minimum);
+        Assert.Equal(40, to.Maximum);
+    }
+
+    [AvaloniaFact]
+    public async Task Save_needs_at_least_one_format()
+    {
+        var harness = new Harness();
+        await harness.StartAsync();
+        await harness.ScannedAsync();
+
+        harness.ViewModel.Text = false;
+        harness.ViewModel.Pdf = false;
+
+        Assert.False(harness.ViewModel.SaveCommand.CanExecute(null));
+        harness.ViewModel.Pdf = true;
+        Assert.True(harness.ViewModel.SaveCommand.CanExecute(null));
+    }
+
+    [AvaloniaFact]
+    public async Task A_site_that_needs_a_sign_in_says_so_and_offers_it()
+    {
+        UseTheme("Light");
+        var harness = new Harness();
+        harness.Service.RequireSignIn = true;
+        await harness.StartAsync();
+
+        await harness.ScannedAsync();
+
+        Assert.Contains("Sign in required", Text(harness, "ProblemText"), StringComparison.Ordinal);
+        Assert.True(Visible(harness, "SignInButton"));
+        Assert.False(Visible(harness, "SaveButton"));
+        Save(harness.Window, "sign-in-needed");
+
+        await harness.ViewModel.SignInCommand.ExecuteAsync(null);
+        Harness.Pump();
+        Assert.True(Visible(harness, "DoneButton"));
+
+        await harness.ViewModel.FinishSignInCommand.ExecuteAsync(null);
+        await harness.ScannedAsync();
+
+        Assert.True(harness.ViewModel.ScanReady);
+        Assert.EndsWith("Signed in.", Text(harness, "ScanSummaryText"), StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_sign_in_that_did_not_take_is_explained()
+    {
+        var harness = new Harness();
+        harness.Service.RequireSignIn = true;
+        harness.Service.SignInSucceeds = false;
+        await harness.StartAsync();
+        await harness.ScannedAsync();
+
+        await harness.ViewModel.SignInCommand.ExecuteAsync(null);
+        await harness.ViewModel.FinishSignInCommand.ExecuteAsync(null);
         Harness.Pump();
 
-        Assert.Equal(1, harness.ViewModel.FailedCount);
-        Assert.Equal("3 of 4 saved, 1 failed", Text(harness, "ProgressLine"));
-        Assert.Equal(ChapterState.Failed, harness.ViewModel.Chapters[1].State);
+        Assert.Contains("email and password", Text(harness, "ProblemText"), StringComparison.Ordinal);
     }
 
     [AvaloniaFact]
-    public async Task A_problem_is_shown_and_can_be_dismissed()
+    public async Task While_the_site_checks_for_a_person_the_window_says_what_to_do()
     {
+        UseTheme("Light");
         var harness = new Harness();
+        harness.Service.PauseBefore = 15;
+        harness.Service.PauseAt = new TaskCompletionSource();
         await harness.StartAsync();
-        harness.ViewModel.TocUrl = "not an address";
+        await harness.ScannedAsync();
+        harness.ViewModel.From = 12;
+        harness.ViewModel.To = 20;
 
-        await harness.ViewModel.LaunchCommand.ExecuteAsync(null);
+        var saving = harness.ViewModel.SaveCommand.ExecuteAsync(null);
         Harness.Pump();
 
-        Assert.True(harness.ViewModel.HasProblem);
-        Assert.Contains("https://", Text(harness, "ProblemText"), StringComparison.Ordinal);
-        harness.ViewModel.DismissProblemCommand.Execute(null);
-        Assert.False(harness.ViewModel.HasProblem);
-        Assert.Equal(SessionPhase.Idle, harness.ViewModel.Phase);
+        Assert.True(Visible(harness, "PersonNotice"));
+        Assert.Contains("check you're a person", Text(harness, "PersonText"), StringComparison.Ordinal);
+        Assert.True(harness.ViewModel.StopCommand.CanExecute(null));
+        Assert.False(harness.ViewModel.ScanCommand.CanExecute(null));
+        Assert.Equal(3, harness.ViewModel.SavedCount);
+        Save(harness.Window, "person-needed");
+
+        harness.Service.PauseAt.SetResult();
+        await saving;
+        Harness.Pump();
+
+        Assert.False(Visible(harness, "PersonNotice"));
+        Assert.Equal(9, harness.ViewModel.SavedCount);
     }
 
     [AvaloniaFact]
-    public async Task A_profile_saved_from_the_window_loads_back()
+    public async Task Failed_chapters_are_marked_and_counted()
+    {
+        var harness = new Harness();
+        harness.Service.Failing.UnionWith([13, 17]);
+        await harness.StartAsync();
+        await harness.ScannedAsync();
+        harness.ViewModel.From = 12;
+        harness.ViewModel.To = 20;
+
+        await harness.ViewModel.SaveCommand.ExecuteAsync(null);
+        Harness.Pump();
+
+        Assert.Equal("7 of 9 saved, 2 failed", Text(harness, "ProgressLine"));
+        Assert.Equal("7 of 9 saved, 2 not. Press Save again to retry the rest.", harness.ViewModel.Status);
+        Assert.Equal(ChapterState.Failed, harness.ViewModel.Chapters.Single(r => r.Number == 13).State);
+        Assert.Contains("Save again", harness.ViewModel.Status, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task Open_folder_opens_the_books_own_folder()
     {
         var harness = new Harness();
         await harness.StartAsync();
-        harness.FillForm();
-        harness.ViewModel.MaxChapters = 70;
-        harness.ViewModel.FormatMarkdown = true;
-        var path = Path.Combine(Harness.Scratch(), "novel.toml");
-        harness.Shell.NextProfileToSave = path;
+        await harness.ScannedAsync();
+        await harness.ViewModel.SaveCommand.ExecuteAsync(null);
+        Directory.CreateDirectory(Path.Combine(harness.ViewModel.OutputDirectory, "The Lighthouse"));
 
-        await harness.ViewModel.SaveProfileCommand.ExecuteAsync(null);
-        harness.ViewModel.LinkSelector = "";
-        harness.ViewModel.MaxChapters = 5;
-        harness.Shell.NextProfileToOpen = path;
-        await harness.ViewModel.LoadProfileCommand.ExecuteAsync(null);
+        await harness.ViewModel.OpenFolderCommand.ExecuteAsync(null);
 
-        Assert.Equal("ol.chapters a", harness.ViewModel.LinkSelector);
-        Assert.Equal(70, harness.ViewModel.MaxChapters);
-        Assert.True(harness.ViewModel.FormatMarkdown);
-        Assert.Equal("ol.chapters a", ProfileLoader.Load(path).Link);
+        Assert.EndsWith("The Lighthouse", Assert.Single(harness.Shell.Opened), StringComparison.Ordinal);
     }
 
     [AvaloniaFact]
-    public async Task A_broken_profile_is_reported_not_applied()
+    public async Task The_first_run_download_blocks_scanning()
     {
-        var harness = new Harness();
-        await harness.StartAsync();
-        harness.FillForm();
-        var path = Path.Combine(Harness.Scratch(), "broken.toml");
-        await File.WriteAllTextAsync(path, "[selectors]\nlnk = \"a\"\n", TestContext.Current.CancellationToken);
-        harness.Shell.NextProfileToOpen = path;
+        UseTheme("Light");
+        var harness = new Harness(browserReady: false);
+        harness.Window.Show();
+        _ = harness.ViewModel.StartAsync();
+        Harness.Pump();
+        harness.ViewModel.NovelUrl = FakeNovelService.NovelUrl;
 
-        await harness.ViewModel.LoadProfileCommand.ExecuteAsync(null);
-
-        Assert.Contains("unknown key", harness.ViewModel.Problem, StringComparison.Ordinal);
-        Assert.Equal("ol.chapters a", harness.ViewModel.LinkSelector);
-    }
-
-    [AvaloniaFact]
-    public async Task The_form_is_remembered_between_launches()
-    {
-        var store = new Services.SettingsStore(Path.Combine(Harness.Scratch(), "settings.json"));
-        var settings = new SessionSettings { TocUrl = Harness.Toc, LinkSelector = "a.ch", MaxChapters = 33 };
-        store.Save(settings with { Force = true });
-
-        var loaded = store.Load();
-
-        Assert.Equal("a.ch", loaded.LinkSelector);
-        Assert.Equal(33, loaded.MaxChapters);
-        Assert.False(loaded.Force, "Start over must never be remembered");
+        Assert.False(harness.ViewModel.BrowserReady);
+        Assert.False(harness.ViewModel.ScanCommand.CanExecute(null));
+        Assert.True(harness.ViewModel.Installing);
+        Save(harness.Window, "first-run");
         await Task.CompletedTask;
     }
 
     [AvaloniaFact]
-    public void A_profile_is_named_after_the_site()
+    public void The_form_is_remembered_between_launches()
     {
-        Assert.Equal("novel.example.toml", MainViewModel.SuggestedProfileName("https://www.novel.example/toc"));
-        Assert.Equal("my-site.toml", MainViewModel.SuggestedProfileName("not a url"));
+        var store = new SettingsStore(Path.Combine(Harness.Scratch(), "settings.json"));
+        store.Save(new DesktopSettings { NovelUrl = FakeNovelService.NovelUrl, Pdf = true, KeepLog = false, AtOnce = 2 });
+
+        var loaded = store.Load();
+
+        Assert.Equal(FakeNovelService.NovelUrl, loaded.NovelUrl);
+        Assert.True(loaded.Pdf);
+        Assert.False(loaded.KeepLog);
+        Assert.Equal(2, loaded.AtOnce);
+    }
+
+    [AvaloniaFact]
+    public void A_broken_settings_file_falls_back_to_the_defaults()
+    {
+        var path = Path.Combine(Harness.Scratch(), "settings.json");
+        File.WriteAllText(path, "{ not json");
+
+        var loaded = new SettingsStore(path).Load();
+
+        Assert.True(loaded.Text);
+        Assert.True(loaded.KeepLog);
+        Assert.Equal(1, loaded.AtOnce);
     }
 
     private static void UseTheme(string theme) =>

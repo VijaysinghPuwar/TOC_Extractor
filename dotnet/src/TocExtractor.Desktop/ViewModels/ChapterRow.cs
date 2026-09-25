@@ -42,7 +42,9 @@ public sealed partial class ChapterRow(int number, string url) : ObservableObjec
     [ObservableProperty]
     public partial string? Text { get; set; }
 
-    public string Heading => string.IsNullOrWhiteSpace(this.Title) ? this.Url : this.Title;
+    public string Heading => string.IsNullOrWhiteSpace(this.Title)
+        ? (this.Url.Length > 0 ? this.Url : string.Create(CultureInfo.InvariantCulture, $"Chapter {this.Number}"))
+        : this.Title;
 
     public bool IsReadable => this.State == ChapterState.Saved && this.Text is not null;
 

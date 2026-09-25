@@ -14,10 +14,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="../TocExtractor.Core.Tests/Fetching/StubPageSource.cs" Link="Stubs/StubPageSource.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="../../src/TocExtractor.Desktop/TocExtractor.Desktop.csproj" />
   </ItemGroup>
 

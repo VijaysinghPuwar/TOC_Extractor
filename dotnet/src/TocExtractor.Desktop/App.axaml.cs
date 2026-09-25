@@ -19,7 +19,7 @@ public sealed partial class App : Application
         {
             var window = new MainWindow();
             var viewModel = new MainViewModel(
-                environment: null,
+                session: null,
                 shell: new DesktopShell(window),
                 browser: BrowserSetup.Real,
                 store: new SettingsStore(AppPaths.LastSession),
