@@ -33,7 +33,7 @@ public sealed class NovelScanner(
     RateLimiter limiter,
     bool sessionAuthenticated = false,
     Action<string>? log = null,
-    Func<string, CancellationToken, Task<bool>>? onHumanCheck = null)
+    Func<HumanCheckException, CancellationToken, Task<bool>>? onHumanCheck = null)
 {
     /// <summary>A ceiling on list pages read, against a site whose pages never end.</summary>
     public const int MaxListPages = 300;
@@ -125,10 +125,10 @@ public sealed class NovelScanner(
         {
             return await probe.ProbeAsync(url, script, settle, cancellationToken).ConfigureAwait(false);
         }
-        catch (HumanCheckException) when (onHumanCheck is not null)
+        catch (HumanCheckException check) when (onHumanCheck is not null)
         {
             log?.Invoke($"scan: {url} asked to check you are human; waiting for you in the browser");
-            if (!await onHumanCheck(url, cancellationToken).ConfigureAwait(false))
+            if (!await onHumanCheck(check, cancellationToken).ConfigureAwait(false))
             {
                 throw;
             }
@@ -408,6 +408,12 @@ public sealed class NovelScanner(
             return (null, PageCheck.Advice(Obstacle.HumanCheck));
         }
 
+        if (found.Locked && !sessionAuthenticated)
+        {
+            return (null, "Sign in required. This site shows only part of each chapter unless you're signed in. "
+                + "Press Sign in, sign in in the browser window, then press Done and scan again.");
+        }
+
         if (check is not null)
         {
             var confirm = await this.ProbeContentAsync(check.Url, Confirm(found), cancellationToken).ConfigureAwait(false);
@@ -508,5 +514,7 @@ public sealed class NovelScanner(
         public string? Prev { get; init; }
 
         public bool Challenge { get; init; }
+
+        public bool Locked { get; init; }
     }
 }

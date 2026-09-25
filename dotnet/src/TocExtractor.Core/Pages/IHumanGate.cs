@@ -9,4 +9,8 @@ public interface IHumanGate
     /// </summary>
     /// <returns>True once no open page shows a check; false if <paramref name="timeout"/> passed first.</returns>
     Task<bool> WaitForPersonAsync(TimeSpan timeout, CancellationToken cancellationToken = default);
+
+    /// <summary>Wait until the person has signed in to the site in the browser.</summary>
+    /// <returns>True once the browser carries an account cookie; false if <paramref name="timeout"/> passed first.</returns>
+    Task<bool> WaitForSignInAsync(TimeSpan timeout, CancellationToken cancellationToken = default);
 }

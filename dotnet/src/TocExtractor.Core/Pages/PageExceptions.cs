@@ -149,6 +149,20 @@ public sealed class HumanCheckException : PageException
     {
     }
 
+    public HumanCheckException(string message, bool needsSignIn)
+        : base(message)
+    {
+        this.NeedsSignIn = needsSignIn;
+    }
+
+    /// <summary>
+    /// True when the page is locked to visitors rather than checking them: it
+    /// shows part of the chapter and asks the reader to sign in for the rest.
+    /// Waiting ends when the browser carries an account, not when a check
+    /// widget goes away.
+    /// </summary>
+    public bool NeedsSignIn { get; }
+
     public HumanCheckException(string message, Exception innerException)
         : base(message, innerException)
     {

@@ -99,9 +99,15 @@
   const title = firstLine((document.querySelector('h1') || {}).innerText)
     || clean(meta && meta.getAttribute('content'))
     || clean(document.title).replace(/\s+[-|–]\s+[^-|–]+$/, '');
+  // Page titles wrap the name in site words: "Read <name> RAW English Translation".
+  const bookTitle = title
+    .replace(/\s+[-|–]\s+[^-|–]+$/, '')
+    .replace(/^read\s+/i, '')
+    .replace(/\s+(?:raw\s+)?(?:english\s+)?(?:translation|novel|online|free)(?:\s+(?:online|free))?$/i, '')
+    .trim() || title;
   const text = document.body ? document.body.innerText.slice(0, 4000) : '';
   return JSON.stringify({
-    title,
+    title: bookTitle,
     key: best.length ? best[0].key : null,
     chapters: best,
     lists,

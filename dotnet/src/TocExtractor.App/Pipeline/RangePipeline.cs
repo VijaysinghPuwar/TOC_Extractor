@@ -71,7 +71,7 @@ public static class RangePipeline
         RateLimiter limiter,
         IPipelineObserver observer,
         IPdfWriter? pdf = null,
-        Func<string, CancellationToken, Task<bool>>? onHumanCheck = null,
+        Func<HumanCheckException, CancellationToken, Task<bool>>? onHumanCheck = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);

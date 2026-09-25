@@ -43,6 +43,7 @@ from playwright.async_api import TimeoutError as PlaywrightTimeout
 
 from .logging import get_logger
 from .pagesource import (
+    ChapterLocked,
     ChapterPage,
     PageBlocked,
     PageError,
@@ -56,6 +57,28 @@ from .politeness import RejectionReason, UrlGuard
 MAX_REDIRECT_HOPS = 20
 # The longest the contents page waits for its first chapter link.
 LINK_WAIT_MS = 10_000
+
+# Whether a chapter page shows only part of the chapter until the reader signs
+# in. The wording has to sit next to something that signs in, so a story that
+# mentions logging in does not count. Kept identical to LockedScript in
+# BrowserPageSource.cs.
+LOCKED_JS = r"""() => {
+  const says = new RegExp([
+    'log ?in to (?:access|read|continue|unlock|view)',
+    'sign in to (?:access|read|continue|unlock|view)',
+    'unlock (?:this|the) chapter', 'this chapter is locked',
+    'register to (?:read|continue)',
+  ].join('|'), 'i');
+  const signs = 'a[href*="login"], a[href*="signin"], a[href*="sign-in"], '
+    + 'a[href*="auth"], button, form, input[type=password]';
+  for (const el of document.querySelectorAll('div, section, p, span, h2, h3, h4')) {
+    const text = (el.innerText || '').trim();
+    if (text.length > 400 || !says.test(text)) continue;
+    const box = el.closest('section, div') || el;
+    if (box.querySelector(signs)) return true;
+  }
+  return false;
+}"""
 
 # Reads a chapter's text the way a reader sees it: inside the content element,
 # anything that is not the story is removed first. Scripts, frames and ad slots,
@@ -381,6 +404,10 @@ class BrowserPageSource:
         async with self._acquire() as slot:
             final_url = await self._goto(slot, url)
             title = await self._read_field(slot.page, title_selector, final_url)
+            if await slot.page.evaluate(LOCKED_JS):
+                raise ChapterLocked(
+                    f"{url}: the site shows only part of this chapter unless you are signed in"
+                )
             body = await self._read_field(slot.page, content_selector, final_url, readable=True)
         return ChapterPage(
             requested_url=url,

@@ -202,6 +202,50 @@ public sealed partial class RangeTests
         Assert.Contains(result.Collection.Rejected, r => r.Reason == RejectionReason.RobotsDisallowed);
     }
 
+    [Fact]
+    public async Task A_human_check_pauses_the_run_then_the_same_chapter_is_retried()
+    {
+        var pages = Chain(3);
+        pages[Url(2)] = new StubPage
+        {
+            Title = "Chapter 2", Body = "Body 2.", Next = Url(3), FailTimes = 1,
+            Failure = static message => new HumanCheckException(message),
+        };
+        var asked = 0;
+        var source = new StubPageSource(pages, maxConcurrent: 1);
+        using var fetcher = new Fetcher(
+            source, PermissiveGuard.Instance, new NullSink(),
+            new FetchOptions { Retries = 0, MinDelay = TimeSpan.Zero, MaxDelay = TimeSpan.Zero, WaitAfterLoad = TimeSpan.Zero },
+            new RateLimiter(TimeSpan.Zero),
+            onHumanCheck: (_, _) => { asked++; return Task.FromResult(true); });
+
+        var result = await fetcher.FetchRangeAsync(
+            Book, [new(1, Url(1)), new(2, Url(2)), new(3, Url(3))], [], Selectors, cancellationToken: Token);
+
+        Assert.Equal(1, asked);
+        Assert.Equal([1, 2, 3], result.Completed.Select(r => r.Index));
+        Assert.Empty(result.Failed);
+        Assert.Equal(1, result.Completed.Single(r => r.Index == 2).Attempts);
+    }
+
+    [Fact]
+    public async Task A_check_nobody_passes_is_reported_with_its_reason()
+    {
+        var pages = Chain(2);
+        pages[Url(2)] = new StubPage { FailTimes = 99, Failure = static message => new HumanCheckException(message) };
+        var source = new StubPageSource(pages, maxConcurrent: 1);
+        using var fetcher = new Fetcher(
+            source, PermissiveGuard.Instance, new NullSink(),
+            new FetchOptions { MinDelay = TimeSpan.Zero, MaxDelay = TimeSpan.Zero, WaitAfterLoad = TimeSpan.Zero },
+            new RateLimiter(TimeSpan.Zero),
+            onHumanCheck: (_, _) => Task.FromResult(false));
+
+        var result = await fetcher.FetchRangeAsync(Book, [new(1, Url(1)), new(2, Url(2))], [], Selectors, cancellationToken: Token);
+
+        Assert.Equal([1], result.Completed.Select(r => r.Index));
+        Assert.Equal(2, Assert.Single(result.Failed).Index);
+    }
+
     [GeneratedRegex(@"Chapter (\d+)")]
     private static partial Regex ChapterNumber();
 }

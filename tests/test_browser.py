@@ -20,7 +20,7 @@ from typing import ClassVar
 import pytest
 
 from toc_extractor.browser import BrowserPageSource
-from toc_extractor.pagesource import PageBlocked, SelectorNotFound
+from toc_extractor.pagesource import ChapterLocked, PageBlocked, SelectorNotFound
 from toc_extractor.politeness import RejectionReason, UrlGuard, UrlVerdict
 
 pytestmark = pytest.mark.browser
@@ -94,6 +94,22 @@ setTimeout(function () {
 </body></html>"""
 
 
+# Part of a chapter, then a sign-in wall: the rest is for members.
+LOCKED_CHAPTER_HTML = """<!doctype html><html><body>
+<h1 class="t">Chapter 9: Halfway</h1>
+<article class="c"><p>The first half of the story.</p></article>
+<section class="wall"><h3>Continue Reading</h3>
+<p>Login to access the full chapter content</p>
+<a href="/login">Login to Continue</a></section>
+</body></html>"""
+
+# A story can say the words without being locked.
+STORY_ABOUT_LOGINS_HTML = """<!doctype html><html><body>
+<h1 class="t">Chapter 10: Passwords</h1>
+<article class="c"><p>He had to log in to read the files, and he hated it.</p></article>
+</body></html>"""
+
+
 class Handler(BaseHTTPRequestHandler):
     # Shared across instances on purpose: the server makes one handler per
     # request, so per-instance state could not record a redirect chain.
@@ -113,6 +129,10 @@ class Handler(BaseHTTPRequestHandler):
             self._html(SVG_TOC_HTML)
         elif self.path == "/hydrated":
             self._html(HYDRATED_HTML)
+        elif self.path == "/locked":
+            self._html(LOCKED_CHAPTER_HTML)
+        elif self.path == "/about-logins":
+            self._html(STORY_ABOUT_LOGINS_HTML)
         elif self.path == "/cluttered":
             self._html(CLUTTERED_CHAPTER_HTML)
         elif self.path == "/toc/late":
@@ -449,3 +469,20 @@ async def test_a_chapter_list_that_arrives_late_is_still_read(server: str) -> No
         toc = await source.load_toc(f"{server}/toc/late", link_selector="a.ch")
 
     assert len(toc.raw_links) == 3
+
+
+async def test_a_chapter_locked_to_visitors_is_refused_not_half_saved(server: str) -> None:
+    async with BrowserPageSource(guard=loopback_permitted()) as source:
+        with pytest.raises(ChapterLocked):
+            await source.load_chapter(
+                f"{server}/locked", title_selector="h1.t", content_selector="article.c"
+            )
+
+
+async def test_a_story_that_mentions_logging_in_is_not_locked(server: str) -> None:
+    async with BrowserPageSource(guard=loopback_permitted()) as source:
+        page = await source.load_chapter(
+            f"{server}/about-logins", title_selector="h1.t", content_selector="article.c"
+        )
+
+    assert "log in to read the files" in page.body

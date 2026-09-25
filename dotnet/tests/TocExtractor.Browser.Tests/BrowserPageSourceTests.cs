@@ -124,6 +124,85 @@ public sealed class BrowserPageSourceTests
             chapter.Body.Split('\n').Where(line => line.Trim().Length > 0));
     }
 
+    [Fact]
+    public async Task A_pop_up_a_page_opens_is_closed_while_the_app_works_alone()
+    {
+        using var site = new LocalSite();
+        site.Html("/ch/5", """
+            <h1 class="t">Chapter 5</h1><article class="c"><p>Story.</p></article>
+            <script>window.open('about:blank', '_blank');</script>
+            """);
+
+        await using var source = await StartAsync();
+        var before = source.OpenTabs;
+        var chapter = await source.LoadChapterAsync(site.Url("/ch/5"), ".t", ".c", Token);
+        await Task.Delay(1000, Token);
+
+        Assert.Equal("Story.", chapter.Body.Trim());
+        Assert.Equal(before, source.OpenTabs);
+    }
+
+    [Fact]
+    public async Task A_chapter_locked_to_visitors_is_refused_not_half_saved()
+    {
+        using var site = new LocalSite();
+        site.Html("/ch/9", """
+            <h1 class="t">Chapter 9: Halfway</h1>
+            <article class="c"><p>The first half of the story.</p></article>
+            <section class="wall"><h3>Continue Reading</h3>
+            <p>Login to access the full chapter content</p>
+            <a href="/login">Login to Continue</a></section>
+            """);
+
+        await using var source = await StartAsync();
+        var locked = await Assert.ThrowsAsync<HumanCheckException>(
+            () => source.LoadChapterAsync(site.Url("/ch/9"), ".t", ".c", Token));
+
+        Assert.True(locked.NeedsSignIn);
+    }
+
+    [Fact]
+    public async Task A_story_that_mentions_logging_in_is_not_locked()
+    {
+        using var site = new LocalSite();
+        site.Html("/ch/10", "<h1 class='t'>Chapter 10</h1><article class='c'><p>He had to log in to read the files.</p></article>");
+
+        await using var source = await StartAsync();
+        var chapter = await source.LoadChapterAsync(site.Url("/ch/10"), ".t", ".c", Token);
+
+        Assert.Contains("log in to read the files", chapter.Body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_security_check_page_is_recognised()
+    {
+        using var site = new LocalSite();
+        site.Html("/ch/11", """
+            <title>Just a moment...</title>
+            <h2>Security check</h2><p>Our system has detected abnormal activity from your IP address.</p>
+            <div class="cf-turnstile" data-sitekey="x"></div>
+            """);
+
+        await using var source = await StartAsync();
+        var check = await Assert.ThrowsAsync<HumanCheckException>(
+            () => source.LoadChapterAsync(site.Url("/ch/11"), ".t", ".c", Token));
+
+        Assert.False(check.NeedsSignIn);
+    }
+
+    [Fact]
+    public async Task A_long_chapter_that_mentions_a_security_check_is_just_a_chapter()
+    {
+        using var site = new LocalSite();
+        var story = string.Concat(Enumerable.Repeat("<p>The guard ran a security check on every visitor at the gate. </p>", 150));
+        site.Html("/ch/12", $"<h1 class='t'>Chapter 12</h1><article class='c'>{story}</article>");
+
+        await using var source = await StartAsync();
+        var chapter = await source.LoadChapterAsync(site.Url("/ch/12"), ".t", ".c", Token);
+
+        Assert.StartsWith("The guard ran a security check", chapter.Body, StringComparison.Ordinal);
+    }
+
     /// <summary>Many sites fetch the chapter list with a second request once the page is up.</summary>
     [Fact]
     public async Task A_chapter_list_that_arrives_late_is_still_read()

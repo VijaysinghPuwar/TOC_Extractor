@@ -40,7 +40,7 @@ public sealed class Fetcher : IDisposable
     private readonly Func<string, bool> alreadyDone;
     private readonly Action<ChapterRecord>? onRecord;
     private readonly Action<FailedChapter>? onFailure;
-    private readonly Func<string, CancellationToken, Task<bool>>? onHumanCheck;
+    private readonly Func<HumanCheckException, CancellationToken, Task<bool>>? onHumanCheck;
 
     // One person, one check at a time: workers that hit it together wait on
     // the first, then find it already passed and simply try again.
@@ -74,7 +74,7 @@ public sealed class Fetcher : IDisposable
         Func<string, bool>? alreadyDone = null,
         Action<ChapterRecord>? onRecord = null,
         Action<FailedChapter>? onFailure = null,
-        Func<string, CancellationToken, Task<bool>>? onHumanCheck = null)
+        Func<HumanCheckException, CancellationToken, Task<bool>>? onHumanCheck = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(guard);
@@ -382,7 +382,7 @@ public sealed class Fetcher : IDisposable
         return result;
     }
 
-    private async Task<bool> WaitForPersonAsync(string url, CancellationToken cancellationToken)
+    private async Task<bool> WaitForPersonAsync(HumanCheckException check, CancellationToken cancellationToken)
     {
         if (this.onHumanCheck is null)
         {
@@ -392,7 +392,7 @@ public sealed class Fetcher : IDisposable
         await this.humanGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return await this.onHumanCheck(url, cancellationToken).ConfigureAwait(false);
+            return await this.onHumanCheck(check, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -447,7 +447,7 @@ public sealed class Fetcher : IDisposable
                 {
                     // Not the chapter's fault, and not an attempt: the site
                     // wants a person. Wait for them, then load it again.
-                    if (await this.WaitForPersonAsync(url, cancellationToken).ConfigureAwait(false))
+                    if (await this.WaitForPersonAsync(exception, cancellationToken).ConfigureAwait(false))
                     {
                         attempt--;
                         continue;

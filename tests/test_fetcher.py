@@ -17,7 +17,7 @@ import pytest
 from toc_extractor.exporters.text import TextExporter
 from toc_extractor.fetcher import Fetcher, FetchOptions, observed_intervals
 from toc_extractor.models import ChapterRecord, PriorChapter
-from toc_extractor.pagesource import PageError, PageTimeout
+from toc_extractor.pagesource import ChapterLocked, PageError, PageTimeout
 from toc_extractor.parser import SelectorSet
 from toc_extractor.politeness import RateLimiter, UrlGuard, parse_robots
 from toc_extractor.sinks import NullSink
@@ -551,3 +551,13 @@ async def test_combined_survives_a_resumed_run(tmp_path: Path) -> None:
         assert f"Chapter {number}" in combined, f"chapter {number} missing from combined.txt"
     positions = [combined.index(f"Chapter {i}") for i in range(1, 6)]
     assert positions == sorted(positions), "combined.txt must stay in index order"
+
+
+async def test_a_locked_chapter_fails_as_locked_and_is_not_retried() -> None:
+    pages = {"https://example.com/ch/1": StubPage(fail_times=99, failure=ChapterLocked)}
+    fetcher, _, _, _ = build(chapters=1, pages=pages, retries=3, wait_after_load=0.0)
+    result = await fetcher.run(TOC, SELECTORS)
+
+    assert result.completed == ()
+    assert result.failed[0].reason == "locked"
+    assert result.failed[0].attempts == 1

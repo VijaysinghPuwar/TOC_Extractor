@@ -95,8 +95,18 @@
   const canonical = document.querySelector('link[rel="canonical"]')?.href
     || document.querySelector('meta[property="og:url"]')?.getAttribute('content') || null;
 
+  // Part of the chapter, then a sign-in wall: the rest is for members.
+  const lockWords = /log ?in to (?:access|read|continue|unlock|view)|sign in to (?:access|read|continue|unlock|view)|unlock (?:this|the) chapter|this chapter is locked|register to (?:read|continue)/i;
+  const locked = [...document.querySelectorAll('div, section, p, span, h2, h3, h4')].some(el => {
+    const text = (el.innerText || '').trim();
+    if (text.length > 400 || !lockWords.test(text)) return false;
+    const box = el.closest('section, div') || el;
+    return !!box.querySelector('a[href*="login"], a[href*="signin"], a[href*="sign-in"], a[href*="auth"], button, form, input[type=password]');
+  });
+
   return JSON.stringify({
     canonical,
+    locked,
     content: selectorFor(content),
     contentChars: content ? clean(content.innerText).length : 0,
     title: selectorFor(titled),

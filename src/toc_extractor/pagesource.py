@@ -50,6 +50,14 @@ class CaptureUnsupported(PageError):
     """This page source cannot produce HTML dumps or screenshots."""
 
 
+class ChapterLocked(PageError):
+    """The page shows only part of the chapter until the reader signs in.
+
+    Never saved: half a chapter written as if it were whole is a silent
+    loss. Not retried either, since loading it again shows the same wall.
+    """
+
+
 class SelectorNotFound(PageError):
     """A selector matched nothing on an otherwise healthy page.
 

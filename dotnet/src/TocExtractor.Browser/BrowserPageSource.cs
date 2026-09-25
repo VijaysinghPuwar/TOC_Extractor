@@ -59,6 +59,32 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         }
         """;
 
+    /// <summary>Whether a chapter page shows only part of the chapter until the reader signs in.</summary>
+    /// <remarks>
+    /// Saving such a page would write half a chapter that looks complete.
+    /// The wording has to sit next to something that signs in (a login link,
+    /// button or form), so a story that mentions logging in does not count.
+    /// </remarks>
+    internal const string LockedScript = """
+        () => {
+          const says = new RegExp([
+            'log ?in to (?:access|read|continue|unlock|view)',
+            'sign in to (?:access|read|continue|unlock|view)',
+            'unlock (?:this|the) chapter', 'this chapter is locked',
+            'register to (?:read|continue)',
+          ].join('|'), 'i');
+          const signs = 'a[href*="login"], a[href*="signin"], a[href*="sign-in"], '
+            + 'a[href*="auth"], button, form, input[type=password]';
+          for (const el of document.querySelectorAll('div, section, p, span, h2, h3, h4')) {
+            const text = (el.innerText || '').trim();
+            if (text.length > 400 || !says.test(text)) continue;
+            const box = el.closest('section, div') || el;
+            if (box.querySelector(signs)) return true;
+          }
+          return false;
+        }
+        """;
+
     /// <summary>Reads a chapter's text the way a reader sees it.</summary>
     /// <remarks>
     /// Inside the content element, anything that is not the story is removed
@@ -163,6 +189,26 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                     StorageStatePath = this.options.StorageStatePath,
                 }).ConfigureAwait(false);
         }
+
+        // Ad scripts on reading sites open pop-up tabs. While the app is
+        // working on its own they are closed as they appear; while a person
+        // is using the window (signing in, passing a check) nothing is touched.
+        // Only pages another page opened count: the app's own worker pages
+        // raise the same event and have no opener.
+        this.context.Page += async (_, popup) =>
+        {
+            try
+            {
+                if (!this.PersonAtWindow && await popup.OpenerAsync().ConfigureAwait(false) is not null)
+                {
+                    await popup.CloseAsync().ConfigureAwait(false);
+                }
+            }
+            catch (PlaywrightException)
+            {
+                // Already gone.
+            }
+        };
 
         var budget = (float)this.options.OperationBudget.TotalMilliseconds;
         this.context.SetDefaultNavigationTimeout(budget);
@@ -450,13 +496,31 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             return false;
         }
 
+        this.PersonAtWindow = true;
+        try
+        {
+            return await this.WaitForPersonCoreAsync(timeout, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            this.PersonAtWindow = false;
+        }
+    }
+
+    private async Task<bool> WaitForPersonCoreAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        if (this.context is not { } context)
+        {
+            return false;
+        }
+
         var watch = Stopwatch.StartNew();
         var shown = false;
         while (watch.Elapsed < timeout)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var blocked = false;
-            foreach (var page in this.context.Pages)
+            foreach (var page in context.Pages)
             {
                 if (!await IsHumanCheckAsync(page).ConfigureAwait(false))
                 {
@@ -481,6 +545,48 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         }
 
         return false;
+    }
+
+    private static async Task<bool> IsLockedAsync(IPage page)
+    {
+        try
+        {
+            return await page.EvaluateAsync<bool>(LockedScript).ConfigureAwait(false);
+        }
+        catch (PlaywrightException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> WaitForSignInAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
+    {
+        this.PersonAtWindow = true;
+        try
+        {
+            var watch = Stopwatch.StartNew();
+            if (this.context is { Pages.Count: > 0 } open)
+            {
+                await open.Pages[0].BringToFrontAsync().ConfigureAwait(false);
+            }
+
+            while (watch.Elapsed < timeout)
+            {
+                if (await this.HasSessionCookiesAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    return true;
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+            }
+
+            return false;
+        }
+        finally
+        {
+            this.PersonAtWindow = false;
+        }
     }
 
     private static async Task<bool> IsHumanCheckAsync(IPage page)
@@ -514,6 +620,15 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         var cookies = await this.context.CookiesAsync().ConfigureAwait(false);
         return cookies.Any(cookie => IsAccountCookie(cookie.Name));
     }
+
+    /// <summary>
+    /// True while a person is using the browser window (signing in, passing a
+    /// check). Pop-ups are left alone then; a sign-in can open one.
+    /// </summary>
+    public bool PersonAtWindow { get; set; }
+
+    /// <summary>How many tabs are open, the app's own included. For tests.</summary>
+    internal int OpenTabs => this.context?.Pages.Count ?? 0;
 
     public async Task<string> OpenPageAsync(string url, CancellationToken cancellationToken = default)
     {
@@ -599,6 +714,12 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             await ThrowIfHumanCheckAsync(slot.Page, url).ConfigureAwait(false);
             var title = await ReadFieldAsync(slot.Page, titleSelector, finalUrl, this.Remaining(deadline))
                 .ConfigureAwait(false);
+
+            if (await IsLockedAsync(slot.Page).ConfigureAwait(false))
+            {
+                throw new HumanCheckException(
+                    $"{url}: the site shows only part of this chapter unless you are signed in", needsSignIn: true);
+            }
 
             // Before the body: reading the body removes navigation from the
             // page, and the next link is navigation.
