@@ -2,7 +2,7 @@ using System.Globalization;
 using Tomlyn;
 using Tomlyn.Model;
 
-namespace TocExtractor.Cli;
+namespace TocExtractor.App.Profiles;
 
 /// <summary>A profile that cannot be used, with a message naming the problem.</summary>
 public sealed class ProfileException(string message) : Exception(message);

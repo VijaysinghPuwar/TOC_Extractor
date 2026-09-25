@@ -1,3 +1,4 @@
+using TocExtractor.App.Profiles;
 using System.CommandLine;
 
 namespace TocExtractor.Cli;

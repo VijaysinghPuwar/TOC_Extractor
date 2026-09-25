@@ -1,3 +1,4 @@
+using TocExtractor.App.Profiles;
 using System.CommandLine;
 using TocExtractor.Core.Fetching;
 using TocExtractor.Core.Links;

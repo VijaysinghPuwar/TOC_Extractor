@@ -1,23 +1,25 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- Everything a front end needs that is not a widget: profiles, the
+       extraction pipeline, robots setup, and the desktop session. Shared by
+       the command line and the desktop app so both run one code path. -->
+
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <RootNamespace>TocExtractor.Cli</RootNamespace>
-    <AssemblyName>toc-extractor</AssemblyName>
+    <RootNamespace>TocExtractor.App</RootNamespace>
     <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="System.CommandLine" />
+    <PackageReference Include="Tomlyn" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../TocExtractor.Core/TocExtractor.Core.csproj" />
     <ProjectReference Include="../TocExtractor.Browser/TocExtractor.Browser.csproj" />
-    <ProjectReference Include="../TocExtractor.App/TocExtractor.App.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="TocExtractor.App.Tests" />
     <InternalsVisibleTo Include="TocExtractor.Cli.Tests" />
   </ItemGroup>
 

@@ -1,11 +1,8 @@
+using TocExtractor.App;
+using TocExtractor.App.Pipeline;
 using TocExtractor.Browser;
-using TocExtractor.Core.Checkpoints;
-using TocExtractor.Core.Exporters;
-using TocExtractor.Core.Fetching;
-using TocExtractor.Core.Models;
 using TocExtractor.Core.Pages;
 using TocExtractor.Core.Politeness;
-using TocExtractor.Core.Sinks;
 
 namespace TocExtractor.Cli;
 
@@ -43,25 +40,13 @@ public static class Extraction
             return CommandLine.ExitUsage;
         }
 
-        // The agent robots.txt is evaluated for is the agent the browser sends.
-        // Python always evaluates for its own default while the browser
-        // identifies as whatever --ua set, so a custom agent gets decisions
-        // meant for a different one.
         var fetchRobots = robotsFetcher ?? RobotsHttp.Fetch;
-        var body = fetchRobots(Robots.LocationFor(settings.TocUrl), settings.UserAgent);
-        var robots = body is null
-            ? RobotsPolicy.Missing(Robots.OriginOf(settings.TocUrl), settings.UserAgent)
-            : RobotsPolicy.Parse(body, Robots.OriginOf(settings.TocUrl), settings.UserAgent);
-
-        var limiter = new RateLimiter(settings.Fetch.MinDelay);
-        if (robots.CrawlDelay is { } delay)
-        {
-            limiter.SetHostInterval(new Uri(settings.TocUrl), delay);
-            if (!settings.Quiet)
-            {
-                report.WriteLine($"robots.txt requests a {delay.TotalSeconds:0.0}s crawl delay; honouring it");
-            }
-        }
+        var (robots, limiter, _) = RobotsSetup.Prepare(
+            settings.TocUrl,
+            settings.UserAgent,
+            settings.Fetch.MinDelay,
+            fetchRobots,
+            settings.Quiet ? null : report.WriteLine);
 
         var browserOptions = new BrowserPageSourceOptions
         {
@@ -92,146 +77,40 @@ public static class Extraction
         TextWriter report,
         CancellationToken cancellationToken)
     {
-        Checkpoint? checkpoint = null;
-        ISink sink = new NullSink();
-
-        void Persist(ChapterRecord record)
+        var request = new PipelineRequest
         {
-            checkpoint?.Record(record, sink.OutputsFor(record.Index));
-            checkpoint?.Save();
-        }
+            TocUrl = settings.TocUrl,
+            Selectors = settings.Selectors,
+            OutputDirectory = settings.OutputDirectory,
+            Formats = settings.Formats,
+            Fetch = settings.Fetch,
+            Force = settings.Force,
+            DumpHtml = settings.DumpHtml,
+            Quiet = settings.Quiet,
+        };
 
-        using var fetcher = new Fetcher(
-            source, guard, sink, settings.Fetch, limiter, robots, onRecord: Persist);
+        var result = await ExtractionPipeline
+            .RunAsync(request, source, guard, robots, limiter, new WriterObserver(report), cancellationToken)
+            .ConfigureAwait(false);
 
-        CollectedLinks collected;
-        try
-        {
-            collected = await fetcher.CollectAsync(settings.TocUrl, settings.Selectors, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (PageException exception)
-        {
-            report.WriteLine($"could not read the table of contents: {exception.Message}");
-            return CommandLine.ExitFailed;
-        }
-
-        if (!settings.Quiet)
-        {
-            report.WriteLine($"Found {collected.Collection.Kept.Count} chapter link(s).");
-            foreach (var reason in collected.Collection.ReasonCounts().OrderBy(e => e.Key, StringComparer.Ordinal))
-            {
-                report.WriteLine($"skipped {reason.Value} link(s): {reason.Key}");
-            }
-
-            if (collected.Collection.Truncated > 0)
-            {
-                report.WriteLine($"Ignoring {collected.Collection.Truncated} link(s) beyond --max.");
-            }
-        }
-
-        if (settings.Fetch.DryRun)
+        if (settings.Fetch.DryRun && result.Outcome == PipelineOutcome.Ok && result.Collected is { } collected)
         {
             for (var i = 0; i < collected.Collection.Kept.Count; i++)
             {
                 Console.WriteLine($"{i + 1:D3}  {collected.Collection.Kept[i]}");
             }
-
-            return CommandLine.ExitOk;
         }
 
-        if (settings.DumpHtml && collected.Toc.Html is not null)
+        return result.Outcome switch
         {
-            Directory.CreateDirectory(settings.OutputDirectory);
-            await File.WriteAllTextAsync(
-                Path.Combine(settings.OutputDirectory, "toc.html"), collected.Toc.Html, cancellationToken)
-                .ConfigureAwait(false);
-        }
-
-        var plan = ResumePlanner.Plan(
-            settings.OutputDirectory, settings.TocUrl, settings.Selectors,
-            collected.Collection.Kept, settings.Force, report.WriteLine);
-
-        Func<string, bool>? alreadyDone = null;
-        if (plan is not null)
-        {
-            if (!plan.Usable)
-            {
-                report.WriteLine($"refusing to resume: {plan.Refusal}");
-                report.WriteLine($"checkpoint: {plan.Checkpoint.Path}");
-                return CommandLine.ExitUsage;
-            }
-
-            checkpoint = plan.Checkpoint;
-            alreadyDone = checkpoint.IsDone;
-
-            if (!settings.Quiet)
-            {
-                report.WriteLine(
-                    $"Resuming: {plan.AlreadyDone} chapter(s) already fetched, "
-                    + $"state file {plan.Checkpoint.Path}");
-                if (plan.Appended.Count > 0)
-                {
-                    report.WriteLine(
-                        $"The table of contents grew by {plan.Appended.Count} chapter(s) since that run.");
-                }
-            }
-
-            if (plan.Renumbering)
-            {
-                report.WriteLine(
-                    "New chapters were added to the start of the table of contents. Files already "
-                    + "written keep their original numbers, so numbering now reflects the order "
-                    + "chapters were fetched, not their order in the table of contents. Use --force "
-                    + "for a run numbered by the current table of contents.");
-            }
-        }
-
-        checkpoint ??= new Checkpoint
-        {
-            Path = Checkpoint.PathFor(settings.OutputDirectory),
-            TocUrl = settings.TocUrl,
-            Fingerprint = Checkpoint.FingerprintOf(settings.TocUrl, settings.Selectors),
-            Selectors = new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["link"] = settings.Selectors.Link,
-                ["title"] = settings.Selectors.Title,
-                ["content"] = settings.Selectors.Content,
-            },
+            PipelineOutcome.Ok => CommandLine.ExitOk,
+            PipelineOutcome.Refused => CommandLine.ExitUsage,
+            _ => CommandLine.ExitFailed,
         };
+    }
 
-        checkpoint.LinkSet = [.. collected.Collection.Kept];
-
-        // Snapshotted before this run starts adding entries: the exporters need
-        // to know what an earlier run wrote, which is only known once the
-        // checkpoint has been consulted.
-        var resumed = checkpoint.AsPriorChapters();
-        sink = ExporterRegistry.Build(
-            settings.Formats, settings.OutputDirectory, settings.Fetch.IncludeLinks, resumed);
-        fetcher.SetSink(sink);
-
-        var result = await fetcher
-            .FetchAsync(collected, settings.Selectors, alreadyDone, cancellationToken)
-            .ConfigureAwait(false);
-        checkpoint.Save();
-
-        if (!settings.Quiet)
-        {
-            report.WriteLine($"Wrote {result.Completed.Count} chapter(s) to {settings.OutputDirectory}");
-            if (result.TotalStrippedUrls > 0)
-            {
-                report.WriteLine(
-                    $"Removed {result.TotalStrippedUrls} URL(s) from chapter text. "
-                    + "Pass --include-links to keep them.");
-            }
-        }
-
-        foreach (var failure in result.Failed)
-        {
-            report.WriteLine(
-                $"chapter {failure.Index} failed after {failure.Attempts} attempt(s): {failure.Detail}");
-        }
-
-        return result.Failed.Count > 0 ? CommandLine.ExitFailed : CommandLine.ExitOk;
+    private sealed class WriterObserver(TextWriter writer) : IPipelineObserver
+    {
+        public void Log(string line) => writer.WriteLine(line);
     }
 }

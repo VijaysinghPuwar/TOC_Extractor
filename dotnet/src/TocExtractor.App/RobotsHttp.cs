@@ -1,4 +1,4 @@
-namespace TocExtractor.Cli;
+namespace TocExtractor.App;
 
 /// <summary>Reads robots.txt over HTTP.</summary>
 /// <remarks>
@@ -20,8 +20,14 @@ public static class RobotsHttp
     /// unrestricted one. Failing open on somebody else's rules because of a
     /// problem on this machine is not a default to keep quiet about.
     /// </remarks>
-    public static string? Fetch(string robotsUrl, string userAgent)
+    public static string? Fetch(string robotsUrl, string userAgent) =>
+        Fetch(robotsUrl, userAgent, Console.Error.WriteLine);
+
+    /// <summary>As <see cref="Fetch(string, string)"/>, reporting problems to <paramref name="warn"/>.</summary>
+    public static string? Fetch(string robotsUrl, string userAgent, Action<string> warn)
     {
+        ArgumentNullException.ThrowIfNull(warn);
+
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, robotsUrl);
@@ -35,7 +41,7 @@ public static class RobotsHttp
 
             if (!response.IsSuccessStatusCode)
             {
-                Console.Error.WriteLine(
+                warn(
                     $"could not read {robotsUrl} (HTTP {(int)response.StatusCode}). Proceeding as "
                     + "if it permits everything, which may not be what the site intends.");
                 return null;
@@ -49,7 +55,7 @@ public static class RobotsHttp
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or IOException)
         {
-            Console.Error.WriteLine(
+            warn(
                 $"could not reach {robotsUrl} ({exception.Message}). Proceeding as if it permits "
                 + "everything. If this is a certificate error it is a problem on this machine, "
                 + "not the site.");

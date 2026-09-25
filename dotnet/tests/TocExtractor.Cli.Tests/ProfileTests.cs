@@ -1,3 +1,4 @@
+using TocExtractor.App.Profiles;
 
 namespace TocExtractor.Cli.Tests;
 
