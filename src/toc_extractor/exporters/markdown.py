@@ -51,7 +51,7 @@ class MarkdownExporter:
             body += f"[Source]({record.final_url})\n\n"
         body += record.text + "\n"
 
-        (self._dir / allocated.name).write_text(body, encoding="utf-8")
+        (self._dir / allocated.name).write_text(body, encoding="utf-8", newline="\n")
         self._chunks[record.index] = body + "\n"
 
     async def close(self, result: RunResult) -> None:
@@ -67,4 +67,6 @@ class MarkdownExporter:
                 chunks[index] = path.read_text(encoding="utf-8") + "\n"
 
         book = self._dir / BOOK_NAME
-        book.write_text("".join(chunks[index] for index in sorted(chunks)), encoding="utf-8")
+        book.write_text(
+            "".join(chunks[index] for index in sorted(chunks)), encoding="utf-8", newline="\n"
+        )

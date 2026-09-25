@@ -65,7 +65,7 @@ class TextExporter:
             header += f"Source: {record.final_url}\n\n"
 
         path = self._dir / allocated.name
-        path.write_text(header + record.text + "\n", encoding="utf-8")
+        path.write_text(header + record.text + "\n", encoding="utf-8", newline="\n")
 
         self.written[record.index] = path
         self._chunks[record.index] = header + record.text + "\n\n" + SEPARATOR + "\n\n"
@@ -112,7 +112,9 @@ class TextExporter:
         _assert_merged_output_is_complete(chunks, self._resumed, result)
 
         combined = self._dir / COMBINED_NAME
-        combined.write_text("".join(chunks[index] for index in sorted(chunks)), encoding="utf-8")
+        combined.write_text(
+            "".join(chunks[index] for index in sorted(chunks)), encoding="utf-8", newline="\n"
+        )
 
 
 def _assert_merged_output_is_complete(

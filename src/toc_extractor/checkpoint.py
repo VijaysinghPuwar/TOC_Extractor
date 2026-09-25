@@ -208,7 +208,7 @@ class Checkpoint:
 
         fd, temp_name = tempfile.mkstemp(dir=self.path.parent, prefix=".state-", suffix=".tmp")
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
                 json.dump(payload, handle, indent=2)
                 handle.flush()
                 os.fsync(handle.fileno())
