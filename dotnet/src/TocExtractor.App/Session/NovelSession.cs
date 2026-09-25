@@ -57,6 +57,7 @@ public sealed class NovelSession(NovelEnvironment environment) : INovelService
     public const int SlowWalkThreshold = 60;
 
     private IPageSource? source;
+    private Action<string>? report;
     private UrlGuard? guard;
     private RobotsSetup? robots;
     private string? origin;
@@ -77,6 +78,7 @@ public sealed class NovelSession(NovelEnvironment environment) : INovelService
         var url = Normalise(novelUrl);
         var source = await this.EnsureSourceAsync(url, cancellationToken).ConfigureAwait(false);
         this.robots = this.PrepareRobots(url, log);
+        this.report = log;
 
         var scanner = new NovelScanner(
             (IPageProbe)source, this.guard!, this.robots.Policy, this.robots.Limiter,
@@ -144,11 +146,22 @@ public sealed class NovelSession(NovelEnvironment environment) : INovelService
         var source = this.source ?? throw new SessionException("Scan the novel first.");
         var robots = this.robots ?? throw new SessionException("Scan the novel first.");
 
+        this.report = observer.Log;
         var plan = preview.Plan;
         if (plan.PredictedLinks.Count > 0 && !await this.PredictionHoldsAsync(plan.PredictedLinks[0], observer, cancellationToken).ConfigureAwait(false))
         {
+            var walking = RangePlanner.Plan(scan, preview.From, preview.To, predict: false);
+            if (walking.ExtraVisits > SlowWalkThreshold)
+            {
+                // Never swap a direct plan for a long walk without asking:
+                // hundreds of extra pages are what make a site start checking.
+                throw new SessionException(
+                    $"The site's chapter addresses do not follow the pattern the scan found. Reaching chapter {preview.From} "
+                    + $"would mean visiting {walking.ExtraVisits} other chapters first. Scan again, or choose chapters nearer to ones the site lists.");
+            }
+
             observer.Log("The address pattern did not hold on the site, so chapters are reached by following links instead.");
-            plan = RangePlanner.Plan(scan, preview.From, preview.To, predict: false);
+            plan = walking;
         }
 
         var request = new RangeRequest
@@ -290,23 +303,68 @@ public sealed class NovelSession(NovelEnvironment environment) : INovelService
             return true;
         }
 
-        try
+        const string Script = "() => JSON.stringify({ title: document.title })";
+        for (var attempt = 0; attempt < 3; attempt++)
         {
-            var (_, json) = await probe.ProbeAsync(
-                link.Url, "() => JSON.stringify({ title: document.title })", TimeSpan.FromSeconds(1), cancellationToken)
-                .ConfigureAwait(false);
-            var title = System.Text.Json.JsonDocument.Parse(json).RootElement.GetProperty("title").GetString();
-            var holds = ChapterNumbers.FromTitle(title) == link.Number;
-            observer.Log(holds
-                ? $"Checked: chapter {link.Number} is at its predicted address."
-                : $"Chapter {link.Number}'s predicted address holds \"{title}\".");
-            return holds;
+            try
+            {
+                var (_, json) = await probe.ProbeAsync(link.Url, Script, TimeSpan.FromSeconds(1), cancellationToken)
+                    .ConfigureAwait(false);
+                var title = System.Text.Json.JsonDocument.Parse(json).RootElement.GetProperty("title").GetString();
+                var number = ChapterNumbers.FromTitle(title);
+
+                // Only a page that is clearly another chapter disproves the
+                // pattern; a title with no number in it says nothing either way.
+                var holds = number is null || number == link.Number;
+                observer.Log(holds
+                    ? $"Checked: chapter {link.Number} is at its predicted address."
+                    : $"Chapter {link.Number}'s predicted address holds \"{title}\".");
+                return holds;
+            }
+            catch (HumanCheckException check)
+            {
+                // The site is checking for a person, which says nothing about
+                // the pattern. Wait for them, then look again.
+                if (!await this.WaitForPersonAsync(check, cancellationToken).ConfigureAwait(false))
+                {
+                    throw new SessionException("The site's check was not completed, so saving did not start.");
+                }
+            }
+            catch (PageException exception)
+            {
+                observer.Log($"Could not check the predicted address for chapter {link.Number}: {exception.Message}. Going ahead with it; each chapter is still checked as it is saved.");
+                return true;
+            }
         }
-        catch (PageException exception)
+
+        return true;
+    }
+
+    /// <summary>The longest wait between pages the app slows itself to.</summary>
+    public static readonly TimeSpan SlowestPace = TimeSpan.FromSeconds(15);
+
+    /// <summary>The wait between pages now, which checks raise.</summary>
+    public TimeSpan CurrentInterval { get; private set; }
+
+    /// <summary>
+    /// A site that asked once will ask again at the same pace, so every check
+    /// the person passes makes the wait between pages half as long again.
+    /// </summary>
+    private void SlowDown()
+    {
+        if (this.robots is null || this.origin is null)
         {
-            observer.Log($"Could not check the predicted address for chapter {link.Number}: {exception.Message}");
-            return false;
+            return;
         }
+
+        var host = new Uri(this.origin);
+        var now = this.robots.Limiter.IntervalFor(host);
+        var slower = TimeSpan.FromSeconds(Math.Min(SlowestPace.TotalSeconds, Math.Max(now.TotalSeconds, this.Pace.MinDelaySeconds) * 1.5));
+        this.robots.Limiter.SetHostInterval(host, slower);
+        this.CurrentInterval = slower;
+        this.report?.Invoke(string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"The site asked for a check, so the app now waits {slower.TotalSeconds:0.#}s between pages to make another less likely."));
     }
 
     internal const string CheckAdvice =
@@ -328,6 +386,10 @@ public sealed class NovelSession(NovelEnvironment environment) : INovelService
             var passed = check.NeedsSignIn
                 ? await gate.WaitForSignInAsync(environment.PersonTimeout, cancellationToken).ConfigureAwait(false)
                 : await gate.WaitForPersonAsync(environment.PersonTimeout, cancellationToken).ConfigureAwait(false);
+            if (passed && !check.NeedsSignIn)
+            {
+                this.SlowDown();
+            }
             if (check.NeedsSignIn && passed)
             {
                 this.SignedIn = true;

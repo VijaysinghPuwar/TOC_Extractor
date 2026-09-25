@@ -212,6 +212,27 @@ public sealed class WindowTests
     }
 
     [AvaloniaFact]
+    public async Task A_long_walk_is_explained_and_needs_a_second_press()
+    {
+        var harness = new Harness();
+        harness.Service.SlowPlans = true;
+        await harness.StartAsync();
+        await harness.ScannedAsync();
+        harness.ViewModel.From = 30;
+        harness.ViewModel.To = 35;
+
+        await harness.ViewModel.SaveCommand.ExecuteAsync(null);
+        Harness.Pump();
+
+        Assert.Equal(0, harness.Service.Saves);
+        Assert.Contains("Press Save again", Text(harness, "ProblemText"), StringComparison.Ordinal);
+
+        await harness.ViewModel.SaveCommand.ExecuteAsync(null);
+        Harness.Pump();
+        Assert.Equal(1, harness.Service.Saves);
+    }
+
+    [AvaloniaFact]
     public async Task Failed_chapters_are_marked_and_counted()
     {
         var harness = new Harness();

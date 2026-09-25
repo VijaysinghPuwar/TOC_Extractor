@@ -104,12 +104,19 @@ internal sealed class FakeNovelService : INovelService
             : scan);
     }
 
+    /// <summary>When set, every range is a long walk that needs confirming.</summary>
+    public bool SlowPlans { get; set; }
+
+    public int Saves { get; private set; }
+
     public RangePreview Preview(ScanResult scan, int first, int last)
     {
         var plan = RangePlanner.Plan(scan, first, last);
         var from = Math.Max(Math.Min(first, last), scan.FirstNumber);
         var to = Math.Min(Math.Max(first, last), scan.LastNumber);
-        return new RangePreview(plan, from, to, $"{to - from + 1} chapter(s), each opened directly. about 1 min.", false);
+        return this.SlowPlans
+            ? new RangePreview(plan, from, to, $"{to - from + 1} chapter(s), 599 extra page(s) visited to reach them. about 30 min.", true)
+            : new RangePreview(plan, from, to, $"{to - from + 1} chapter(s), each opened directly. about 1 min.", false);
     }
 
     public async Task<RangeResult> SaveAsync(
@@ -123,6 +130,7 @@ internal sealed class FakeNovelService : INovelService
         IPipelineObserver observer,
         CancellationToken cancellationToken = default)
     {
+        this.Saves++;
         List<int> missing = [];
         for (var n = preview.From; n <= preview.To; n++)
         {

@@ -48,6 +48,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     private readonly Dictionary<int, ChapterRow> rowsByNumber = [];
     private CancellationTokenSource? running;
     private RangePreview? preview;
+    private bool slowConfirmed;
 
     public MainViewModel(
         INovelService? session,
@@ -468,6 +469,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         }
 
         this.session.Pace = this.Pace();
+        this.slowConfirmed = false;
         this.preview = this.session.Preview(scan, (int)from, (int)to);
         this.PlanSummary = this.preview.Summary;
         this.PlanIsSlow = this.preview.Slow;
@@ -488,6 +490,15 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     {
         if (this.Scan is not { } scan || this.preview is not { } plan)
         {
+            return;
+        }
+
+        // A long walk is asked about first: hundreds of extra pages take
+        // time, and are what makes a site start asking for checks.
+        if (plan.Slow && !this.slowConfirmed)
+        {
+            this.slowConfirmed = true;
+            this.Problem = $"{plan.Summary} The site lists no closer chapter to start from. Press Save again to go ahead, or sign in to the site first so the app can find these chapters directly.";
             return;
         }
 
