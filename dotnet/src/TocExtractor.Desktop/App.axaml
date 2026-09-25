@@ -1,0 +1,26 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="TocExtractor.Desktop.App"
+             Name="TOC Extractor"
+             RequestedThemeVariant="Default">
+
+  <!-- Black and white only. The accent is black in light mode and white in
+       dark mode, so a primary button is the one solid shape on the screen. -->
+  <Application.Styles>
+    <FluentTheme>
+      <FluentTheme.Palettes>
+        <ColorPaletteResources x:Key="Light" Accent="#FF000000" RegionColor="#FFFFFFFF"
+                               BaseHigh="#FF000000" BaseMediumHigh="#FF222222" BaseMedium="#FF555555"
+                               BaseMediumLow="#FF888888" BaseLow="#FFE4E4E4"
+                               ChromeHigh="#FFBDBDBD" ChromeMediumLow="#FFF6F6F6" ChromeLow="#FFFAFAFA"
+                               ListLow="#FFF2F2F2" ListMedium="#FFE6E6E6" ErrorText="#FF000000" />
+        <ColorPaletteResources x:Key="Dark" Accent="#FFFFFFFF" RegionColor="#FF0A0A0A"
+                               BaseHigh="#FFFFFFFF" BaseMediumHigh="#FFE6E6E6" BaseMedium="#FFB0B0B0"
+                               BaseMediumLow="#FF777777" BaseLow="#FF2A2A2A"
+                               ChromeHigh="#FF4A4A4A" ChromeMediumLow="#FF141414" ChromeLow="#FF101010"
+                               ListLow="#FF1A1A1A" ListMedium="#FF262626" ErrorText="#FFFFFFFF" />
+      </FluentTheme.Palettes>
+    </FluentTheme>
+    <StyleInclude Source="/Views/Styles.axaml" />
+  </Application.Styles>
+</Application>

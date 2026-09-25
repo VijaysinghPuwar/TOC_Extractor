@@ -4,11 +4,13 @@
     <Project Path="src/TocExtractor.Browser/TocExtractor.Browser.csproj" />
     <Project Path="src/TocExtractor.Cli/TocExtractor.Cli.csproj" />
     <Project Path="src/TocExtractor.Core/TocExtractor.Core.csproj" />
+    <Project Path="src/TocExtractor.Desktop/TocExtractor.Desktop.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/TocExtractor.App.Tests/TocExtractor.App.Tests.csproj" />
     <Project Path="tests/TocExtractor.Browser.Tests/TocExtractor.Browser.Tests.csproj" />
     <Project Path="tests/TocExtractor.Cli.Tests/TocExtractor.Cli.Tests.csproj" />
     <Project Path="tests/TocExtractor.Core.Tests/TocExtractor.Core.Tests.csproj" />
+    <Project Path="tests/TocExtractor.Desktop.Tests/TocExtractor.Desktop.Tests.csproj" />
   </Folder>
 </Solution>

@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>TocExtractor.Desktop.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <!-- Avalonia.Headless.XUnit is built against xunit.v3 3.2; xunit 4 changed
+       the discovery API it calls, so this one project stays on the 3.x line
+       the Avalonia package supports. -->
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" VersionOverride="3.2.2" />
+    <PackageReference Include="Avalonia.Headless.XUnit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../TocExtractor.Core.Tests/Fetching/StubPageSource.cs" Link="Stubs/StubPageSource.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/TocExtractor.Desktop/TocExtractor.Desktop.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>
