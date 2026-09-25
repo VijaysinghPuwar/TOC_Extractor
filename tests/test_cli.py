@@ -277,6 +277,15 @@ async def test_dump_html_writes_the_toc(tmp_path: Path) -> None:
     assert (tmp_path / "toc.html").read_text(encoding="utf-8") == "<html></html>"
 
 
+async def test_dump_html_writes_the_toc_on_a_dry_run(tmp_path: Path) -> None:
+    """The README's first step for a new site is --dump-html --dry-run."""
+    source = StubPageSource(catalogue(), supports_capture=True)
+    args = build_parser().parse_args([*BASE, "--out", str(tmp_path), "--dump-html", "--dry-run"])
+    await run(args, source_factory=lambda: source, robots_fetcher=lambda _u: None)
+    assert (tmp_path / "toc.html").read_text(encoding="utf-8") == "<html></html>"
+    assert not list(tmp_path.glob("0*.txt")), "a dry run fetches no chapters"
+
+
 # ---------------------------------------------------------------------------
 # Guard and robots wiring
 # ---------------------------------------------------------------------------

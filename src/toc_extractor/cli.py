@@ -301,14 +301,16 @@ async def _extract(
 
     _report_collection(collected)
 
+    # Before the dry-run exit: --dump-html --dry-run is the documented first
+    # step against a new site, and it has to produce the file it promises.
+    if args.dump_html and collected.toc.html is not None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "toc.html").write_text(collected.toc.html, encoding="utf-8")
+
     if options.dry_run:
         for position, url in enumerate(collected.kept, start=1):
             print(f"{position:03d}  {url}")
         return EXIT_OK
-
-    if args.dump_html and collected.toc.html is not None:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        (output_dir / "toc.html").write_text(collected.toc.html, encoding="utf-8")
 
     plan = plan_resume(
         output_dir,
