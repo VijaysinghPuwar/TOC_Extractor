@@ -285,3 +285,45 @@ async def test_timeout_then_retry_still_works_after_uncancel() -> None:
 
     assert source.chapter_calls == 3, "retries must survive the uncancel dance"
     assert result.failed[0].reason == "timeout"
+
+
+class SlowMissingSelectorSource(FaultyPageSource):
+    """Behaves like the browser on a page without the content selector.
+
+    The browser's selector wait gives up after the full --timeout, so the
+    SelectorNotFound arrives only once that much time has passed. A backstop
+    no longer than --timeout wins that race and relabels the failure.
+    """
+
+    def __init__(self, wait: float) -> None:
+        super().__init__(SelectorNotFound("article matched nothing"))
+        self._wait = wait
+
+    async def load_chapter(  # type: ignore[override]
+        self,
+        url: str,
+        *,
+        title_selector: str,
+        content_selector: str,
+    ) -> ChapterPage:
+        self.chapter_calls += 1
+        await asyncio.sleep(self._wait)
+        raise self._error
+
+
+async def test_a_selector_wait_that_uses_the_whole_timeout_is_not_a_timeout() -> None:
+    timeout = 0.05
+    source = SlowMissingSelectorSource(wait=timeout)
+    fetcher = Fetcher(
+        source,
+        guard=GUARD,
+        sink=NullSink(),
+        options=FetchOptions(timeout=timeout, retries=2, min_delay=0.0, wait_after_load=0.0),
+        limiter=RateLimiter(min_interval=0.0),
+        now=lambda: FIXED_TIME,
+    )
+    result = await fetcher.run(TOC, SELECTORS)
+
+    assert result.failed[0].reason == "selector_not_found"
+    assert source.chapter_calls == 1, "a missing selector is never retried"
+    assert result.accounts_for_every_link()

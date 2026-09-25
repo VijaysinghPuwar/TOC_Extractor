@@ -70,6 +70,11 @@ async def _only_page_errors(awaitable: Awaitable[_T], *, context: str) -> _T:
         raise PageError(f"{context}: {type(exc).__name__}: {exc}") from exc
 
 
+# Three waits each capped at --timeout (navigation, title, content), plus a
+# margin so the backstop never ties with the last of them. See Fetcher._load.
+_BACKSTOP_FACTOR = 3.1
+
+
 @dataclass(frozen=True, slots=True)
 class FetchOptions:
     """Everything the loop needs that is not a collaborator."""
@@ -326,13 +331,22 @@ class Fetcher:
         # than adding a second knob. Navigation timeouts alone do not cover a
         # selector evaluation that never settles.
         #
+        # The cap sits above the source's own waits, not level with them. The
+        # browser spends up to --timeout on each of navigation, the title, and
+        # the content. A cap equal to --timeout always fired just before the
+        # selector wait gave up, so a page that loaded fine but lacked the
+        # selector was reported as a timeout and retried, instead of as
+        # SelectorNotFound, which is never retried. The backstop is for a
+        # source that hangs outside its own waits.
+        #
         # asyncio raises its own TimeoutError, which is outside the PageError
         # vocabulary the retry rules are written against. Translating here is
         # what keeps _fetch_one's except clauses exhaustive; without it the
         # error escapes the task group instead of being retried. An external
         # cancellation still arrives as CancelledError and is left alone.
+        backstop = self._options.timeout * _BACKSTOP_FACTOR
         try:
-            async with asyncio.timeout(self._options.timeout):
+            async with asyncio.timeout(backstop):
                 page = await _only_page_errors(
                     self._source.load_chapter(
                         url,
@@ -342,7 +356,7 @@ class Fetcher:
                     context=url,
                 )
         except TimeoutError as exc:
-            raise PageTimeout(f"{url} did not settle within {self._options.timeout}s") from exc
+            raise PageTimeout(f"{url} did not settle within {backstop:g}s") from exc
         if self._options.wait_after_load > 0:
             await self._sleep(self._options.wait_after_load)
         return page
