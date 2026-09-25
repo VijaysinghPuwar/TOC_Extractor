@@ -129,10 +129,17 @@ def test_no_long_dashes() -> None:
     assert "\u2013" not in README
 
 
-@pytest.mark.parametrize("image", ["logo", "how-it-works", "three-buttons"])
+@pytest.mark.parametrize("image", ["logo", "how-it-works"])
 def test_every_readme_image_exists_in_both_themes(image: str) -> None:
     for name in (f"{image}.svg", f"{image}-dark.svg"):
         assert f"docs/images/{name}" in README
+        assert (REPO_ROOT / "docs" / "images" / name).exists(), name
+
+
+def test_every_screenshot_the_readme_shows_exists() -> None:
+    shots = re.findall(r"docs/images/(app-[a-z-]+\.png)", README)
+    assert shots, "the README should show the app"
+    for name in shots:
         assert (REPO_ROOT / "docs" / "images" / name).exists(), name
 
 

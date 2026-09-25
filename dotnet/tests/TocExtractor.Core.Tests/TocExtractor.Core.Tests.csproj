@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>TocExtractor.Core.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <!-- The Python suite's fixtures, read directly rather than copied into this
+       tree. corpus.json holds the inputs and v1_golden.json the outputs v1
+       produced for them; a case added on the Python side reaches these tests on
+       the next build instead of being retyped here and drifting. -->
+  <ItemGroup>
+    <Content Include="../../../tests/golden/corpus.json" Link="golden/corpus.json"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../../tests/golden/v1_golden.json" Link="golden/v1_golden.json"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../../tests/golden/robots_conformance.json"
+             Link="golden/robots_conformance.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/TocExtractor.Core/TocExtractor.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

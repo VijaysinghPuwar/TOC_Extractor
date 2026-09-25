@@ -7,7 +7,8 @@ PYTHON ?= python3
 VENV := .venv
 BIN := $(VENV)/bin
 
-.PHONY: help setup deps check-tk lint fmt typecheck test test-fast test-browser run gui clean
+.PHONY: help setup deps check-tk lint fmt typecheck test test-fast test-browser run gui clean \
+        cs-build cs-test cs-lint cs-fmt cs-clean
 
 help:
 	@echo "setup        deps, plus Chromium and a Tk check (what you want locally)"
@@ -21,6 +22,15 @@ help:
 	@echo "run          run the CLI: make run ARGS='--toc ... --link ...'"
 	@echo "gui          open the graphical front end"
 	@echo "clean        remove the venv and tooling caches"
+	@echo ""
+	@echo "cs-build     build the C# solution"
+	@echo "cs-test      run the C# suite (no browser)"
+	@echo "cs-test-browser  only the C# browser tests"
+	@echo "cs-browser-install  download Chromium for the C# browser tests"
+	@echo "cs-lint      build with warnings as errors + format check"
+	@echo "cs-fmt       apply C# formatting"
+	@echo "cs-run       run the C# CLI: make cs-run ARGS='--toc ... --link ...'"
+	@echo "cs-clean     remove C# build output"
 
 $(BIN)/python:
 	$(PYTHON) -m venv $(VENV)
@@ -82,3 +92,48 @@ gui:
 clean:
 	rm -rf $(VENV) .mypy_cache .ruff_cache .pytest_cache
 	find . -name __pycache__ -type d -prune -exec rm -rf {} +
+
+# -- C# ----------------------------------------------------------------------
+# The second implementation. Same invariants, same golden corpus; see
+# dotnet/README.md for what is shared and what is deliberately different.
+
+SLN := dotnet/TocExtractor.slnx
+export DOTNET_CLI_TELEMETRY_OPTOUT := 1
+export DOTNET_NOLOGO := 1
+
+cs-build:
+	dotnet build $(SLN)
+
+# The browser tests are a separate project so this stays fast and needs no
+# Chromium, mirroring how the Python suite deselects its browser marker.
+CS_CORE := dotnet/tests/TocExtractor.Core.Tests
+CS_BROWSER := dotnet/tests/TocExtractor.Browser.Tests
+
+CS_CLI := dotnet/tests/TocExtractor.Cli.Tests
+
+cs-test:
+	dotnet test $(CS_CORE)
+	dotnet test $(CS_CLI)
+
+cs-test-browser:
+	dotnet test $(CS_BROWSER)
+
+# No pwsh on every machine, so the driver's own node runs its CLI.
+cs-browser-install: cs-build
+	cd $(CS_BROWSER)/bin/Debug/net10.0 && \
+		./.playwright/node/linux-x64/node ./.playwright/package/cli.js install chromium
+
+# Warnings are already errors via Directory.Build.props; the format check is
+# the part a plain build does not cover.
+cs-lint:
+	dotnet build $(SLN)
+	dotnet format $(SLN) --verify-no-changes
+
+cs-fmt:
+	dotnet format $(SLN)
+
+cs-run:
+	dotnet run --project dotnet/src/TocExtractor.Cli -- $(ARGS)
+
+cs-clean:
+	rm -rf dotnet/src/*/bin dotnet/src/*/obj dotnet/tests/*/bin dotnet/tests/*/obj

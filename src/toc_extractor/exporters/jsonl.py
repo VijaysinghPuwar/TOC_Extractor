@@ -104,6 +104,6 @@ class JsonlExporter:
 
         self._lines.sort(key=lambda entry: entry.get("index", 0))  # type: ignore[arg-type,return-value]
         path = self._dir / MANIFEST_NAME
-        with path.open("w", encoding="utf-8") as handle:
+        with path.open("w", encoding="utf-8", newline="\n") as handle:
             for line in [*self._lines, summary]:
                 handle.write(json.dumps(line, ensure_ascii=False) + "\n")

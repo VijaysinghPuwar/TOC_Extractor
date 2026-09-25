@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>TocExtractor.App.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <!-- The same dictionary-backed page source the fetch loop is tested with,
+       linked rather than copied so the two cannot drift. -->
+  <ItemGroup>
+    <Compile Include="../TocExtractor.Core.Tests/Fetching/StubPageSource.cs" Link="Stubs/StubPageSource.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/TocExtractor.App/TocExtractor.App.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

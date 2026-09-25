@@ -393,6 +393,18 @@ async def test_an_unchanged_chapter_file_passes_verification(tmp_path: Path) -> 
     assert all(f"Chapter {i}" in combined for i in (1, 2, 3))
 
 
+async def test_every_file_is_written_with_plain_newlines(tmp_path: Path) -> None:
+    """Windows would write CRLF, and the recorded hashes would then never match."""
+    await export(TextExporter(tmp_path), [record(1), record(2)])
+    await export(MarkdownExporter(tmp_path), [record(1), record(2)])
+    await export(JsonlExporter(tmp_path), [record(1), record(2)])
+
+    written = [path for path in tmp_path.iterdir() if path.is_file()]
+    assert written
+    for path in written:
+        assert b"\r" not in path.read_bytes(), path.name
+
+
 async def test_a_checkpoint_without_a_hash_still_resumes(tmp_path: Path) -> None:
     """Checkpoints written before the hash existed must not become unusable."""
     await export(TextExporter(tmp_path), [record(1)])

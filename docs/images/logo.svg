@@ -1,11 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="440" height="96" viewBox="0 0 440 96" role="img" aria-label="TOC Extractor">
-  <g fill="none" stroke="#000000" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="6" y="10" width="60" height="76" rx="6"/>
-    <line x1="20" y1="30" x2="24" y2="30"/><line x1="32" y1="30" x2="54" y2="30"/>
-    <line x1="20" y1="48" x2="24" y2="48"/><line x1="32" y1="48" x2="54" y2="48"/>
-    <line x1="20" y1="66" x2="24" y2="66"/><line x1="32" y1="66" x2="46" y2="66"/>
-    <path d="M74 48 h14 m-6 -6 l6 6 l-6 6"/>
+  <g transform="translate(8 8) scale(0.03231) translate(-938.0 -810.0)">
+  <g fill="none" stroke="#000000" stroke-width="171" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 2815.5 2347 L 2815.5 2986.5 A 214 214 0 0 1 2601.5 3200.5 L 1237.5 3200.5 A 214 214 0 0 1 1023.5 2986.5 L 1023.5 1109.5 A 214 214 0 0 1 1237.5 895.5 L 2601.5 895.5 A 214 214 0 0 1 2815.5 1109.5 L 2815.5 1748"/>
+    <line x1="1365.5" y1="1450" x2="1450.5" y2="1450"/><line x1="1730.5" y1="1450" x2="2474.5" y2="1450"/><line x1="1365.5" y1="2047.5" x2="1450.5" y2="2047.5"/><line x1="1730.5" y1="2047.5" x2="2474.5" y2="2047.5"/><line x1="1365.5" y1="2645" x2="1450.5" y2="2645"/><line x1="1730.5" y1="2645" x2="2474.5" y2="2645"/>
+    <line x1="2814.5" y1="2048" x2="3296" y2="2048"/>
+    <polyline points="3088 1834 3296 2048 3088 2262"/>
   </g>
+</g>
   <text x="104" y="58" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="36" font-weight="700" fill="#000000">TOC Extractor</text>
-  <text x="106" y="82" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" fill="#000000">contents page in, chapter files out</text>
+  <text x="106" y="82" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" fill="#000000">any chapters of a web novel, as TXT or PDF</text>
 </svg>

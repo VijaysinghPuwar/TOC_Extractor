@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 
 from .models import ChapterRecord, FailedChapter, RunResult
 from .pagesource import (
+    ChapterLocked,
     ChapterPage,
     PageBlocked,
     PageError,
@@ -311,9 +312,10 @@ class Fetcher:
                         attempt,
                     )
                     return
-                except (PageBlocked, SelectorNotFound) as exc:
-                    # Neither is worth retrying: the target is disallowed, or
-                    # the page loaded fine and simply lacks the selector.
+                except (PageBlocked, SelectorNotFound, ChapterLocked) as exc:
+                    # None is worth retrying: the target is disallowed, the
+                    # page loaded fine and simply lacks the selector, or it is
+                    # locked to visitors and will be locked again.
                     self._record_failure(progress, index, url, exc, attempt)
                     return
                 except PageError as exc:
@@ -427,6 +429,8 @@ def _reason_for(exc: PageError) -> str:
         return exc.reason.value
     if isinstance(exc, SelectorNotFound):
         return "selector_not_found"
+    if isinstance(exc, ChapterLocked):
+        return "locked"
     return "error"
 
 

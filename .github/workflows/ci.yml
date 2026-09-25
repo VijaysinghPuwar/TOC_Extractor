@@ -20,6 +20,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # test_readme.py checks that the v1.0.0 tag still resolves, and a
+          # default checkout fetches no tags.
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PRIMARY_PYTHON }}
@@ -31,6 +35,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # test_readme.py checks that the v1.0.0 tag still resolves, and a
+          # default checkout fetches no tags.
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PRIMARY_PYTHON }}
@@ -49,32 +57,112 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # Full history, so the release tags test_readme checks are present.
+          # test_readme.py checks that the v1.0.0 tag still resolves, and a
+          # default checkout fetches no tags.
           fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - run: make deps
-      - name: Confirm the GUI is importable without Tk
-        # gui.bridge and gui.worker must never import Tk, so a headless
-        # install can still use them. The setup-python builds ship with Tk,
-        # so rather than assume its absence, block the import outright: a
-        # None entry in sys.modules makes any `import tkinter` raise.
+      - name: Confirm the GUI bridge and worker import without Tk
+        # The invariant is that these two modules never import Tk, so the GUI
+        # state machine stays testable without a display. Asserting the runner
+        # has no _tkinter tested the runner instead, and broke the day the
+        # images started shipping it - which is also why it could never run
+        # meaningfully on a developer machine that has Tk. Blocking the import
+        # tests the actual rule, anywhere.
         run: |
           .venv/bin/python -c "
           import sys
           sys.modules['tkinter'] = None
+          try:
+              import tkinter
+          except ImportError:
+              pass
+          else:
+              raise SystemExit('could not make tkinter unimportable')
           import toc_extractor.gui.bridge, toc_extractor.gui.worker
-          print('gui.bridge and gui.worker import without Tk')
+          print('gui.bridge and gui.worker import with tkinter unavailable')
           "
       - run: make test-fast
+
+  dotnet:
+    # The C# implementation on every system the desktop app ships for.
+    # Pinned by global.json so a runner image bump cannot quietly change the
+    # SDK the build was verified against.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - run: dotnet restore dotnet/TocExtractor.slnx
+      - run: dotnet build dotnet/TocExtractor.slnx --no-restore
+      - name: Formatting
+        if: runner.os == 'Linux'
+        run: dotnet format dotnet/TocExtractor.slnx --verify-no-changes --no-restore
+      - name: Core tests
+        run: dotnet test --project dotnet/tests/TocExtractor.Core.Tests --no-build
+      - name: App tests
+        run: dotnet test --project dotnet/tests/TocExtractor.App.Tests --no-build
+      - name: CLI tests
+        run: dotnet test --project dotnet/tests/TocExtractor.Cli.Tests --no-build
+      - name: Desktop window tests (headless)
+        run: dotnet test --project dotnet/tests/TocExtractor.Desktop.Tests --no-build
+
+  test-windows:
+    # The Python tool on Windows: paths, file names and line endings are
+    # where a Unix-only assumption would show.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PRIMARY_PYTHON }}
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -m "not browser"
+
+  dotnet-browser:
+    # One job, because Chromium is the only thing this downloads.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # test_readme.py checks that the v1.0.0 tag still resolves, and a
+          # default checkout fetches no tags.
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - run: dotnet build dotnet/tests/TocExtractor.Browser.Tests
+      - name: Cache the browser build
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-dotnet-${{ runner.os }}-${{ hashFiles('dotnet/Directory.Packages.props') }}
+      - name: Install Chromium
+        working-directory: dotnet/tests/TocExtractor.Browser.Tests/bin/Debug/net10.0
+        run: ./.playwright/node/linux-x64/node ./.playwright/package/cli.js install --with-deps chromium
+      - run: dotnet test --project dotnet/tests/TocExtractor.Browser.Tests --no-build
 
   test-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
         with:
+          # test_readme.py checks that the v1.0.0 tag still resolves, and a
+          # default checkout fetches no tags.
           fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
@@ -88,6 +176,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # test_readme.py checks that the v1.0.0 tag still resolves, and a
+          # default checkout fetches no tags.
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PRIMARY_PYTHON }}

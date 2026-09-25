@@ -1,0 +1,389 @@
+{
+  "clean_text": {
+    "changing": [],
+    "pinned": [
+      {
+        "id": "empty",
+        "reason": "",
+        "tags": [],
+        "value": ""
+      },
+      {
+        "id": "whitespace_only",
+        "reason": "",
+        "tags": [],
+        "value": "   \n\t  \n  "
+      },
+      {
+        "id": "plain",
+        "reason": "",
+        "tags": [],
+        "value": "A quiet sentence with nothing to strip."
+      },
+      {
+        "id": "ad_marker_simple",
+        "reason": "",
+        "tags": [],
+        "value": "Chapter text.\nAds by PubRev\nMore text."
+      },
+      {
+        "id": "ad_marker_case",
+        "reason": "",
+        "tags": [],
+        "value": "Text.\nADS BY SomeVendor\nsponsored   content\nEnd."
+      },
+      {
+        "id": "ad_marker_trailing_punct",
+        "reason": "",
+        "tags": [],
+        "value": "Before. Ads by Vendor. After."
+      },
+      {
+        "id": "ad_marker_multiword_vendor",
+        "reason": "",
+        "tags": [],
+        "value": "Ads by Big Ad Network here"
+      },
+      {
+        "id": "ad_marker_no_space",
+        "reason": "",
+        "tags": [],
+        "value": "AdsbyVendor stays intact"
+      },
+      {
+        "id": "sponsored_newline_between",
+        "reason": "",
+        "tags": [],
+        "value": "Sponsored\nContent removed"
+      },
+      {
+        "id": "url_bare",
+        "reason": "",
+        "tags": [],
+        "value": "See https://example.com/page for details."
+      },
+      {
+        "id": "url_trailing_period",
+        "reason": "",
+        "tags": [],
+        "value": "See https://example.com/page. Next sentence."
+      },
+      {
+        "id": "url_http",
+        "reason": "",
+        "tags": [],
+        "value": "Visit http://example.org now"
+      },
+      {
+        "id": "url_in_parens",
+        "reason": "",
+        "tags": [],
+        "value": "(https://example.com/x) after"
+      },
+      {
+        "id": "url_multiple",
+        "reason": "",
+        "tags": [],
+        "value": "a https://a.com b http://b.com c"
+      },
+      {
+        "id": "url_not_a_scheme",
+        "reason": "",
+        "tags": [],
+        "value": "ftp://example.com survives"
+      },
+      {
+        "id": "ws_trailing_before_newline",
+        "reason": "",
+        "tags": [],
+        "value": "line one   \nline two"
+      },
+      {
+        "id": "ws_leading_after_newline",
+        "reason": "",
+        "tags": [],
+        "value": "line one\n    line two"
+      },
+      {
+        "id": "ws_triple_newline",
+        "reason": "",
+        "tags": [],
+        "value": "a\n\n\nb"
+      },
+      {
+        "id": "ws_many_newlines",
+        "reason": "",
+        "tags": [],
+        "value": "a\n\n\n\n\n\nb"
+      },
+      {
+        "id": "ws_double_newline_kept",
+        "reason": "",
+        "tags": [],
+        "value": "a\n\nb"
+      },
+      {
+        "id": "ws_crlf",
+        "reason": "",
+        "tags": [],
+        "value": "a\r\nb\r\n\r\n\r\nc"
+      },
+      {
+        "id": "ws_tabs",
+        "reason": "",
+        "tags": [],
+        "value": "a\tb\n\tc"
+      },
+      {
+        "id": "ws_nbsp",
+        "reason": "",
+        "tags": [],
+        "value": "a\u00a0b\n\u00a0c"
+      },
+      {
+        "id": "combined_url_then_ws",
+        "reason": "",
+        "tags": [],
+        "value": "Read this:\n\nhttps://example.com/a\n\n\nThen this."
+      },
+      {
+        "id": "combined_ad_then_ws",
+        "reason": "",
+        "tags": [],
+        "value": "Para one.\n\nAds by X\n\n\nPara two."
+      },
+      {
+        "id": "unicode_text",
+        "reason": "",
+        "tags": [],
+        "value": "\u00dcn\u00efc\u00f6d\u00e9 \u2014 em dash, \u201csmart quotes\u201d, \u4e2d\u6587\u5b57\u7b26, emoji \ud83d\ude42"
+      },
+      {
+        "id": "long_paragraph",
+        "reason": "",
+        "tags": [],
+        "value": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word"
+      }
+    ]
+  },
+  "clean_text_combos": [
+    {
+      "name": "default",
+      "remove_links": true,
+      "strip_ads": true
+    },
+    {
+      "name": "include_links",
+      "remove_links": false,
+      "strip_ads": true
+    },
+    {
+      "name": "no_strip_ads",
+      "remove_links": true,
+      "strip_ads": false
+    },
+    {
+      "name": "include_links_no_strip_ads",
+      "remove_links": false,
+      "strip_ads": false
+    }
+  ],
+  "safe_filename": {
+    "changing": [
+      {
+        "id": "nfd_input",
+        "reason": "macOS hands back NFD from the filesystem while the DOM supplies NFC. v1 passes both through unchanged, so a title read from disk stops matching the same title read from the page. v2 normalises to NFC.",
+        "tags": [
+          "macos",
+          "nfc"
+        ],
+        "value": "Cafe\u0301 Chapter"
+      },
+      {
+        "id": "nfc_input",
+        "reason": "Paired with nfd_input: both must land on the same NFC output in v2.",
+        "tags": [
+          "macos",
+          "nfc"
+        ],
+        "value": "Caf\u00e9 Chapter"
+      },
+      {
+        "id": "colon_macos",
+        "reason": "v1 already maps ':' to '_' via the forbidden class, so this is pinned in practice. Listed here because Finder displays ':' as '/' and the README needs to explain why titles with colons look odd.",
+        "tags": [
+          "macos"
+        ],
+        "value": "Chapter 1: The Beginning"
+      },
+      {
+        "id": "leading_dot",
+        "reason": "v1 keeps the dot, which hides the file in Finder and ls. v2 strips it.",
+        "tags": [
+          "macos"
+        ],
+        "value": ".hidden chapter"
+      },
+      {
+        "id": "leading_dots_multiple",
+        "reason": "Same as leading_dot; v2 strips the whole leading run.",
+        "tags": [
+          "macos"
+        ],
+        "value": "...three dots"
+      },
+      {
+        "id": "cjk_over_255_bytes",
+        "reason": "120 CJK chars is 360 UTF-8 bytes. v1 caps at 150 characters (450 bytes), which overruns the 255-byte APFS limit on a name that v1 considers short enough. v2 caps on encoded bytes.",
+        "tags": [
+          "bytes",
+          "macos"
+        ],
+        "value": "\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0\u7ae0"
+      },
+      {
+        "id": "emoji_over_255_bytes",
+        "reason": "100 emoji is 400 UTF-8 bytes; v2 must not split a character mid-sequence.",
+        "tags": [
+          "bytes",
+          "macos"
+        ],
+        "value": "\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42\ud83d\ude42"
+      },
+      {
+        "id": "case_collision_upper",
+        "reason": "APFS is case-insensitive by default, so this and case_collision_lower resolve to the same file. v1 silently overwrites; v2 deduplicates with a numeric suffix and logs it.",
+        "tags": [
+          "collision",
+          "macos"
+        ],
+        "value": "Chapter One"
+      },
+      {
+        "id": "case_collision_lower",
+        "reason": "Paired with case_collision_upper.",
+        "tags": [
+          "collision",
+          "macos"
+        ],
+        "value": "chapter one"
+      }
+    ],
+    "pinned": [
+      {
+        "id": "empty",
+        "reason": "",
+        "tags": [],
+        "value": ""
+      },
+      {
+        "id": "whitespace_only",
+        "reason": "",
+        "tags": [],
+        "value": "   "
+      },
+      {
+        "id": "plain",
+        "reason": "",
+        "tags": [],
+        "value": "Chapter One"
+      },
+      {
+        "id": "already_clean",
+        "reason": "",
+        "tags": [],
+        "value": "Chapter 12 - The Long Road"
+      },
+      {
+        "id": "tabs_newlines",
+        "reason": "",
+        "tags": [],
+        "value": "Chapter\tOne\nPart\rTwo"
+      },
+      {
+        "id": "collapse_spaces",
+        "reason": "",
+        "tags": [],
+        "value": "Chapter    One     Again"
+      },
+      {
+        "id": "leading_trailing_space",
+        "reason": "",
+        "tags": [],
+        "value": "   Chapter One   "
+      },
+      {
+        "id": "forbidden_single",
+        "reason": "",
+        "tags": [],
+        "value": "Chapter/One"
+      },
+      {
+        "id": "forbidden_each_once",
+        "reason": "",
+        "tags": [],
+        "value": "a\\b/c:d*e?f\"g<h>i|j"
+      },
+      {
+        "id": "forbidden_run_two",
+        "reason": "",
+        "tags": [],
+        "value": "Chapter//One"
+      },
+      {
+        "id": "forbidden_run_mixed",
+        "reason": "",
+        "tags": [],
+        "value": "Chapter<<>>One"
+      },
+      {
+        "id": "forbidden_run_long",
+        "reason": "",
+        "tags": [],
+        "value": "a////////b"
+      },
+      {
+        "id": "forbidden_only",
+        "reason": "",
+        "tags": [],
+        "value": "///"
+      },
+      {
+        "id": "windows_path",
+        "reason": "",
+        "tags": [],
+        "value": "C:\\Users\\me\\file.txt"
+      },
+      {
+        "id": "url_as_title",
+        "reason": "",
+        "tags": [],
+        "value": "https://example.com/chapter/1"
+      },
+      {
+        "id": "length_149",
+        "reason": "",
+        "tags": [],
+        "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      {
+        "id": "length_150",
+        "reason": "",
+        "tags": [],
+        "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      {
+        "id": "length_151",
+        "reason": "",
+        "tags": [],
+        "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      {
+        "id": "length_300",
+        "reason": "",
+        "tags": [],
+        "value": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+      }
+    ]
+  }
+}

@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Everything a front end needs that is not a widget: profiles, the
+       extraction pipeline, robots setup, and the desktop session. Shared by
+       the command line and the desktop app so both run one code path. -->
+
+  <PropertyGroup>
+    <RootNamespace>TocExtractor.App</RootNamespace>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Tomlyn" />
+  </ItemGroup>
+
+  <!-- The page detection scripts run inside the browser; kept as .js files
+       so they read and diff as JavaScript. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Scanning/Scripts/*.js" LogicalName="%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../TocExtractor.Core/TocExtractor.Core.csproj" />
+    <ProjectReference Include="../TocExtractor.Browser/TocExtractor.Browser.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="TocExtractor.App.Tests" />
+    <InternalsVisibleTo Include="TocExtractor.Cli.Tests" />
+  </ItemGroup>
+
+</Project>

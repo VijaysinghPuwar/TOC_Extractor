@@ -305,7 +305,7 @@ async def _extract(
     # step against a new site, and it has to produce the file it promises.
     if args.dump_html and collected.toc.html is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
-        (output_dir / "toc.html").write_text(collected.toc.html, encoding="utf-8")
+        (output_dir / "toc.html").write_text(collected.toc.html, encoding="utf-8", newline="\n")
 
     if options.dry_run:
         for position, url in enumerate(collected.kept, start=1):

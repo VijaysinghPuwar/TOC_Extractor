@@ -1,0 +1,28 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+trim_trailing_whitespace = true
+
+[*.{cs,csproj,props,targets,slnx}]
+indent_size = 4
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+[*.cs]
+csharp_using_directive_placement = outside_namespace:error
+csharp_style_namespace_declarations = file_scoped:error
+csharp_style_var_for_built_in_types = false:suggestion
+csharp_style_prefer_primary_constructors = true:suggestion
+dotnet_style_namespace_match_folder = true:error
+dotnet_style_require_accessibility_modifiers = for_non_interface_members:error
+dotnet_diagnostic.IDE0005.severity = error
+
+[tests/**/*.cs]
+# Test names are sentences describing the behaviour under test, so they carry
+# underscores. CA1707 is a public-API naming rule and these are not public API.
+dotnet_diagnostic.CA1707.severity = none

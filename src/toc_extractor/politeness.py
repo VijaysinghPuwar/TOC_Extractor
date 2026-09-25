@@ -7,12 +7,14 @@ fetcher composes it. No module in this file imports Playwright.
 from __future__ import annotations
 
 import asyncio
+import functools
 import ipaddress
+import math
+import re
 import socket
 import time
 import urllib.error
 import urllib.request
-import urllib.robotparser
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -224,6 +226,10 @@ def build_url_guard(*, allow_private_hosts: bool = False) -> UrlGuard:
     return UrlGuard(allow_private_hosts=allow_private_hosts)
 
 
+_REPEATED_STARS = re.compile(r"\*{2,}")
+_REPEATED_ANCHORS = re.compile(r"\$[$*]+")
+
+
 @dataclass(frozen=True, slots=True)
 class RobotsRule:
     """One directive from robots.txt, with the line it came from."""
@@ -239,47 +245,101 @@ class RobotsRule:
             f"{self.line_number} (User-agent: {self.user_agent})"
         )
 
+    @property
+    def allows(self) -> bool:
+        # An empty Disallow means "allow everything", not "disallow everything".
+        return self.directive == "allow" or not self.value
+
+    def specificity(self, path: str) -> int:
+        """How specifically this rule matches `path`, or zero when it does not.
+
+        The matched length plus one, so a zero-length match is still
+        distinguishable from no match. Longer wins, which is what lets
+        `Allow: /members/public/` override `Disallow: /members/` wherever it
+        appears in the file.
+        """
+        pattern, anchored, matcher = _compile(self.value)
+        if matcher is not None:
+            match = matcher.match(path)
+            if match is None:
+                return 0
+            length = match.end()
+            return 0 if anchored and length != len(path) else length + 1
+        if anchored:
+            return len(pattern) + 1 if path == pattern else 0
+        return len(pattern) + 1 if path.startswith(pattern) else 0
+
+
+@functools.lru_cache(maxsize=1024)
+def _compile(value: str) -> tuple[str, bool, re.Pattern[str] | None]:
+    """Normalise a robots path, and build a matcher when it has wildcards.
+
+    `*` matches any run of characters and a trailing `$` pins the end, per
+    RFC 9309. Matching starts at the beginning of the path: a rule is a prefix,
+    so `Disallow: /a*` covers `/a/b` and not `/x/a/b`.
+    """
+    path = _REPEATED_ANCHORS.sub("$", _REPEATED_STARS.sub("*", value))
+    anchored = path.endswith("$")
+    path = path.rstrip("$")
+    if "*" not in path:
+        return path, anchored, None
+    parts = [re.escape(part) for part in path.split("*")]
+    middle = "".join(f"(?>.*?{part})" for part in parts[1:-1])
+    return path, anchored, re.compile(parts[0] + middle + ".*" + parts[-1], re.DOTALL)
+
 
 @dataclass(frozen=True, slots=True)
 class RobotsPolicy:
     """A parsed robots.txt for one origin.
 
-    The allow/deny decision comes from urllib.robotparser, which handles the
-    precedence rules. The matching rule is located separately, because
-    robotparser exposes no way to ask which directive decided an answer, and
-    the post-gate warning has to name it.
+    One evaluation answers both questions this is asked: whether a URL may be
+    fetched, and which directive decided. Earlier versions deferred the first
+    to urllib.robotparser and located the rule with a second algorithm, and the
+    two could disagree. robotparser itself also changed between Python
+    versions: before 3.13 it ignored `*` and `$` and took the first matching
+    rule rather than the longest, so the same robots.txt gave different
+    answers on different interpreters. The rules here follow RFC 9309 on every
+    version, and match the C# implementation case for case.
     """
 
     origin: str
     user_agent: str
     crawl_delay: float | None
-    _parser: urllib.robotparser.RobotFileParser
     _rules: tuple[RobotsRule, ...] = field(default=())
     fetched: bool = True
 
     def can_fetch(self, url: str) -> bool:
+        return self._evaluate(url)[0]
+
+    def matched_rule(self, url: str) -> RobotsRule | None:
+        """The directive that refused `url`, or None if it was permitted."""
+        allowed, decided = self._evaluate(url)
+        return None if allowed else decided
+
+    def _evaluate(self, url: str) -> tuple[bool, RobotsRule | None]:
         if not self.fetched:
             # An origin with no reachable robots.txt is treated as permitted,
             # which is what RFC 9309 specifies for a 404.
-            return True
-        return self._parser.can_fetch(self.user_agent, url)
-
-    def matched_rule(self, url: str) -> RobotsRule | None:
-        """The most specific Disallow directive covering `url`, if any."""
+            return True, None
         path = urlparse(url).path or "/"
-        best: RobotsRule | None = None
+        best = 0
+        allowed = True
+        decided: RobotsRule | None = None
         for rule in self._rules:
-            if rule.directive != "disallow" or not rule.value:
+            specificity = rule.specificity(path)
+            if specificity == 0:
                 continue
-            if path.startswith(rule.value) and (best is None or len(rule.value) > len(best.value)):
-                best = rule
-        return best
+            # Longer wins; on a tie an Allow beats a Disallow.
+            if specificity > best or (specificity == best and not allowed and rule.allows):
+                best, allowed, decided = specificity, rule.allows, rule
+        return allowed, decided
 
 
 @dataclass(slots=True)
 class _Group:
     agents: list[str]
     rules: list[RobotsRule]
+    crawl_delay: float | None = None
 
 
 def _parse_groups(content: str) -> list[_Group]:
@@ -288,9 +348,9 @@ def _parse_groups(content: str) -> list[_Group]:
     current: _Group | None = None
     previous_was_agent = False
 
-    for number, raw_line in enumerate(content.splitlines(), start=1):
+    for number, raw_line in enumerate(content.split("\n"), start=1):
         line = raw_line.split("#", 1)[0].strip()
-        if not line or ":" not in line:
+        if ":" not in line:
             continue
 
         key, _, value = line.partition(":")
@@ -308,16 +368,24 @@ def _parse_groups(content: str) -> list[_Group]:
             continue
 
         previous_was_agent = False
-        if key not in {"disallow", "allow"} or current is None:
+        if current is None:
             continue
-        current.rules.append(
-            RobotsRule(
-                directive=key,
-                value=value,
-                line_number=number,
-                user_agent=current.agents[-1] if current.agents else "*",
+        if key in {"disallow", "allow"}:
+            current.rules.append(
+                RobotsRule(
+                    directive=key,
+                    value=value,
+                    line_number=number,
+                    user_agent=current.agents[-1] if current.agents else "*",
+                )
             )
-        )
+        elif key == "crawl-delay":
+            try:
+                seconds = float(value)
+            except ValueError:
+                continue
+            if seconds >= 0 and math.isfinite(seconds):
+                current.crawl_delay = seconds
 
     return groups
 
@@ -326,12 +394,14 @@ def _applicable_group(groups: list[_Group], user_agent: str) -> _Group | None:
     """The one group that governs `user_agent`.
 
     robots.txt precedence is winner-takes-all: if a group names this agent, the
-    wildcard group does not apply at all. Collecting rules from both would let
-    matched_rule() name a directive that can_fetch() correctly ignored.
+    wildcard group does not apply at all. Matching is on the product token,
+    the part before any slash, compared case-insensitively, per RFC 9309. So
+    "TOCExtractor/2.0" joins a "TOCExtractor" group and "MyTOCExtractorBot"
+    does not.
     """
-    wanted = user_agent.lower()
+    token = user_agent.split("/", 1)[0].strip().lower()
     for group in groups:
-        if any(agent != "*" and wanted.startswith(agent) for agent in group.agents):
+        if any(agent != "*" and agent == token for agent in group.agents):
             return group
     for group in groups:
         if "*" in group.agents:
@@ -346,34 +416,21 @@ def parse_robots(
     user_agent: str = DEFAULT_USER_AGENT,
 ) -> RobotsPolicy:
     """Parse robots.txt text, keeping line numbers for the rules that apply."""
-    parser = urllib.robotparser.RobotFileParser()
-    parser.parse(content.splitlines())
-
     group = _applicable_group(_parse_groups(content), user_agent)
-    rules = tuple(group.rules) if group is not None else ()
-
-    delay = parser.crawl_delay(user_agent)
-    crawl_delay = float(delay) if delay is not None else None
-
     return RobotsPolicy(
         origin=origin,
         user_agent=user_agent,
-        crawl_delay=crawl_delay,
-        _parser=parser,
-        _rules=rules,
+        crawl_delay=group.crawl_delay if group is not None else None,
+        _rules=tuple(group.rules) if group is not None else (),
     )
 
 
 def missing_robots(origin: str, *, user_agent: str = DEFAULT_USER_AGENT) -> RobotsPolicy:
     """Policy for an origin whose robots.txt could not be fetched."""
-    parser = urllib.robotparser.RobotFileParser()
-    parser.parse([])
     return RobotsPolicy(
         origin=origin,
         user_agent=user_agent,
         crawl_delay=None,
-        _parser=parser,
-        _rules=(),
         fetched=False,
     )
 
