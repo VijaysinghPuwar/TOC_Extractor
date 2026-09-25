@@ -5,238 +5,340 @@
         x:DataType="vm:MainViewModel"
         Title="TOC Extractor"
         Icon="/Assets/app-icon.png"
-        Width="1120" Height="760" MinWidth="760" MinHeight="560"
+        Width="1280" Height="820" MinWidth="940" MinHeight="600"
         WindowStartupLocation="CenterScreen">
 
   <Grid>
-    <Grid>
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="0.36*" MinWidth="300" MaxWidth="420" />
-        <ColumnDefinition Width="*" />
-      </Grid.ColumnDefinitions>
+    <Grid ColumnDefinitions="232,*">
 
-      <!-- Left: which book, which chapters, how to save -->
-      <Border Grid.Column="0" BorderBrush="{DynamicResource Rule}" BorderThickness="0,0,1,0">
-        <ScrollViewer Padding="24">
-          <StackPanel Spacing="24">
-            <StackPanel Orientation="Horizontal" Spacing="12">
-              <Image Source="/Assets/app-icon.png" Width="36" Height="36" />
-              <TextBlock Classes="title" Text="TOC Extractor" VerticalAlignment="Center" />
-            </StackPanel>
-
-            <!-- 1. Scan -->
-            <StackPanel Spacing="8">
-              <TextBlock Classes="label" Text="Novel page" />
-              <TextBox x:Name="NovelUrlBox" Text="{Binding NovelUrl}" PlaceholderText="https://"
-                       AutomationProperties.Name="Novel page" IsEnabled="{Binding !FormLocked}" />
-              <Button x:Name="ScanButton" Classes="primary" Content="Scan" Command="{Binding ScanCommand}"
-                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-            </StackPanel>
-
-            <Border x:Name="ScanCard" Classes="card" IsVisible="{Binding HasScan}">
-              <StackPanel Spacing="6">
-                <TextBlock x:Name="BookTitleText" Classes="label" Text="{Binding BookTitle}" TextWrapping="Wrap" />
-                <TextBlock x:Name="ScanSummaryText" Classes="hint" Text="{Binding ScanSummary}" TextWrapping="Wrap" />
-                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0"
-                            IsVisible="{Binding NeedsSignIn}">
-                  <Button x:Name="SignInButton" Classes="quiet" Content="Sign in" Command="{Binding SignInCommand}"
-                          IsVisible="{Binding !IsSigningIn}" />
-                  <Button x:Name="DoneButton" Classes="primary" Content="Done" Command="{Binding FinishSignInCommand}"
-                          IsVisible="{Binding IsSigningIn}" />
-                </StackPanel>
-                <Expander Header="Details" Margin="0,6,0,0" HorizontalAlignment="Stretch"
-                          IsVisible="{Binding HasNotes}">
-                  <ItemsControl ItemsSource="{Binding ScanNotes}">
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="x:String">
-                        <TextBlock Classes="hint" Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,6" />
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                </Expander>
-              </StackPanel>
-            </Border>
-
-            <!-- 2. Choose -->
-            <StackPanel Spacing="8" IsVisible="{Binding ScanReady}" IsEnabled="{Binding !FormLocked}">
-              <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Classes="label" Text="Chapters" VerticalAlignment="Center" />
-                <Button Grid.Column="1" Classes="quiet small" Content="All" Command="{Binding WholeBookCommand}" />
-              </Grid>
-              <Grid ColumnDefinitions="*,Auto,*">
-                <NumericUpDown x:Name="FromBox" Value="{Binding From}" Minimum="{Binding FirstChapter}"
-                               Maximum="{Binding LastChapter}" FormatString="0" AutomationProperties.Name="From chapter" />
-                <TextBlock Grid.Column="1" Classes="hint" Text="to" Margin="10,0" VerticalAlignment="Center" />
-                <NumericUpDown x:Name="ToBox" Grid.Column="2" Value="{Binding To}" Minimum="{Binding FirstChapter}"
-                               Maximum="{Binding LastChapter}" FormatString="0" AutomationProperties.Name="To chapter" />
-              </Grid>
-              <TextBlock x:Name="PlanText" Classes="hint" Text="{Binding PlanSummary}" TextWrapping="Wrap"
-                         IsVisible="{Binding HasPlan}" />
-              <TextBlock Classes="hint" FontWeight="SemiBold" TextWrapping="Wrap" IsVisible="{Binding PlanIsSlow}"
-                         Text="This will take a while. Signing in to the site may let the app open these chapters directly." />
-            </StackPanel>
-
-            <!-- 3. Save -->
-            <StackPanel Spacing="8" IsVisible="{Binding ScanReady}">
-              <TextBlock Classes="label" Text="Save as" />
-              <StackPanel Orientation="Horizontal" Spacing="16" IsEnabled="{Binding !FormLocked}">
-                <CheckBox Content="TXT" IsChecked="{Binding Text}" />
-                <CheckBox Content="PDF" IsChecked="{Binding Pdf}" />
-              </StackPanel>
-              <Grid ColumnDefinitions="*,8,Auto" IsEnabled="{Binding !FormLocked}">
-                <TextBox Text="{Binding OutputDirectory}" AutomationProperties.Name="Output folder" />
-                <Button Grid.Column="2" Classes="quiet" Content="Choose" Command="{Binding ChooseFolderCommand}" />
-              </Grid>
-              <Grid ColumnDefinitions="*,8,Auto" Margin="0,8,0,0">
-                <Button x:Name="SaveButton" Classes="primary" Content="Save" Command="{Binding SaveCommand}"
-                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-                <Button Grid.Column="2" Classes="quiet" Content="Stop" Command="{Binding StopCommand}"
-                        IsVisible="{Binding IsBusy}" />
-              </Grid>
-            </StackPanel>
-
-            <Expander Header="Settings" HorizontalAlignment="Stretch" IsEnabled="{Binding !FormLocked}">
-              <StackPanel Spacing="16">
-                <CheckBox Content="Keep a log (CSV) of every run" IsChecked="{Binding KeepLog}"
-                          ToolTip.Tip="Saved next to the book: every step, and the reason for anything that failed." />
-                <Grid ColumnDefinitions="*,12,*" RowDefinitions="Auto,6,Auto">
-                  <TextBlock Classes="label" Text="At once" />
-                  <NumericUpDown Grid.Row="2" Value="{Binding AtOnce}" Minimum="1" Maximum="4" FormatString="0" />
-                  <TextBlock Grid.Column="2" Classes="label" Text="Delay (s)" />
-                  <Grid Grid.Row="2" Grid.Column="2" ColumnDefinitions="*,4,*">
-                    <NumericUpDown Value="{Binding MinDelay}" Minimum="0" Maximum="60" Increment="0.5" FormatString="0.0"
-                                   ShowButtonSpinner="False" />
-                    <NumericUpDown Grid.Column="2" Value="{Binding MaxDelay}" Minimum="0" Maximum="120" Increment="0.5"
-                                   FormatString="0.0" ShowButtonSpinner="False" />
-                  </Grid>
-                </Grid>
-                <StackPanel Spacing="4">
-                  <CheckBox Content="Keep links in text" IsChecked="{Binding IncludeLinks}" />
-                  <CheckBox Content="Remove ad markers" IsChecked="{Binding StripAds}" />
-                  <CheckBox Content="Start over" IsChecked="{Binding StartOver}"
-                            ToolTip.Tip="Ignore chapters saved earlier for this book" />
-                </StackPanel>
-              </StackPanel>
-            </Expander>
+      <!-- Far left: every extraction, each with its own progress -->
+      <Border Grid.Column="0" Background="{DynamicResource Wash}" BorderBrush="{DynamicResource Rule}"
+              BorderThickness="0,0,1,0">
+        <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto" Margin="16,20,16,16">
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <Image Source="/Assets/app-icon.png" Width="28" Height="28" />
+            <TextBlock Classes="label" FontSize="16" FontWeight="Bold" Text="TOC Extractor" VerticalAlignment="Center" />
           </StackPanel>
-        </ScrollViewer>
-      </Border>
 
-      <!-- Right: progress and what happened -->
-      <Grid Grid.Column="1" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" Margin="32,24,32,24">
+          <Button Grid.Row="1" x:Name="NewJobButton" Classes="primary" Content="+  New extraction"
+                  Command="{Binding NewJobCommand}" Margin="0,20,0,0"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                  ToolTip.Tip="Start another book while the others keep going" />
 
-        <Grid ColumnDefinitions="Auto,*,Auto,*,Auto">
-          <StackPanel Orientation="Horizontal">
-            <Border Classes="step" Classes.current="{Binding IsStep1}" Classes.done="{Binding Step1Done}">
-              <TextBlock Text="1" />
+          <StackPanel Grid.Row="2" Spacing="8" Margin="0,14,0,6">
+            <TextBlock x:Name="RunningText" Classes="hint" Text="{Binding RunningText}"
+                       IsVisible="{Binding RunningText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <Border Classes="notice" Padding="10,8" IsVisible="{Binding HasOtherNeedsPerson}">
+              <TextBlock x:Name="OtherNeedsPersonText" Text="{Binding OtherNeedsPerson}" TextWrapping="Wrap"
+                         FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Ink}" />
             </Border>
-            <TextBlock Classes="steplabel" Classes.current="{Binding IsStep1}" Text="Scan" />
           </StackPanel>
-          <Rectangle Grid.Column="1" Height="1" Fill="{DynamicResource Rule}" Margin="10,0" MinWidth="12" />
-          <StackPanel Grid.Column="2" Orientation="Horizontal">
-            <Border Classes="step" Classes.current="{Binding IsStep2}" Classes.done="{Binding Step2Done}">
-              <TextBlock Text="2" />
-            </Border>
-            <TextBlock Classes="steplabel" Classes.current="{Binding IsStep2}" Text="Choose" />
-          </StackPanel>
-          <Rectangle Grid.Column="3" Height="1" Fill="{DynamicResource Rule}" Margin="10,0" MinWidth="12" />
-          <StackPanel Grid.Column="4" Orientation="Horizontal">
-            <Border Classes="step" Classes.current="{Binding IsStep3}">
-              <TextBlock Text="3" />
-            </Border>
-            <TextBlock Classes="steplabel" Classes.current="{Binding IsStep3}" Text="Save" />
-          </StackPanel>
-        </Grid>
 
-        <TextBlock Grid.Row="1" x:Name="StatusText" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,20,0,0"
-                   Foreground="{DynamicResource Muted}" FontSize="13"
-                   IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-
-        <Border Grid.Row="2" x:Name="PersonNotice" Classes="notice" Margin="0,16,0,0" IsVisible="{Binding PersonNeeded}">
-          <TextBlock x:Name="PersonText" Text="{Binding PersonMessage}" TextWrapping="Wrap" FontWeight="SemiBold"
-                     Foreground="{DynamicResource Ink}" />
-        </Border>
-
-        <Border Grid.Row="3" Classes="notice" Margin="0,16,0,0" IsVisible="{Binding HasProblem}">
-          <Grid ColumnDefinitions="*,Auto">
-            <SelectableTextBlock x:Name="ProblemText" Text="{Binding Problem}" TextWrapping="Wrap"
-                                 Foreground="{DynamicResource Ink}" VerticalAlignment="Center" />
-            <Button Grid.Column="1" Classes="quiet" Content="Dismiss" Command="{Binding DismissProblemCommand}"
-                    Margin="12,0,0,0" />
-          </Grid>
-        </Border>
-
-        <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,16,0,0" IsVisible="{Binding HasOutput}">
-          <ItemsControl ItemsSource="{Binding Files}" VerticalAlignment="Center">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="x:String">
-                <TextBlock Classes="hint mono" Text="{Binding}" TextTrimming="CharacterEllipsis" />
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-          <Button Grid.Column="1" Classes="quiet" Content="Open folder" Command="{Binding OpenFolderCommand}"
-                  Margin="12,0,0,0" />
-        </Grid>
-
-        <Grid Grid.Row="5" RowDefinitions="Auto,*" Margin="0,24,0,0">
-          <Border BorderBrush="{DynamicResource Rule}" BorderThickness="0,0,0,1">
-            <StackPanel Orientation="Horizontal">
-              <Button Classes="tab" Classes.selected="{Binding ShowChapters}" Content="Chapters"
-                      Command="{Binding ShowTabCommand}" CommandParameter="{x:Static vm:Tab.Chapters}" />
-              <Button Classes="tab" Classes.selected="{Binding ShowReader}" Content="Reader"
-                      Command="{Binding ShowTabCommand}" CommandParameter="{x:Static vm:Tab.Reader}" />
-              <Button Classes="tab" Classes.selected="{Binding ShowActivity}" Content="Activity"
-                      Command="{Binding ShowTabCommand}" CommandParameter="{x:Static vm:Tab.Activity}" />
-            </StackPanel>
-          </Border>
-
-          <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*" IsVisible="{Binding ShowChapters}" Margin="0,16,0,0">
-            <TextBlock x:Name="ProgressLine" Text="{Binding ProgressLine}" FontWeight="SemiBold"
-                       Foreground="{DynamicResource Ink}" />
-            <ProgressBar Grid.Row="1" Value="{Binding ProgressPercent}" Maximum="100" Margin="0,8,0,16" />
-            <ListBox Grid.Row="2" Classes="chapters" ItemsSource="{Binding Chapters}"
-                     SelectedItem="{Binding SelectedChapter}" Background="Transparent">
-              <ListBox.ItemTemplate>
-                <DataTemplate x:DataType="vm:ChapterRow">
-                  <Grid ColumnDefinitions="28,56,*,Auto">
-                    <TextBlock Text="{Binding Symbol}" FontSize="14" VerticalAlignment="Center" />
-                    <TextBlock Grid.Column="1" Classes="mono hint" Text="{Binding Number}" VerticalAlignment="Center" />
-                    <TextBlock Grid.Column="2" Text="{Binding Heading}" TextTrimming="CharacterEllipsis"
-                               VerticalAlignment="Center" Foreground="{DynamicResource Ink}" />
-                    <TextBlock Grid.Column="3" Classes="hint" Text="{Binding StatusText}" Margin="16,0,0,0"
-                               VerticalAlignment="Center" MaxWidth="340" TextTrimming="CharacterEllipsis"
-                               ToolTip.Tip="{Binding StatusText}" />
-                  </Grid>
-                </DataTemplate>
-              </ListBox.ItemTemplate>
-            </ListBox>
-          </Grid>
-
-          <Grid Grid.Row="1" IsVisible="{Binding ShowReader}" Margin="0,16,0,0">
-            <TextBlock Classes="hint" IsVisible="{Binding !HasReaderChapter}" Text="Pick a saved chapter to read it." />
-            <Grid RowDefinitions="Auto,*" IsVisible="{Binding HasReaderChapter}">
-              <Grid ColumnDefinitions="*,Auto">
-                <TextBlock x:Name="ReaderTitle" Classes="title" Text="{Binding ReaderTitle}" TextWrapping="Wrap" />
-                <Button Grid.Column="1" Classes="quiet" Content="Copy text" Command="{Binding CopyChapterCommand}" />
-              </Grid>
-              <ScrollViewer Grid.Row="1" Margin="0,16,0,0">
-                <SelectableTextBlock Text="{Binding ReaderText}" TextWrapping="Wrap" FontSize="15" LineHeight="26"
-                                     MaxWidth="720" HorizontalAlignment="Left" Foreground="{DynamicResource Ink}" />
-              </ScrollViewer>
-            </Grid>
-          </Grid>
-
-          <ListBox Grid.Row="1" IsVisible="{Binding ShowActivity}" ItemsSource="{Binding Activity}" Margin="0,16,0,0"
-                   Background="Transparent">
+          <ListBox Grid.Row="3" x:Name="JobList" Classes="jobs" ItemsSource="{Binding Jobs}"
+                   SelectedItem="{Binding SelectedJob}" Background="Transparent"
+                   AutomationProperties.Name="Extractions">
             <ListBox.ItemTemplate>
-              <DataTemplate x:DataType="x:String">
-                <SelectableTextBlock Classes="mono" Text="{Binding}" TextWrapping="Wrap" />
+              <DataTemplate x:DataType="vm:JobViewModel">
+                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto">
+                  <TextBlock Text="{Binding Caption}" FontWeight="SemiBold" FontSize="13"
+                             Foreground="{DynamicResource Ink}" TextTrimming="CharacterEllipsis"
+                             VerticalAlignment="Center" ToolTip.Tip="{Binding Caption}" />
+                  <Button Grid.Column="1" Classes="close" Content="×" Command="{Binding CloseCommand}"
+                          ToolTip.Tip="Close this extraction" AutomationProperties.Name="Close extraction" />
+                  <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Classes="hint" Text="{Binding RailStatus}"
+                             TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" Margin="0,2,0,0" />
+                  <ProgressBar Grid.Row="2" Grid.ColumnSpan="2" Classes="thin" Value="{Binding ProgressPercent}"
+                               Maximum="100" Margin="0,8,0,0" IsVisible="{Binding HasProgress}" />
+                </Grid>
               </DataTemplate>
             </ListBox.ItemTemplate>
           </ListBox>
+
+          <Button Grid.Row="4" x:Name="SettingsButton" Classes="quiet" Content="⚙  Settings"
+                  Command="{Binding OpenSettingsCommand}" Margin="0,12,0,0"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                  ToolTip.Tip="Appearance, pace, and the log folder" />
+          <TextBlock Grid.Row="5" Classes="hint" FontSize="11" Text="{x:Static vm:MainViewModel.VersionText}"
+                     HorizontalAlignment="Center" Margin="0,8,0,0" />
         </Grid>
-      </Grid>
+      </Border>
+
+      <!-- The extraction chosen on the left -->
+      <Border Grid.Column="1" x:Name="JobPane" DataContext="{Binding SelectedJob}">
+        <Grid x:DataType="vm:JobViewModel">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="0.38*" MinWidth="280" MaxWidth="400" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+
+          <!-- Which book, which chapters, how to save -->
+          <Border Grid.Column="0" BorderBrush="{DynamicResource Rule}" BorderThickness="0,0,1,0">
+            <ScrollViewer Padding="24">
+              <StackPanel Spacing="24">
+
+                <!-- 1. Scan -->
+                <StackPanel Spacing="8">
+                  <TextBlock Classes="label" Text="Novel page" />
+                  <TextBox x:Name="NovelUrlBox" Text="{Binding NovelUrl}" PlaceholderText="https://"
+                           AutomationProperties.Name="Novel page" IsEnabled="{Binding !FormLocked}" />
+                  <Button x:Name="ScanButton" Classes="primary" Content="Scan" Command="{Binding ScanCommand}"
+                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                </StackPanel>
+
+                <Border x:Name="ScanCard" Classes="card" IsVisible="{Binding HasScan}">
+                  <StackPanel Spacing="6">
+                    <TextBlock x:Name="BookTitleText" Classes="label" Text="{Binding BookTitle}" TextWrapping="Wrap" />
+                    <TextBlock x:Name="ScanSummaryText" Classes="hint" Text="{Binding ScanSummary}" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0"
+                                IsVisible="{Binding NeedsSignIn}">
+                      <Button x:Name="SignInButton" Classes="quiet" Content="Sign in" Command="{Binding SignInCommand}"
+                              IsVisible="{Binding !IsSigningIn}" />
+                      <Button x:Name="DoneButton" Classes="primary" Content="Done" Command="{Binding FinishSignInCommand}"
+                              IsVisible="{Binding IsSigningIn}" />
+                    </StackPanel>
+                    <Expander Header="Details" Margin="0,6,0,0" HorizontalAlignment="Stretch"
+                              IsVisible="{Binding HasNotes}">
+                      <ItemsControl ItemsSource="{Binding ScanNotes}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="x:String">
+                            <TextBlock Classes="hint" Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,6" />
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </Expander>
+                  </StackPanel>
+                </Border>
+
+                <!-- 2. Choose -->
+                <StackPanel Spacing="8" IsVisible="{Binding ScanReady}" IsEnabled="{Binding !FormLocked}">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="label" Text="Chapters" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Classes="quiet small" Content="All" Command="{Binding WholeBookCommand}" />
+                  </Grid>
+                  <Grid ColumnDefinitions="*,Auto,*">
+                    <NumericUpDown x:Name="FromBox" Value="{Binding From}" Minimum="{Binding FirstChapter}"
+                                   Maximum="{Binding LastChapter}" FormatString="0" AutomationProperties.Name="From chapter"
+                                   ShowButtonSpinner="False" />
+                    <TextBlock Grid.Column="1" Classes="hint" Text="to" Margin="10,0" VerticalAlignment="Center" />
+                    <NumericUpDown x:Name="ToBox" Grid.Column="2" Value="{Binding To}" Minimum="{Binding FirstChapter}"
+                                   Maximum="{Binding LastChapter}" FormatString="0" AutomationProperties.Name="To chapter"
+                                   ShowButtonSpinner="False" />
+                  </Grid>
+                  <TextBlock x:Name="PlanText" Classes="hint" Text="{Binding PlanSummary}" TextWrapping="Wrap"
+                             IsVisible="{Binding HasPlan}" />
+                  <TextBlock Classes="hint" FontWeight="SemiBold" TextWrapping="Wrap" IsVisible="{Binding PlanIsSlow}"
+                             Text="This will take a while. Signing in to the site may let the app open these chapters directly." />
+                </StackPanel>
+
+                <!-- 3. Save -->
+                <StackPanel Spacing="8" IsVisible="{Binding ScanReady}">
+                  <TextBlock Classes="label" Text="Save as" />
+                  <StackPanel Orientation="Horizontal" Spacing="16" IsEnabled="{Binding !FormLocked}">
+                    <CheckBox Content="TXT" IsChecked="{Binding Text}" />
+                    <CheckBox Content="PDF" IsChecked="{Binding Pdf}" />
+                  </StackPanel>
+                  <Grid ColumnDefinitions="*,8,Auto" IsEnabled="{Binding !FormLocked}">
+                    <TextBox Text="{Binding OutputDirectory}" AutomationProperties.Name="Output folder" />
+                    <Button Grid.Column="2" Classes="quiet" Content="Choose" Command="{Binding ChooseFolderCommand}" />
+                  </Grid>
+                  <CheckBox Content="Start over" IsChecked="{Binding StartOver}" IsEnabled="{Binding !FormLocked}"
+                            ToolTip.Tip="Ignore chapters saved earlier for this book" />
+                  <Grid ColumnDefinitions="*,8,Auto" Margin="0,8,0,0">
+                    <Button x:Name="SaveButton" Classes="primary" Content="Save" Command="{Binding SaveCommand}"
+                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                    <Button Grid.Column="2" x:Name="StopButton" Classes="quiet" Content="Stop" Command="{Binding StopCommand}"
+                            IsVisible="{Binding IsBusy}" />
+                  </Grid>
+                  <TextBlock Classes="hint" TextWrapping="Wrap" IsVisible="{Binding IsBusy}"
+                             Text="You can start another book with New extraction while this one runs." />
+                </StackPanel>
+              </StackPanel>
+            </ScrollViewer>
+          </Border>
+
+          <!-- Progress and what happened -->
+          <Grid Grid.Column="1" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" Margin="32,24,32,24">
+
+            <Grid ColumnDefinitions="Auto,*,Auto,*,Auto">
+              <StackPanel Orientation="Horizontal">
+                <Border Classes="step" Classes.current="{Binding IsStep1}" Classes.done="{Binding Step1Done}">
+                  <TextBlock Text="1" />
+                </Border>
+                <TextBlock Classes="steplabel" Classes.current="{Binding IsStep1}" Text="Scan" />
+              </StackPanel>
+              <Rectangle Grid.Column="1" Height="1" Fill="{DynamicResource Rule}" Margin="10,0" MinWidth="12" />
+              <StackPanel Grid.Column="2" Orientation="Horizontal">
+                <Border Classes="step" Classes.current="{Binding IsStep2}" Classes.done="{Binding Step2Done}">
+                  <TextBlock Text="2" />
+                </Border>
+                <TextBlock Classes="steplabel" Classes.current="{Binding IsStep2}" Text="Choose" />
+              </StackPanel>
+              <Rectangle Grid.Column="3" Height="1" Fill="{DynamicResource Rule}" Margin="10,0" MinWidth="12" />
+              <StackPanel Grid.Column="4" Orientation="Horizontal">
+                <Border Classes="step" Classes.current="{Binding IsStep3}">
+                  <TextBlock Text="3" />
+                </Border>
+                <TextBlock Classes="steplabel" Classes.current="{Binding IsStep3}" Text="Save" />
+              </StackPanel>
+            </Grid>
+
+            <TextBlock Grid.Row="1" x:Name="StatusText" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,20,0,0"
+                       Foreground="{DynamicResource Muted}" FontSize="13"
+                       IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+            <Border Grid.Row="2" x:Name="PersonNotice" Classes="notice" Margin="0,16,0,0" IsVisible="{Binding PersonNeeded}">
+              <TextBlock x:Name="PersonText" Text="{Binding PersonMessage}" TextWrapping="Wrap" FontWeight="SemiBold"
+                         Foreground="{DynamicResource Ink}" />
+            </Border>
+
+            <Border Grid.Row="3" Classes="notice" Margin="0,16,0,0" IsVisible="{Binding HasProblem}">
+              <Grid ColumnDefinitions="*,Auto">
+                <SelectableTextBlock x:Name="ProblemText" Text="{Binding Problem}" TextWrapping="Wrap"
+                                     Foreground="{DynamicResource Ink}" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Classes="quiet" Content="Dismiss" Command="{Binding DismissProblemCommand}"
+                        Margin="12,0,0,0" />
+              </Grid>
+            </Border>
+
+            <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,16,0,0" IsVisible="{Binding HasOutput}">
+              <ItemsControl ItemsSource="{Binding Files}" VerticalAlignment="Center">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="x:String">
+                    <TextBlock Classes="hint mono" Text="{Binding}" TextTrimming="CharacterEllipsis" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <Button Grid.Column="1" Classes="quiet" Content="Open folder" Command="{Binding OpenFolderCommand}"
+                      Margin="12,0,0,0" />
+            </Grid>
+
+            <Grid Grid.Row="5" RowDefinitions="Auto,*" Margin="0,24,0,0">
+              <Border BorderBrush="{DynamicResource Rule}" BorderThickness="0,0,0,1">
+                <StackPanel Orientation="Horizontal">
+                  <Button Classes="tab" Classes.selected="{Binding ShowChapters}" Content="Chapters"
+                          Command="{Binding ShowTabCommand}" CommandParameter="{x:Static vm:Tab.Chapters}" />
+                  <Button Classes="tab" Classes.selected="{Binding ShowReader}" Content="Reader"
+                          Command="{Binding ShowTabCommand}" CommandParameter="{x:Static vm:Tab.Reader}" />
+                  <Button Classes="tab" Classes.selected="{Binding ShowActivity}" Content="Activity"
+                          Command="{Binding ShowTabCommand}" CommandParameter="{x:Static vm:Tab.Activity}" />
+                </StackPanel>
+              </Border>
+
+              <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*" IsVisible="{Binding ShowChapters}" Margin="0,16,0,0">
+                <TextBlock x:Name="ProgressLine" Text="{Binding ProgressLine}" FontWeight="SemiBold"
+                           Foreground="{DynamicResource Ink}" />
+                <ProgressBar Grid.Row="1" Value="{Binding ProgressPercent}" Maximum="100" Margin="0,8,0,16" />
+                <ListBox Grid.Row="2" Classes="chapters" ItemsSource="{Binding Chapters}"
+                         SelectedItem="{Binding SelectedChapter}" Background="Transparent">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ChapterRow">
+                      <Grid ColumnDefinitions="28,64,*,Auto">
+                        <TextBlock Text="{Binding Symbol}" FontSize="14" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Classes="mono hint" Text="{Binding Number}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Text="{Binding Heading}" TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" Foreground="{DynamicResource Ink}" />
+                        <TextBlock Grid.Column="3" Classes="hint" Text="{Binding StatusText}" Margin="16,0,0,0"
+                                   VerticalAlignment="Center" MaxWidth="340" TextTrimming="CharacterEllipsis"
+                                   TextWrapping="NoWrap" ToolTip.Tip="{Binding StatusText}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </Grid>
+
+              <Grid Grid.Row="1" IsVisible="{Binding ShowReader}" Margin="0,16,0,0">
+                <TextBlock Classes="hint" IsVisible="{Binding !HasReaderChapter}" Text="Pick a saved chapter to read it." />
+                <Grid RowDefinitions="Auto,*" IsVisible="{Binding HasReaderChapter}">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock x:Name="ReaderTitle" Classes="title" Text="{Binding ReaderTitle}" TextWrapping="Wrap" />
+                    <Button Grid.Column="1" Classes="quiet" Content="Copy text" Command="{Binding CopyChapterCommand}" />
+                  </Grid>
+                  <ScrollViewer Grid.Row="1" Margin="0,16,0,0">
+                    <SelectableTextBlock Text="{Binding ReaderText}" TextWrapping="Wrap" FontSize="15" LineHeight="26"
+                                         MaxWidth="720" HorizontalAlignment="Left" Foreground="{DynamicResource Ink}" />
+                  </ScrollViewer>
+                </Grid>
+              </Grid>
+
+              <ListBox Grid.Row="1" IsVisible="{Binding ShowActivity}" ItemsSource="{Binding Activity}" Margin="0,16,0,0"
+                       Background="Transparent">
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="x:String">
+                    <SelectableTextBlock Classes="mono" Text="{Binding}" TextWrapping="Wrap" />
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </Grid>
+          </Grid>
+        </Grid>
+      </Border>
     </Grid>
+
+    <!-- Settings -->
+    <!-- Settings: a whole screen of its own, inside the window -->
+    <Border x:Name="SettingsPanel" Background="{DynamicResource Paper}" IsVisible="{Binding IsSettingsOpen}">
+      <ScrollViewer>
+        <StackPanel MaxWidth="640" Margin="40,32,40,40" Spacing="26" HorizontalAlignment="Stretch">
+            <Grid ColumnDefinitions="Auto,16,*,Auto">
+              <Button x:Name="CloseSettingsButton" Classes="quiet" Content="←  Back"
+                      Command="{Binding CloseSettingsCommand}" ToolTip.Tip="Back to the extractions" />
+              <TextBlock Grid.Column="2" Classes="title" Text="Settings" VerticalAlignment="Center" />
+              <TextBlock Grid.Column="3" Classes="hint" Text="{x:Static vm:MainViewModel.VersionText}"
+                         VerticalAlignment="Center" />
+            </Grid>
+            <TextBlock Classes="hint" TextWrapping="Wrap"
+                       Text="Changes are saved as you make them and apply to extractions started after this. Extractions already running keep going in the background." />
+
+            <StackPanel Spacing="8">
+              <TextBlock Classes="label" Text="Appearance" />
+              <ComboBox x:Name="ThemeBox" SelectedIndex="{Binding ThemeIndex}" HorizontalAlignment="Stretch"
+                        AutomationProperties.Name="Appearance">
+                <ComboBoxItem Content="Match the computer" />
+                <ComboBoxItem Content="Light" />
+                <ComboBoxItem Content="Dark" />
+              </ComboBox>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+              <TextBlock Classes="label" Text="Logs" />
+              <CheckBox x:Name="KeepLogBox" Content="Keep a detailed log (CSV) of every extraction" IsChecked="{Binding KeepLog}" />
+              <TextBlock Classes="hint" TextWrapping="Wrap"
+                         Text="Every step is written as it happens: each page opened, retries, checks, errors with their details. If something goes wrong or the app closes, the log shows why." />
+              <Grid ColumnDefinitions="Auto,12,*" Margin="0,4,0,0">
+                <Button x:Name="OpenLogFolderButton" Classes="quiet" Content="Open log folder"
+                        Command="{Binding OpenLogFolderCommand}" IsEnabled="{Binding HasLogFolder}" />
+                <TextBlock Grid.Column="2" Classes="hint mono" Text="{Binding LogFolder}" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" ToolTip.Tip="{Binding LogFolder}" />
+              </Grid>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+              <TextBlock Classes="label" Text="Pace" />
+              <Grid ColumnDefinitions="*,12,*" RowDefinitions="Auto,6,Auto">
+                <TextBlock Classes="hint" Text="Chapters at once" />
+                <NumericUpDown Grid.Row="2" Value="{Binding AtOnce}" Minimum="1" Maximum="4" FormatString="0"
+                               AutomationProperties.Name="Chapters at once" />
+                <TextBlock Grid.Column="2" Classes="hint" Text="Wait between pages (s)" />
+                <Grid Grid.Row="2" Grid.Column="2" ColumnDefinitions="*,6,Auto,6,*">
+                  <NumericUpDown Value="{Binding MinDelay}" Minimum="0" Maximum="60" Increment="0.5" FormatString="0.0"
+                                 ShowButtonSpinner="False" AutomationProperties.Name="Shortest wait" />
+                  <TextBlock Grid.Column="2" Classes="hint" Text="to" VerticalAlignment="Center" />
+                  <NumericUpDown Grid.Column="4" Value="{Binding MaxDelay}" Minimum="0" Maximum="120" Increment="0.5"
+                                 FormatString="0.0" ShowButtonSpinner="False" AutomationProperties.Name="Longest wait" />
+                </Grid>
+              </Grid>
+              <TextBlock Classes="hint" TextWrapping="Wrap"
+                         Text="For each chapter in every extraction. Extractions from the same site share one pace, so running two never asks more of that site than one would." />
+            </StackPanel>
+
+            <StackPanel Spacing="4">
+              <TextBlock Classes="label" Text="Text" Margin="0,0,0,4" />
+              <CheckBox Content="Keep links in text" IsChecked="{Binding IncludeLinks}" />
+              <CheckBox Content="Remove ad markers" IsChecked="{Binding StripAds}" />
+            </StackPanel>
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
 
     <!-- First run: the browser download -->
     <Border Background="{DynamicResource Paper}" IsVisible="{Binding !BrowserReady}">

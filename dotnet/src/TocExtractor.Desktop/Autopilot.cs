@@ -9,57 +9,124 @@ namespace TocExtractor.Desktop;
 
 /// <summary>
 /// Drives the real window through scan, choose and save, for end-to-end
-/// testing of a packaged build against a real site.
+/// testing of a packaged build against real sites.
 /// </summary>
 /// <remarks>
-/// Off unless TOC_AUTOPILOT is set, as "novel-url|from|to". It presses the
-/// same commands a person would, then saves a picture of this window only
-/// (never the screen) to TOC_AUTOPILOT_SHOT and quits with 0 if every chapter
-/// was saved. It adds no behaviour a person could not trigger by hand.
+/// Off unless TOC_AUTOPILOT is set, as "novel-url|from|to", or several of
+/// those joined by ";;". Each one is started as its own extraction a few
+/// seconds after the one before, while that one is still working, the way a
+/// person would start a second book without waiting for the first. It
+/// presses the same commands a person would, saves pictures of this window
+/// only (never the screen) to TOC_AUTOPILOT_SHOT, and quits with 0 if every
+/// chapter of every extraction was saved. TOC_AUTOPILOT_OUT, when set, is the
+/// folder to save into. It adds no behaviour a person could not trigger by hand.
 /// </remarks>
 internal static class Autopilot
 {
-    internal sealed record Run(string Url, int From, int To, string? Shot);
+    internal sealed record Run(string Url, int From, int To);
 
-    public static Run? Plan()
+    internal sealed record Plan_(IReadOnlyList<Run> Runs, string? Shot, string? Output);
+
+    public static Plan_? Plan()
     {
         var spec = Environment.GetEnvironmentVariable("TOC_AUTOPILOT");
-        var parts = spec?.Split('|');
-        return parts is { Length: 3 }
-            && int.TryParse(parts[1], CultureInfo.InvariantCulture, out var from)
-            && int.TryParse(parts[2], CultureInfo.InvariantCulture, out var to)
-            ? new Run(parts[0], from, to, Environment.GetEnvironmentVariable("TOC_AUTOPILOT_SHOT"))
-            : null;
+        if (string.IsNullOrWhiteSpace(spec))
+        {
+            return null;
+        }
+
+        List<Run> runs = [];
+        foreach (var one in spec.Split(";;", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = one.Split('|');
+            if (parts is not { Length: 3 }
+                || !int.TryParse(parts[1], CultureInfo.InvariantCulture, out var from)
+                || !int.TryParse(parts[2], CultureInfo.InvariantCulture, out var to))
+            {
+                return null;
+            }
+
+            runs.Add(new Run(parts[0].Trim(), from, to));
+        }
+
+        return runs.Count == 0
+            ? null
+            : new Plan_(runs, Environment.GetEnvironmentVariable("TOC_AUTOPILOT_SHOT"), Environment.GetEnvironmentVariable("TOC_AUTOPILOT_OUT"));
     }
 
-    public static async Task RunAsync(Run run, MainViewModel viewModel, Window window, IClassicDesktopStyleApplicationLifetime desktop)
+    public static async Task RunAsync(Plan_ plan, MainViewModel viewModel, Window window, IClassicDesktopStyleApplicationLifetime desktop)
     {
         var code = 1;
         try
         {
             await viewModel.StartAsync().ConfigureAwait(true);
-            viewModel.NovelUrl = run.Url;
-            await viewModel.ScanCommand.ExecuteAsync(null).ConfigureAwait(true);
-            await Shoot(window, run.Shot, "scanned").ConfigureAwait(true);
-            if (viewModel.ScanReady)
+            List<(JobViewModel Job, Task Work)> started = [];
+            for (var i = 0; i < plan.Runs.Count; i++)
             {
-                viewModel.From = run.From;
-                viewModel.To = run.To;
-                await viewModel.SaveCommand.ExecuteAsync(null).ConfigureAwait(true);
-                await Shoot(window, run.Shot, "saved").ConfigureAwait(true);
-                code = viewModel.Status.StartsWith("Done.", StringComparison.Ordinal) ? 0 : 2;
+                var run = plan.Runs[i];
+                var job = i == 0 ? viewModel.SelectedJob! : Add(viewModel);
+                if (plan.Output is { } output)
+                {
+                    job.OutputDirectory = output;
+                }
+
+                job.NovelUrl = run.Url;
+                started.Add((job, RunOneAsync(job, run)));
+                Console.WriteLine($"autopilot: started extraction {job.Number} at {DateTime.Now:HH:mm:ss}");
+
+                // The next one starts while this one is still at work.
+                if (i < plan.Runs.Count - 1)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(8)).ConfigureAwait(true);
+                }
             }
 
-            Console.WriteLine($"autopilot: {viewModel.Status} | {viewModel.Problem}");
-            foreach (var line in viewModel.Activity)
+            await Task.Delay(TimeSpan.FromSeconds(10)).ConfigureAwait(true);
+            Console.WriteLine($"autopilot: {viewModel.RunningText} at {DateTime.Now:HH:mm:ss}");
+            foreach (var (job, _) in started)
             {
-                Console.WriteLine("activity: " + line);
+                Console.WriteLine($"autopilot: #{job.Number} {job.Caption}: {job.RailStatus}");
+            }
+
+            await Shoot(window, plan.Shot, "running").ConfigureAwait(true);
+
+            await Task.WhenAll(started.Select(s => s.Work)).ConfigureAwait(true);
+            viewModel.SelectedJob = started[0].Job;
+            await Shoot(window, plan.Shot, "saved").ConfigureAwait(true);
+
+            code = started.All(s => s.Job.Status.StartsWith("Done.", StringComparison.Ordinal)) ? 0 : 2;
+            foreach (var (job, _) in started)
+            {
+                Console.WriteLine($"autopilot: #{job.Number} {job.Caption}: {job.Status} | {job.Problem} | log {job.LogPath}");
+                foreach (var line in job.Activity)
+                {
+                    Console.WriteLine($"activity #{job.Number}: {line}");
+                }
             }
         }
         finally
         {
             desktop.Shutdown(code);
         }
+    }
+
+    private static JobViewModel Add(MainViewModel viewModel)
+    {
+        viewModel.NewJobCommand.Execute(null);
+        return viewModel.SelectedJob!;
+    }
+
+    private static async Task RunOneAsync(JobViewModel job, Run run)
+    {
+        await job.ScanCommand.ExecuteAsync(null).ConfigureAwait(true);
+        if (!job.ScanReady)
+        {
+            return;
+        }
+
+        job.From = run.From;
+        job.To = run.To;
+        await job.SaveCommand.ExecuteAsync(null).ConfigureAwait(true);
     }
 
     private static async Task Shoot(Window window, string? path, string suffix)

@@ -1,6 +1,4 @@
-TOC Extractor is now a desktop app for Mac and Windows.
-
-Paste a novel's page, press Scan, pick the chapters you want (for example 350 to 400), and save them as one TXT or PDF file in reading order.
+Save several books at the same time, with a detailed log of everything the app does.
 
 ## Download
 
@@ -18,11 +16,10 @@ On first start the app downloads its own copy of Chromium (about 150 MB). Nothin
 
 ## What is new
 
-- Scan a novel's page to find every chapter, even on books with thousands of them.
-- Choose any range. Chapters are opened directly by address where possible, so chapter 2000 does not mean visiting 1999 pages first.
-- Only the story is saved: no ads, menus, comments or "next chapter" links.
-- If a site shows a "are you a person" check, the app pauses, lets you finish it in the browser window, then carries on and slows down.
-- Sites that only show chapters to members get a Sign in button. You sign in yourself; the app never sees your password.
-- Optional CSV log of every step, so a failed chapter always comes with a reason.
-- Save again later with a bigger range and only the new chapters are fetched.
-- Light and dark mode.
+- **Several books at once.** Press **New extraction**, paste another novel's page, pick chapters and save. You never wait for the first book to finish. Every extraction has its own entry on the left with a progress bar, and there is no limit on how many run together.
+- **Settings screen.** Press **Settings** at the bottom left: appearance (automatic, light or dark), pace, text options, and **Open log folder**.
+- **One detailed log.** Every extraction writes into one CSV log as it works: each page opened and how long it took, retries and why, checks that needed you, every chapter saved or failed with the reason, and full details of any error, including crashes. A column says which extraction each row belongs to.
+- **Honest file names.** A book file is named for exactly the chapters in it. Ask for 1-50 and have chapter 27 fail, and the file is "1-26", never "1-50".
+- **Fixed:** when a browser tab was closed or crashed during a long download, every chapter after it failed with "Target page, context or browser has been closed". The app now opens a fresh tab, or a fresh browser, and carries on.
+- **Fixed:** pressing Stop now still writes the TXT and PDF of the chapters saved so far.
+- **Fixed:** four-digit chapter numbers no longer look cut off in the chapter boxes.

@@ -77,8 +77,27 @@ and never touches the browser you normally use.
 5. Press **Save**. Each chapter appears in the list as it is saved. Open the
    **Reader** tab to read one, or **Activity** to see every step.
 
-Press **Stop** at any time. Nothing is lost: next time the app skips the
+Press **Stop** at any time. Nothing is lost: the chapters saved so far are
+written as a TXT or PDF straight away, and next time the app skips the
 chapters it already has.
+
+### Several books at once
+
+You never have to wait for one book to finish before starting the next.
+Press **New extraction** at the top left, paste another novel's page, choose
+its chapters and press Save. Every extraction appears in the list on the
+left with its own progress bar, and they all keep going in the background.
+Click one to see its chapters, reader and activity. There is no limit on how
+many you run.
+
+Books from the same site share that site's pace, so two books from one site
+never ask more of it than one would. Books from different sites do not slow
+each other down. The same book can only be saved into the same folder by one
+extraction at a time. Close a finished extraction with the **×** beside it.
+
+If the app's browser tab is closed, or even the whole browser window, the
+app opens a new one and carries on. Before, every chapter after that point
+failed.
 
 ### Long books
 
@@ -127,8 +146,13 @@ Your folder/
     ...
     The Lighthouse 12-20.txt                 the whole range, in order
     The Lighthouse 12-20.pdf                 the same, as a book
-    log 2026-09-25 18-31-40.csv              every step, if the log is on
 ```
+
+A book file is only ever named for the chapters it really holds. If you ask
+for 1 to 50 and chapter 27 fails, or you press Stop there, you get
+`The Lighthouse 1-26.pdf`, never `1-50`. Chapters saved after the gap are
+kept, and join the book when you press Save again and the gap is filled; the
+full `1-50` file then replaces the shorter one.
 
 Only the chapter heading and the story text are kept. Ads, menus, comments,
 "next chapter" links and hidden text that some sites use to mark copies are
@@ -136,16 +160,34 @@ all left out.
 
 ### Settings
 
-Open **Settings** at the bottom left to change:
+Press **Settings** at the bottom left. It opens a full settings screen in the
+same window; press **Back** to return. Changes are saved as you make them.
 
-- **At once** and **Delay**: how many chapters are fetched at the same
-  time, and how many seconds to wait between pages;
-- **Keep links in text** and **Remove ad markers**: what is kept in the
-  chapter text;
-- **Start over**: fetch every chapter again, even ones already saved;
-- **Keep a log (CSV) of every run.** The log has one row per step, with the
-  time, the chapter, its address, and what happened. When a chapter fails,
-  the reason is in that row. It opens in Excel, Numbers or Google Sheets.
+- **Appearance**: match the computer, or always light, or always dark.
+- **Logs**: keep a detailed log (CSV) of every extraction, and **Open log
+  folder** to see them.
+- **Pace**: how many chapters each extraction fetches at the same time, and
+  how many seconds to wait between pages.
+- **Text**: keep links in the text, and remove ad markers.
+
+**Start over**, under Save as, fetches every chapter again, even ones already
+saved.
+
+### Logs
+
+The app keeps one log, `TOC Extractor log.csv`, and every extraction writes
+into it, one row per step, as it happens: the scan, each page opened and how
+long it took, retries and why, checks that needed you, every chapter saved or
+failed with the reason, the files written, and anything that went wrong,
+with its full technical details. The **job** column says which extraction a
+row belongs to, such as `#2 The Lighthouse`, so filter on it to follow one
+book; rows marked `app` are the app starting, stopping, or crashing. If the
+app ever closes unexpectedly, the log shows what it was doing at that
+moment. It opens in Excel, Numbers or Google Sheets. Past 20 MB it is set
+aside as `TOC Extractor log (previous).csv` and a new one begins.
+
+The log folder is `~/Library/Application Support/TOC Extractor/logs` on a
+Mac and `%APPDATA%\TOC Extractor\logs` on Windows.
 
 ## Good manners are built in
 
@@ -369,6 +411,24 @@ nothing is overwritten. The log mentions it.
   address check. Closing that needs control the browser does not offer.
 
 ## Version history
+
+**2.2.0** (2026-09-25)
+- New: run as many extractions at once as you like. Each has its own entry
+  on the left with a progress bar, and they all carry on in the background.
+- New: a Settings screen with light, dark or automatic appearance, the pace,
+  and **Open log folder**.
+- New: one detailed CSV log for the whole app, written as it happens, with
+  every page, retry, check and error of every extraction, and crashes.
+- New: a book file is named for exactly the chapters in it. Asked for 1-50
+  with chapter 27 failed, it is "1-26", never "1-50".
+- Fixed: after a browser tab was closed or crashed, every later chapter
+  failed with "Target page, context or browser has been closed". The app now
+  opens a fresh tab, or a fresh browser, and carries on.
+- Fixed: stopping part way now still writes the TXT and PDF of the chapters
+  saved so far.
+- Fixed: the chapter boxes were too narrow for four-digit numbers, so 1000
+  looked like 100.
+- Fixed: after Stop, the status could stay on "Stopping..." for good.
 
 **2.1.0** (2026-09-25)
 - New: a desktop app for Mac and Windows, written in C# with .NET. Paste a

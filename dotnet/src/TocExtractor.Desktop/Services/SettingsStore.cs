@@ -27,6 +27,9 @@ public sealed record DesktopSettings
     public bool IncludeLinks { get; init; }
 
     public bool StripAds { get; init; } = true;
+
+    /// <summary>"System", "Light" or "Dark".</summary>
+    public string Theme { get; init; } = "System";
 }
 
 /// <summary>Remembers the form between launches, so a person picks up where they left off.</summary>

@@ -37,13 +37,15 @@ public sealed record NovelEnvironment
 public sealed record RangePreview(RangePlan Plan, int From, int To, string Summary, bool Slow);
 
 /// <summary>
-/// The desktop flow: scan a novel's page, choose a range, save it.
+/// One extraction in the desktop app: scan a novel's page, choose a range, save it.
 /// </summary>
 /// <remarks>
 /// <para>
-/// One visible browser for the whole session, with a persistent profile, so
-/// a sign-in or a passed check carries over to every later page and to the
-/// next time the app is opened.
+/// Every extraction shares one visible browser (a <see cref="BrowserHost"/>),
+/// with a persistent profile, so a sign-in or a passed check carries over to
+/// every later page, to the other extractions, and to the next time the app
+/// is opened. Each session keeps its own site, robots.txt answer and
+/// progress, so several run side by side.
 /// </para>
 /// <para>
 /// When a site shows its "verify you are human" page, the scan or download
@@ -51,16 +53,39 @@ public sealed record RangePreview(RangePlan Plan, int From, int To, string Summa
 /// work carries on by itself once the person has passed it.
 /// </para>
 /// </remarks>
-public sealed class NovelSession(NovelEnvironment environment) : INovelService
+public sealed class NovelSession : INovelService
 {
     /// <summary>Pages visited only to reach a range, above which the window asks first.</summary>
     public const int SlowWalkThreshold = 60;
 
+    private readonly BrowserHost host;
+    private readonly bool ownsHost;
+    private readonly NovelEnvironment environment;
     private IPageSource? source;
     private Action<string>? report;
-    private UrlGuard? guard;
     private RobotsSetup? robots;
     private string? origin;
+    private string? siteUrl;
+    private int signingIn;
+
+    /// <summary>A session with a browser of its own.</summary>
+    public NovelSession(NovelEnvironment environment)
+        : this(new BrowserHost(environment), ownsHost: true)
+    {
+    }
+
+    /// <summary>A session sharing <paramref name="host"/>'s browser with other sessions.</summary>
+    public NovelSession(BrowserHost host)
+        : this(host, ownsHost: false)
+    {
+    }
+
+    private NovelSession(BrowserHost host, bool ownsHost)
+    {
+        this.host = host ?? throw new ArgumentNullException(nameof(host));
+        this.ownsHost = ownsHost;
+        this.environment = host.Environment;
+    }
 
     /// <summary>
     /// Raised when waiting for the person starts (with what they need to do)
@@ -81,7 +106,7 @@ public sealed class NovelSession(NovelEnvironment environment) : INovelService
         this.report = log;
 
         var scanner = new NovelScanner(
-            (IPageProbe)source, this.guard!, this.robots.Policy, this.robots.Limiter,
+            (IPageProbe)source, this.host.Guard, this.robots.Policy, this.robots.Limiter,
             this.SignedIn, log, this.WaitForPersonAsync);
         var scan = await scanner.ScanAsync(url, cancellationToken).ConfigureAwait(false);
 
@@ -135,7 +160,6 @@ public sealed class NovelSession(NovelEnvironment environment) : INovelService
         string outputRoot,
         bool text,
         bool pdf,
-        bool csvLog,
         bool force,
         IPipelineObserver observer,
         CancellationToken cancellationToken = default)
@@ -143,8 +167,14 @@ public sealed class NovelSession(NovelEnvironment environment) : INovelService
         ArgumentNullException.ThrowIfNull(scan);
         ArgumentNullException.ThrowIfNull(preview);
         ArgumentNullException.ThrowIfNull(observer);
-        var source = this.source ?? throw new SessionException("Scan the novel first.");
         var robots = this.robots ?? throw new SessionException("Scan the novel first.");
+        if (this.source is null)
+        {
+            throw new SessionException("Scan the novel first.");
+        }
+
+        // The browser may have been closed since the scan; this reopens it.
+        var source = await this.EnsureSourceAsync(this.siteUrl!, cancellationToken).ConfigureAwait(false);
 
         this.report = observer.Log;
         var plan = preview.Plan;
@@ -177,17 +207,15 @@ public sealed class NovelSession(NovelEnvironment environment) : INovelService
             Fetch = this.Pace.ToFetchOptions(this.SignedIn),
         };
 
-        CsvLog? log = csvLog ? new CsvLog(CsvLog.NewPath(request.BookDirectory, DateTimeOffset.Now), observer) : null;
-        try
-        {
-            return await RangePipeline.RunAsync(
-                request, source, this.guard!, robots.Policy, robots.Limiter, (IPipelineObserver?)log ?? observer,
-                environment.Pdf, this.WaitForPersonAsync, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            log?.Dispose();
-        }
+        var formats = text && pdf ? "TXT and PDF" : pdf ? "PDF" : "TXT";
+        var pace = string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"{this.Pace.Concurrency} at once, {this.Pace.MinDelaySeconds:0.#}-{this.Pace.MaxDelaySeconds:0.#}s between pages");
+        observer.Log($"Saving chapters {preview.From}-{preview.To} of \"{scan.BookTitle}\" to {request.BookDirectory}: {formats}, {pace}"
+            + (this.SignedIn ? ", signed in" : "") + (force ? ", starting over" : "") + ".");
+        return await RangePipeline.RunAsync(
+            request, source, this.host.Guard, robots.Policy, robots.Limiter, observer,
+            this.environment.Pdf, this.WaitForPersonAsync, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Open the site so the person can sign in. The window is theirs until <see cref="FinishSignInAsync"/>.</summary>
@@ -195,9 +223,9 @@ public sealed class NovelSession(NovelEnvironment environment) : INovelService
     {
         var url = Normalise(novelUrl);
         var source = await this.EnsureSourceAsync(url, cancellationToken).ConfigureAwait(false);
-        if (source is BrowserPageSource browser)
+        if (Interlocked.Exchange(ref this.signingIn, 1) == 0)
         {
-            browser.PersonAtWindow = true;
+            this.host.PersonArrived();
         }
 
         await source.OpenPageAsync(url, cancellationToken).ConfigureAwait(false);
@@ -211,23 +239,31 @@ public sealed class NovelSession(NovelEnvironment environment) : INovelService
             return false;
         }
 
-        if (this.source is BrowserPageSource browser)
-        {
-            browser.PersonAtWindow = false;
-        }
-
-        this.SignedIn = await this.source.HasSessionCookiesAsync(cancellationToken).ConfigureAwait(false);
+        this.EndSignIn();
+        this.SignedIn = await this.source.HasSessionCookiesAsync(this.siteUrl, cancellationToken).ConfigureAwait(false);
         return this.SignedIn;
     }
 
+    /// <summary>
+    /// Let go of the browser. The shared browser stays open for the other
+    /// extractions; a session that owns its browser closes it.
+    /// </summary>
     public async Task CloseAsync()
     {
-        var closing = this.source;
+        this.EndSignIn();
         this.source = null;
         this.origin = null;
-        if (closing is not null)
+        if (this.ownsHost)
         {
-            await closing.DisposeAsync().ConfigureAwait(false);
+            await this.host.CloseAsync().ConfigureAwait(false);
+        }
+    }
+
+    private void EndSignIn()
+    {
+        if (Interlocked.Exchange(ref this.signingIn, 0) == 1)
+        {
+            this.host.PersonLeft();
         }
     }
 
@@ -251,50 +287,32 @@ public sealed class NovelSession(NovelEnvironment environment) : INovelService
 
     private async Task<IPageSource> EnsureSourceAsync(string url, CancellationToken cancellationToken)
     {
-        var host = new Uri(url).GetLeftPart(UriPartial.Authority);
-        if (this.source is not null && this.origin == host)
-        {
-            return this.source;
-        }
-
-        await this.CloseAsync().ConfigureAwait(false);
-        var guard = new UrlGuard(false, new CachingHostResolver(environment.Resolver ?? SystemHostResolver.Instance));
-        var verdict = guard.Check(url);
+        var verdict = this.host.Guard.Check(url);
         if (!verdict.Allowed)
         {
             throw new SessionException($"That address cannot be used: {verdict.Reason?.ToWireValue()} {verdict.Detail}".Trim());
         }
 
-        Directory.CreateDirectory(environment.BrowserProfileDirectory);
-        var options = new BrowserPageSourceOptions
+        var site = new Uri(url).GetLeftPart(UriPartial.Authority);
+        this.siteUrl = url;
+        var source = await this.host.SourceAsync(this.Pace.PageBudget, cancellationToken).ConfigureAwait(false);
+        if (this.source is null || this.origin != site)
         {
-            Headless = false,
-            UserDataDirectory = environment.BrowserProfileDirectory,
-            OperationBudget = this.Pace.PageBudget,
-            MaxPages = Math.Max(1, this.Pace.Concurrency),
-        };
-
-        try
-        {
-            this.source = await environment.StartSource(guard, options, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Microsoft.Playwright.PlaywrightException exception)
-        {
-            throw new SessionException(
-                exception.Message.Contains("ProcessSingleton", StringComparison.Ordinal)
-                    ? "The browser from an earlier run is still open. Close it and try again."
-                    : $"Could not start the browser: {exception.Message.Split('\n')[0]}",
-                exception);
+            // A new site: the sign-in has to be looked for again.
+            this.source = source;
+            this.origin = site;
+            this.SignedIn = await source.HasSessionCookiesAsync(url, cancellationToken).ConfigureAwait(false);
         }
 
-        this.guard = guard;
-        this.origin = host;
-        this.SignedIn = await this.source.HasSessionCookiesAsync(cancellationToken).ConfigureAwait(false);
-        return this.source;
+        return source;
     }
 
-    private RobotsSetup PrepareRobots(string url, Action<string>? log) =>
-        RobotsSetup.Prepare(url, Robots.DefaultUserAgent, TimeSpan.FromSeconds(this.Pace.MinDelaySeconds), environment.FetchRobots, log);
+    private RobotsSetup PrepareRobots(string url, Action<string>? log)
+    {
+        var minDelay = TimeSpan.FromSeconds(this.Pace.MinDelaySeconds);
+        return RobotsSetup.Prepare(
+            url, Robots.DefaultUserAgent, minDelay, this.environment.FetchRobots, log, this.host.LimiterFor(url, minDelay));
+    }
 
     private async Task<bool> PredictionHoldsAsync(NumberedLink link, IPipelineObserver observer, CancellationToken cancellationToken)
     {
@@ -383,9 +401,13 @@ public sealed class NovelSession(NovelEnvironment environment) : INovelService
         this.PersonNeeded?.Invoke(this, check.NeedsSignIn ? SignInAdvice : CheckAdvice);
         try
         {
+            this.report?.Invoke(check.NeedsSignIn
+                ? "The site shows only part of the chapter unless you are signed in; waiting for you to sign in in the browser."
+                : "The site asked to check you are a person; waiting for you in the browser.");
             var passed = check.NeedsSignIn
-                ? await gate.WaitForSignInAsync(environment.PersonTimeout, cancellationToken).ConfigureAwait(false)
-                : await gate.WaitForPersonAsync(environment.PersonTimeout, cancellationToken).ConfigureAwait(false);
+                ? await gate.WaitForSignInAsync(this.siteUrl, this.environment.PersonTimeout, cancellationToken).ConfigureAwait(false)
+                : await gate.WaitForPersonAsync(this.environment.PersonTimeout, cancellationToken).ConfigureAwait(false);
+            this.report?.Invoke(passed ? "Done in the browser; carrying on." : "Nobody completed the check in time.");
             if (passed && !check.NeedsSignIn)
             {
                 this.SlowDown();

@@ -37,12 +37,13 @@ public sealed record RangeRequest
     public string BookDirectory => Path.Combine(this.OutputRoot, BookFiles.FolderName(this.Scan.BookTitle, this.Scan.NovelUrl));
 }
 
-/// <summary>What a range run produced.</summary>
+/// <summary>What a range run produced. <c>Stopped</c>: the person pressed Stop, and the files hold what was saved until then.</summary>
 public sealed record RangeResult(
     PipelineOutcome Outcome,
     RunResult? Run,
     IReadOnlyList<string> Files,
-    IReadOnlyList<int> Missing);
+    IReadOnlyList<int> Missing,
+    bool Stopped = false);
 
 /// <summary>Writes a finished range as one book, in PDF.</summary>
 public interface IPdfWriter
@@ -125,7 +126,7 @@ public static class RangePipeline
 
         using var fetcher = new Fetcher(
             new TidyTitles(source), guard, sink, request.Fetch, limiter, robots,
-            onRecord: Persist, onFailure: observer.Failure, onHumanCheck: onHumanCheck);
+            onRecord: Persist, onFailure: observer.Failure, onHumanCheck: onHumanCheck, onTrace: observer.Trace);
 
         observer.Log($"Fetching chapters {request.From}-{request.To}: {request.Plan.Direct.Count} by address"
             + (request.Plan.PredictedLinks.Count > 0 ? $" ({request.Plan.PredictedLinks.Count} from the address pattern)" : "")
@@ -133,35 +134,66 @@ public static class RangePipeline
             + (request.Plan.ExtraVisits > 0 ? $", {request.Plan.ExtraVisits} page(s) visited only to get there" : "")
             + ".");
 
-        var result = await fetcher.FetchRangeAsync(
-            request.Scan.NovelUrl,
-            request.Plan.Direct,
-            request.Plan.Walks,
-            selectors,
-            checkpoint.IsDone,
-            page => ChapterNumbers.FromTitle(page.Title),
-            cancellationToken).ConfigureAwait(false);
+        RunResult? result = null;
+        var stopped = false;
+        try
+        {
+            result = await fetcher.FetchRangeAsync(
+                request.Scan.NovelUrl,
+                request.Plan.Direct,
+                request.Plan.Walks,
+                selectors,
+                checkpoint.IsDone,
+                page => ChapterNumbers.FromTitle(page.Title),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Stopped. Every chapter saved so far still goes into the book
+            // below, so stopping never leaves a person with no file at all.
+            stopped = true;
+            observer.Log("Stopped. Writing the chapters saved so far.");
+        }
+
         checkpoint.Save();
 
         // The exporter's merged file follows fetch order, which is backwards
         // after a walk back; the range files below are the book, in order.
         File.Delete(Path.Combine(folder, TextExporter.CombinedName));
 
-        foreach (var failure in result.Failed)
+        foreach (var failure in result?.Failed ?? [])
         {
             observer.Log($"chapter {failure.Index} failed after {failure.Attempts} attempt(s): {failure.Detail}");
         }
 
         // The combined files, from the chapter files, for exactly this range.
-        var chapters = BookFiles.ReadRange(folder, checkpoint, request.From, request.To);
+        // Not cancellable: after a Stop, these are exactly what should still happen.
+        var saved = BookFiles.ReadRange(folder, checkpoint, request.From, request.To);
         var missing = Enumerable.Range(request.From, request.To - request.From + 1)
-            .Where(n => !chapters.ContainsKey(n)).ToList();
+            .Where(n => !saved.ContainsKey(n)).ToList();
         List<string> files = [];
-        var stem = BookFiles.RangeName(request.Scan.BookTitle, request.From, request.To);
+
+        // The book file only ever holds an unbroken run of chapters, and is
+        // named for exactly that run. Asked for 1-50 with chapter 27 failed,
+        // it is "1-26", never "1-50": a name must not promise chapters the
+        // file does not have. Chapters after a gap stay saved on their own and
+        // join the book once Save again fills the gap.
+        var chapters = BookFiles.FirstRun(saved);
+        var stem = chapters.Count == 0
+            ? ""
+            : BookFiles.RangeName(request.Scan.BookTitle, chapters.Keys.First(), chapters.Keys.Last());
+        if (missing.Count > 0 && chapters.Count > 0)
+        {
+            var later = saved.Count - chapters.Count;
+            observer.Log($"The book file holds chapters {chapters.Keys.First()}-{chapters.Keys.Last()} only, because chapter(s) "
+                + $"{BookFiles.Ranges(missing)} are not saved yet"
+                + (later > 0 ? $"; {later} chapter(s) after the gap are saved and join it once the gap is filled." : "."));
+        }
+
         if (request.WriteText && chapters.Count > 0)
         {
             var path = Path.Combine(folder, stem + ".txt");
-            await File.WriteAllTextAsync(path, BookFiles.Combined(chapters.Values), new UTF8Encoding(false), cancellationToken)
+            await File.WriteAllTextAsync(path, BookFiles.Combined(chapters.Values), new UTF8Encoding(false), CancellationToken.None)
                 .ConfigureAwait(false);
             files.Add(path);
             observer.Log($"Wrote {Path.GetFileName(path)} ({chapters.Count} chapters).");
@@ -170,22 +202,48 @@ public static class RangePipeline
         if (request.WritePdf && chapters.Count > 0 && pdf is not null)
         {
             var path = Path.Combine(folder, stem + ".pdf");
-            await pdf.WriteAsync(
-                request.Scan.BookTitle,
-                [.. chapters.Values.Select(c => (c.Heading, c.Body))],
-                path,
-                cancellationToken).ConfigureAwait(false);
-            files.Add(path);
-            observer.Log($"Wrote {Path.GetFileName(path)}.");
+            try
+            {
+                await pdf.WriteAsync(
+                    request.Scan.BookTitle,
+                    [.. chapters.Values.Select(c => (c.Heading, c.Body))],
+                    path,
+                    CancellationToken.None).ConfigureAwait(false);
+                files.Add(path);
+                observer.Log($"Wrote {Path.GetFileName(path)}.");
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException and not OutOfMemoryException)
+            {
+                // The chapters are safe on disk; only the one PDF is missing,
+                // and Save again rebuilds it without fetching anything.
+                observer.Log($"Could not write the PDF: {exception.GetType().Name}: {exception.Message}. The chapters are saved; press Save again to retry the PDF.");
+            }
+        }
+
+        // Once the whole range is there, the shorter books inside it are stale.
+        if (missing.Count == 0 && chapters.Count > 0)
+        {
+            foreach (var stale in BookFiles.ShorterBooks(folder, request.Scan.BookTitle, request.From, request.To))
+            {
+                try
+                {
+                    File.Delete(stale);
+                    observer.Log($"Removed {Path.GetFileName(stale)}; {stem} has all of it.");
+                }
+                catch (IOException)
+                {
+                    // Open elsewhere; harmless to leave.
+                }
+            }
         }
 
         if (missing.Count > 0)
         {
-            observer.Log($"Not saved: chapter(s) {BookFiles.Ranges(missing)}. Press Start again to retry them.");
+            observer.Log($"Not saved: chapter(s) {BookFiles.Ranges(missing)}. Press Save again to fetch them.");
         }
 
-        var outcome = result.Failed.Count > 0 || missing.Count > 0 ? PipelineOutcome.Failed : PipelineOutcome.Ok;
-        return new RangeResult(outcome, result, files, missing);
+        var outcome = stopped || result is null || result.Failed.Count > 0 || missing.Count > 0 ? PipelineOutcome.Failed : PipelineOutcome.Ok;
+        return new RangeResult(outcome, result, files, missing, stopped);
     }
 }
 
@@ -231,6 +289,56 @@ public static class BookFiles
         }
 
         return chapters;
+    }
+
+    /// <summary>The first unbroken run of chapter numbers, so a book file never has a hole in it.</summary>
+    public static SortedDictionary<int, SavedChapter> FirstRun(SortedDictionary<int, SavedChapter> saved)
+    {
+        ArgumentNullException.ThrowIfNull(saved);
+        SortedDictionary<int, SavedChapter> run = [];
+        foreach (var (number, chapter) in saved)
+        {
+            if (run.Count > 0 && number != run.Keys.Last() + 1)
+            {
+                break;
+            }
+
+            run[number] = chapter;
+        }
+
+        return run;
+    }
+
+    /// <summary>
+    /// Book files for ranges inside <paramref name="from"/>-<paramref name="to"/>
+    /// other than that range itself: what an earlier, shorter save wrote.
+    /// </summary>
+    public static IReadOnlyList<string> ShorterBooks(string folder, string title, int from, int to)
+    {
+        var prefix = FolderName(title, "") + " ";
+        List<string> stale = [];
+        foreach (var path in Directory.EnumerateFiles(folder, prefix + "*"))
+        {
+            var name = Path.GetFileNameWithoutExtension(path);
+            var extension = Path.GetExtension(path);
+            if (extension is not (".txt" or ".pdf") || !name.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var span = name[prefix.Length..];
+            span = span.Replace(" (partial", "|", StringComparison.Ordinal).Split('|')[0];
+            var parts = span.Split('-');
+            if (parts.Length == 2
+                && int.TryParse(parts[0], System.Globalization.CultureInfo.InvariantCulture, out var a)
+                && int.TryParse(parts[1], System.Globalization.CultureInfo.InvariantCulture, out var b)
+                && a >= from && b <= to && (a, b) != (from, to))
+            {
+                stale.Add(path);
+            }
+        }
+
+        return stale;
     }
 
     public static string Combined(IEnumerable<SavedChapter> chapters)

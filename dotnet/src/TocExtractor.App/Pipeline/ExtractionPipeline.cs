@@ -76,6 +76,11 @@ public interface IPipelineObserver
     void Failure(FailedChapter failure)
     {
     }
+
+    /// <summary>One step of fetching a chapter. Meant for a detailed log, not a window.</summary>
+    void Trace(FetchTrace trace)
+    {
+    }
 }
 
 /// <summary>

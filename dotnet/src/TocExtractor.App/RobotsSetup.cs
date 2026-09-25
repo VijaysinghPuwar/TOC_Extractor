@@ -13,13 +13,15 @@ public sealed record RobotsSetup(RobotsPolicy Policy, RateLimiter Limiter, strin
     /// The agent robots.txt is evaluated for is the agent the browser sends,
     /// so a custom agent gets the decisions meant for it. Crawl-delay can only
     /// slow the run down: the limiter keeps the larger of the two intervals.
+    /// Pass <paramref name="limiter"/> to share one between runs on the same site.
     /// </remarks>
     public static RobotsSetup Prepare(
         string tocUrl,
         string userAgent,
         TimeSpan minDelay,
         Func<string, string, string?> fetchRobots,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        RateLimiter? limiter = null)
     {
         ArgumentNullException.ThrowIfNull(fetchRobots);
 
@@ -30,7 +32,8 @@ public sealed record RobotsSetup(RobotsPolicy Policy, RateLimiter Limiter, strin
             ? RobotsPolicy.Missing(origin, userAgent)
             : RobotsPolicy.Parse(body, origin, userAgent);
 
-        var limiter = new RateLimiter(minDelay);
+        // A shared limiter keeps several runs on one site to one site's pace.
+        limiter ??= new RateLimiter(minDelay);
         if (policy.CrawlDelay is { } delay)
         {
             limiter.SetHostInterval(new Uri(tocUrl), delay);

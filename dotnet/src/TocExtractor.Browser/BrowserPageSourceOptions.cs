@@ -24,4 +24,11 @@ public sealed record BrowserPageSourceOptions
     /// each other, which no stub can model and only a live server exposes.
     /// </summary>
     public int MaxPages { get; init; } = 1;
+
+    /// <summary>
+    /// When set, the pages opened at start are only the first ones: whenever
+    /// every page is busy another is opened, up to this many. For the desktop
+    /// app, where several books share one browser.
+    /// </summary>
+    public int? GrowTo { get; init; }
 }

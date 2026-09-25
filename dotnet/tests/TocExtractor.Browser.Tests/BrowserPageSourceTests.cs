@@ -143,6 +143,66 @@ public sealed class BrowserPageSourceTests
     }
 
     [Fact]
+    public async Task A_tab_closed_under_the_app_is_replaced_and_the_next_chapter_loads()
+    {
+        using var site = new LocalSite();
+        site.Html("/ch/1", "<h1 class=\"t\">Chapter 1</h1><article class=\"c\"><p>One.</p></article>");
+        site.Html("/ch/2", "<h1 class=\"t\">Chapter 2</h1><article class=\"c\"><p>Two.</p></article>");
+
+        await using var source = await StartAsync();
+        await source.LoadChapterAsync(site.Url("/ch/1"), ".t", ".c", Token);
+        await source.CloseWorkTabsAsync();
+
+        var chapter = await source.LoadChapterAsync(site.Url("/ch/2"), ".t", ".c", Token);
+
+        Assert.Equal("Two.", chapter.Body.Trim());
+        Assert.False(source.IsClosed);
+    }
+
+    [Fact]
+    public async Task A_page_that_closes_its_own_tab_does_not_break_the_chapters_after_it()
+    {
+        using var site = new LocalSite();
+        site.Html("/ch/3", """
+            <h1 class="t">Chapter 3</h1><article class="c"><p>Three.</p></article>
+            <script>setTimeout(() => window.close(), 50);</script>
+            """);
+        site.Html("/ch/4", "<h1 class=\"t\">Chapter 4</h1><article class=\"c\"><p>Four.</p></article>");
+
+        await using var source = await StartAsync();
+        await source.LoadChapterAsync(site.Url("/ch/3"), ".t", ".c", Token);
+        await Task.Delay(500, Token);
+
+        for (var i = 0; i < 3; i++)
+        {
+            var chapter = await source.LoadChapterAsync(site.Url("/ch/4"), ".t", ".c", Token);
+            Assert.Equal("Four.", chapter.Body.Trim());
+        }
+    }
+
+    [Fact]
+    public async Task With_room_to_grow_busy_tabs_open_another_rather_than_wait()
+    {
+        using var site = new LocalSite();
+        site.Html("/slow", """
+            <h1 class="t">Slow</h1><article class="c"></article>
+            <script>setTimeout(() => document.querySelector('.c').innerHTML = '<p>Late.</p>', 800);</script>
+            """);
+
+        await using var source = await BrowserPageSource.StartAsync(
+            Guard,
+            new BrowserPageSourceOptions { MaxPages = 1, GrowTo = 3, OperationBudget = TimeSpan.FromSeconds(20) },
+            Token);
+        var loads = Enumerable.Range(0, 3)
+            .Select(_ => source.ProbeAsync(site.Url("/slow"), "() => document.querySelector('.c').innerText", TimeSpan.FromSeconds(3), Token))
+            .ToList();
+        var answers = await Task.WhenAll(loads);
+
+        Assert.All(answers, answer => Assert.Equal("Late.", answer.Json.Trim()));
+        Assert.Equal(3, source.OpenTabs);
+    }
+
+    [Fact]
     public async Task A_chapter_locked_to_visitors_is_refused_not_half_saved()
     {
         using var site = new LocalSite();

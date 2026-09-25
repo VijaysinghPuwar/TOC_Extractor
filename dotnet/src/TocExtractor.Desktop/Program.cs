@@ -1,5 +1,7 @@
 using Avalonia;
+using Avalonia.Threading;
 using TocExtractor.App;
+using TocExtractor.Desktop.Services;
 
 namespace TocExtractor.Desktop;
 
@@ -18,7 +20,36 @@ internal static class Program
             return SelfTest();
         }
 
+        WatchForCrashes();
         return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+    }
+
+    /// <summary>
+    /// Anything no code caught goes to the app's log with its stack trace, so
+    /// a crash leaves a record of why. A failure on the window's own thread is
+    /// logged and survived, so one broken extraction cannot close the others.
+    /// </summary>
+    private static void WatchForCrashes()
+    {
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            if (e.ExceptionObject is Exception exception)
+            {
+                AppLog.Error("crash", exception, e.IsTerminating ? "the app stopped" : null);
+            }
+
+            AppLog.Close();
+        };
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            AppLog.Error("unobserved", e.Exception);
+            e.SetObserved();
+        };
+        Dispatcher.UIThread.UnhandledException += (_, e) =>
+        {
+            AppLog.Error("crash", e.Exception, "on the window's thread; the app carried on");
+            e.Handled = true;
+        };
     }
 
     /// <summary>Also used by the headless UI tests, so they exercise the same setup.</summary>

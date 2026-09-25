@@ -3,7 +3,7 @@ using TocExtractor.App.Scanning;
 
 namespace TocExtractor.App.Session;
 
-/// <summary>What the desktop window asks of a session. <see cref="NovelSession"/> in the app, a fake in tests.</summary>
+/// <summary>What one extraction in the desktop window asks of its session. <see cref="NovelSession"/> in the app, a fake in tests.</summary>
 public interface INovelService : IAsyncDisposable
 {
     /// <summary>Raised with what the person must do in the browser, then with null when it is done.</summary>
@@ -23,7 +23,6 @@ public interface INovelService : IAsyncDisposable
         string outputRoot,
         bool text,
         bool pdf,
-        bool csvLog,
         bool force,
         IPipelineObserver observer,
         CancellationToken cancellationToken = default);
