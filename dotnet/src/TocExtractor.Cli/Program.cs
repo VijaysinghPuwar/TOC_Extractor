@@ -1,32 +1,44 @@
+using System.CommandLine;
 
 namespace TocExtractor.Cli;
 
 internal static class Program
 {
-    private static async Task<int> Main(string[] args)
+    private static Task<int> Main(string[] args)
     {
         var root = CommandLine.Build();
-        var parsed = root.Parse(args);
 
-        if (parsed.Errors.Count > 0 || parsed.GetValue(CommandLine.Toc) is null)
-        {
-            foreach (var error in parsed.Errors)
-            {
-                Console.Error.WriteLine(error.Message);
-            }
+        // The action is set rather than the parse result being read directly.
+        // Help, version and parse errors are all built-in actions, and reading
+        // a required option's value before they run throws instead of printing
+        // them — which made `--help` exit with a stack trace.
+        root.SetAction((parseResult, cancellationToken) =>
+            RunAsync(parseResult, args, cancellationToken));
 
-            return parsed.Errors.Count > 0 ? CommandLine.ExitUsage : await parsed.InvokeAsync();
-        }
+        return root.Parse(args).InvokeAsync();
+    }
 
+    private static async Task<int> RunAsync(
+        ParseResult parsed,
+        string[] args,
+        CancellationToken cancellationToken)
+    {
         try
         {
-            var settings = RunSettings.From(parsed, args);
-            return await Extraction.RunAsync(settings);
+            return await Extraction.RunAsync(
+                RunSettings.From(parsed, args), cancellationToken: cancellationToken);
         }
         catch (ProfileException exception)
         {
             Console.Error.WriteLine(exception.Message);
             return CommandLine.ExitUsage;
+        }
+        catch (OperationCanceledException)
+        {
+            // Progress is already on disk: the checkpoint is written after
+            // every chapter, not at the end.
+            Console.Error.WriteLine("interrupted; rerun the same command to resume");
+            return CommandLine.ExitFailed;
         }
     }
 }
