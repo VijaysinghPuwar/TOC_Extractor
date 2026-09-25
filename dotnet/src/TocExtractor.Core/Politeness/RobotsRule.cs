@@ -92,6 +92,12 @@ public sealed partial class RobotsRule
     }
 
     /// <summary>Turn a robots path containing <c>*</c> into a regular expression.</summary>
+    /// <remarks>
+    /// Anchored at the start with <c>\A</c>. A rule is a prefix of the path, so
+    /// <c>Disallow: /s*t</c> covers <c>/secret</c> and not <c>/x/secret</c>.
+    /// Unanchored, <see cref="Regex.Match(string)"/> finds the first part
+    /// anywhere in the path and refuses URLs the site never disallowed.
+    /// </remarks>
     private static string Translate(string path)
     {
         var parts = path.Split('*').Select(Regex.Escape).ToArray();
@@ -101,7 +107,7 @@ public sealed partial class RobotsRule
         }
 
         parts[^1] = ".*" + parts[^1];
-        return string.Concat(parts);
+        return @"\A" + string.Concat(parts);
     }
 
     [GeneratedRegex(@"\*{2,}")]

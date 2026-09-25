@@ -14,6 +14,7 @@
   "root_dis": "User-agent: *\nDisallow: /\n",
   "simple": "User-agent: *\nDisallow: /private/\n",
   "star_mid": "User-agent: *\nDisallow: /*/secret\n",
+  "star_prefix": "User-agent: *\nDisallow: /s*t\n",
   "two_groups": "User-agent: *\nDisallow: /private/\nCrawl-delay: 4\n\nUser-agent: TOCExtractor\nDisallow: /members/\nAllow: /members/public/\n"
  },
  "cases": [
@@ -1080,13 +1081,13 @@
    "user_agent": "MyTOCExtractorBot"
   },
   {
-   "allowed": true,
+   "allowed": false,
    "body": "two_groups",
    "path": "/private/x",
    "user_agent": "MyTOCExtractorBot"
   },
   {
-   "allowed": false,
+   "allowed": true,
    "body": "two_groups",
    "path": "/members/secret",
    "user_agent": "MyTOCExtractorBot"
@@ -9600,7 +9601,7 @@
    "user_agent": "MyTOCExtractorBot"
   },
   {
-   "allowed": false,
+   "allowed": true,
    "body": "case_agent",
    "path": "/caps/q",
    "user_agent": "MyTOCExtractorBot"
@@ -11534,6 +11535,774 @@
   {
    "allowed": true,
    "body": "nested",
+   "path": "/anything",
+   "user_agent": "*"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/",
+   "user_agent": "TOCExtractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/private/x",
+   "user_agent": "TOCExtractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/members/secret",
+   "user_agent": "TOCExtractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/members/public/x",
+   "user_agent": "TOCExtractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/b/c/d",
+   "user_agent": "TOCExtractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/b/x",
+   "user_agent": "TOCExtractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/z",
+   "user_agent": "TOCExtractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/x/secret",
+   "user_agent": "TOCExtractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/doc.pdf",
+   "user_agent": "TOCExtractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/doc.pdf.html",
+   "user_agent": "TOCExtractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/public/z",
+   "user_agent": "TOCExtractor"
+  },
+  {
+   "allowed": false,
+   "body": "star_prefix",
+   "path": "/star/q",
+   "user_agent": "TOCExtractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/ab/q",
+   "user_agent": "TOCExtractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/caps/q",
+   "user_agent": "TOCExtractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/x/y/z",
+   "user_agent": "TOCExtractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/anything",
+   "user_agent": "TOCExtractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/",
+   "user_agent": "TOCExtractor/2.0"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/private/x",
+   "user_agent": "TOCExtractor/2.0"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/members/secret",
+   "user_agent": "TOCExtractor/2.0"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/members/public/x",
+   "user_agent": "TOCExtractor/2.0"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/b/c/d",
+   "user_agent": "TOCExtractor/2.0"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/b/x",
+   "user_agent": "TOCExtractor/2.0"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/z",
+   "user_agent": "TOCExtractor/2.0"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/x/secret",
+   "user_agent": "TOCExtractor/2.0"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/doc.pdf",
+   "user_agent": "TOCExtractor/2.0"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/doc.pdf.html",
+   "user_agent": "TOCExtractor/2.0"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/public/z",
+   "user_agent": "TOCExtractor/2.0"
+  },
+  {
+   "allowed": false,
+   "body": "star_prefix",
+   "path": "/star/q",
+   "user_agent": "TOCExtractor/2.0"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/ab/q",
+   "user_agent": "TOCExtractor/2.0"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/caps/q",
+   "user_agent": "TOCExtractor/2.0"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/x/y/z",
+   "user_agent": "TOCExtractor/2.0"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/anything",
+   "user_agent": "TOCExtractor/2.0"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/",
+   "user_agent": "tocextractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/private/x",
+   "user_agent": "tocextractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/members/secret",
+   "user_agent": "tocextractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/members/public/x",
+   "user_agent": "tocextractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/b/c/d",
+   "user_agent": "tocextractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/b/x",
+   "user_agent": "tocextractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/z",
+   "user_agent": "tocextractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/x/secret",
+   "user_agent": "tocextractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/doc.pdf",
+   "user_agent": "tocextractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/doc.pdf.html",
+   "user_agent": "tocextractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/public/z",
+   "user_agent": "tocextractor"
+  },
+  {
+   "allowed": false,
+   "body": "star_prefix",
+   "path": "/star/q",
+   "user_agent": "tocextractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/ab/q",
+   "user_agent": "tocextractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/caps/q",
+   "user_agent": "tocextractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/x/y/z",
+   "user_agent": "tocextractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/anything",
+   "user_agent": "tocextractor"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/",
+   "user_agent": "MyTOCExtractorBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/private/x",
+   "user_agent": "MyTOCExtractorBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/members/secret",
+   "user_agent": "MyTOCExtractorBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/members/public/x",
+   "user_agent": "MyTOCExtractorBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/b/c/d",
+   "user_agent": "MyTOCExtractorBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/b/x",
+   "user_agent": "MyTOCExtractorBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/z",
+   "user_agent": "MyTOCExtractorBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/x/secret",
+   "user_agent": "MyTOCExtractorBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/doc.pdf",
+   "user_agent": "MyTOCExtractorBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/doc.pdf.html",
+   "user_agent": "MyTOCExtractorBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/public/z",
+   "user_agent": "MyTOCExtractorBot"
+  },
+  {
+   "allowed": false,
+   "body": "star_prefix",
+   "path": "/star/q",
+   "user_agent": "MyTOCExtractorBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/ab/q",
+   "user_agent": "MyTOCExtractorBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/caps/q",
+   "user_agent": "MyTOCExtractorBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/x/y/z",
+   "user_agent": "MyTOCExtractorBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/anything",
+   "user_agent": "MyTOCExtractorBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/",
+   "user_agent": "SomeOtherBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/private/x",
+   "user_agent": "SomeOtherBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/members/secret",
+   "user_agent": "SomeOtherBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/members/public/x",
+   "user_agent": "SomeOtherBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/b/c/d",
+   "user_agent": "SomeOtherBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/b/x",
+   "user_agent": "SomeOtherBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/z",
+   "user_agent": "SomeOtherBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/x/secret",
+   "user_agent": "SomeOtherBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/doc.pdf",
+   "user_agent": "SomeOtherBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/doc.pdf.html",
+   "user_agent": "SomeOtherBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/public/z",
+   "user_agent": "SomeOtherBot"
+  },
+  {
+   "allowed": false,
+   "body": "star_prefix",
+   "path": "/star/q",
+   "user_agent": "SomeOtherBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/ab/q",
+   "user_agent": "SomeOtherBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/caps/q",
+   "user_agent": "SomeOtherBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/x/y/z",
+   "user_agent": "SomeOtherBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/anything",
+   "user_agent": "SomeOtherBot"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/",
+   "user_agent": "alpha"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/private/x",
+   "user_agent": "alpha"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/members/secret",
+   "user_agent": "alpha"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/members/public/x",
+   "user_agent": "alpha"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/b/c/d",
+   "user_agent": "alpha"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/b/x",
+   "user_agent": "alpha"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/z",
+   "user_agent": "alpha"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/x/secret",
+   "user_agent": "alpha"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/doc.pdf",
+   "user_agent": "alpha"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/doc.pdf.html",
+   "user_agent": "alpha"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/public/z",
+   "user_agent": "alpha"
+  },
+  {
+   "allowed": false,
+   "body": "star_prefix",
+   "path": "/star/q",
+   "user_agent": "alpha"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/ab/q",
+   "user_agent": "alpha"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/caps/q",
+   "user_agent": "alpha"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/x/y/z",
+   "user_agent": "alpha"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/anything",
+   "user_agent": "alpha"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/",
+   "user_agent": "beta"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/private/x",
+   "user_agent": "beta"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/members/secret",
+   "user_agent": "beta"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/members/public/x",
+   "user_agent": "beta"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/b/c/d",
+   "user_agent": "beta"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/b/x",
+   "user_agent": "beta"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/z",
+   "user_agent": "beta"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/x/secret",
+   "user_agent": "beta"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/doc.pdf",
+   "user_agent": "beta"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/doc.pdf.html",
+   "user_agent": "beta"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/public/z",
+   "user_agent": "beta"
+  },
+  {
+   "allowed": false,
+   "body": "star_prefix",
+   "path": "/star/q",
+   "user_agent": "beta"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/ab/q",
+   "user_agent": "beta"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/caps/q",
+   "user_agent": "beta"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/x/y/z",
+   "user_agent": "beta"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/anything",
+   "user_agent": "beta"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/",
+   "user_agent": "*"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/private/x",
+   "user_agent": "*"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/members/secret",
+   "user_agent": "*"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/members/public/x",
+   "user_agent": "*"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/b/c/d",
+   "user_agent": "*"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/b/x",
+   "user_agent": "*"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/a/z",
+   "user_agent": "*"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/x/secret",
+   "user_agent": "*"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/doc.pdf",
+   "user_agent": "*"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/doc.pdf.html",
+   "user_agent": "*"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/public/z",
+   "user_agent": "*"
+  },
+  {
+   "allowed": false,
+   "body": "star_prefix",
+   "path": "/star/q",
+   "user_agent": "*"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/ab/q",
+   "user_agent": "*"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/caps/q",
+   "user_agent": "*"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
+   "path": "/x/y/z",
+   "user_agent": "*"
+  },
+  {
+   "allowed": true,
+   "body": "star_prefix",
    "path": "/anything",
    "user_agent": "*"
   }

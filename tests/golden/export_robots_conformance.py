@@ -11,9 +11,8 @@ Writes robots_conformance.json beside this file:
 test_robots_conformance_export.py fails if the committed JSON has fallen
 behind, and RobotsConformanceTests.cs on the C# side asserts every answer.
 
-Where the two deliberately differ, the C# test carries the exception list and
-asserts each entry still differs, so a divergence cannot quietly become
-agreement or spread.
+Both implementations follow RFC 9309 and must agree on every case. There is
+no exception list.
 """
 
 from __future__ import annotations
@@ -48,6 +47,8 @@ BODIES: dict[str, str] = {
     "case_agent": "User-agent: TOCEXTRACTOR\nDisallow: /caps/\n",
     "equal_len": "User-agent: *\nDisallow: /x/y/\nAllow: /x/y/\n",
     "nested": "User-agent: *\nDisallow: /a/\nDisallow: /a/b/\nAllow: /a/b/c/\n",
+    # A wildcard rule is still a prefix: /s*t covers /secret, not /x/secret.
+    "star_prefix": "User-agent: *\nDisallow: /s*t\n",
 }
 
 AGENTS = [
