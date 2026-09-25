@@ -330,6 +330,12 @@ public sealed class WindowTests
     /// <summary>Keep a picture of the render, for looking at by eye and for the README.</summary>
     private static void Save(Window window, string name)
     {
+        // A readable folder in the picture, not the test's temporary one.
+        if (window.DataContext is MainViewModel model)
+        {
+            model.OutputDirectory = "~/Downloads/Novels";
+        }
+
         Harness.Pump();
         var directory = Environment.GetEnvironmentVariable("TOC_SCREENSHOTS")
             ?? Path.Combine(AppContext.BaseDirectory, "screenshots");

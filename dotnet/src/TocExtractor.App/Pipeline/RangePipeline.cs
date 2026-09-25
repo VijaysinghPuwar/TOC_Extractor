@@ -143,6 +143,10 @@ public static class RangePipeline
             cancellationToken).ConfigureAwait(false);
         checkpoint.Save();
 
+        // The exporter's merged file follows fetch order, which is backwards
+        // after a walk back; the range files below are the book, in order.
+        File.Delete(Path.Combine(folder, TextExporter.CombinedName));
+
         foreach (var failure in result.Failed)
         {
             observer.Log($"chapter {failure.Index} failed after {failure.Attempts} attempt(s): {failure.Detail}");

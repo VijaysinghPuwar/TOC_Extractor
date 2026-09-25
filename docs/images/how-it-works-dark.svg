@@ -1,29 +1,29 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="860" height="190" viewBox="0 0 860 190" role="img" aria-label="How it works: contents page, find chapters, read politely, your files">
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="190" viewBox="0 0 860 190" role="img" aria-label="How it works: paste the page, scan, choose, save">
   <rect x="10" y="20" width="180" height="150" rx="8" fill="none" stroke="#ffffff" stroke-width="2"/>
   <circle cx="100" cy="52" r="15" fill="none" stroke="#ffffff" stroke-width="2"/>
   <text x="100" y="58" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#ffffff">1</text>
-  <text x="100" y="102" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#ffffff">Contents page</text>
-  <text x="100" y="128" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#ffffff">You give it the page</text>
-  <text x="100" y="148" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#ffffff">that lists every chapter</text>
+  <text x="100" y="102" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#ffffff">Paste the page</text>
+  <text x="100" y="128" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#ffffff">The novel's page,</text>
+  <text x="100" y="148" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#ffffff">nothing else</text>
   <g stroke="#ffffff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="196" y1="95" x2="224" y2="95"/><path d="M217 89 L224 95 L217 101"/></g>
   <rect x="230" y="20" width="180" height="150" rx="8" fill="none" stroke="#ffffff" stroke-width="2"/>
   <circle cx="320" cy="52" r="15" fill="none" stroke="#ffffff" stroke-width="2"/>
   <text x="320" y="58" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#ffffff">2</text>
-  <text x="320" y="102" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#ffffff">Find chapters</text>
-  <text x="320" y="128" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#ffffff">It collects the link</text>
-  <text x="320" y="148" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#ffffff">to each chapter</text>
+  <text x="320" y="102" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#ffffff">Scan</text>
+  <text x="320" y="128" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#ffffff">It finds the chapters</text>
+  <text x="320" y="148" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#ffffff">and the story text</text>
   <g stroke="#ffffff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="416" y1="95" x2="444" y2="95"/><path d="M437 89 L444 95 L437 101"/></g>
   <rect x="450" y="20" width="180" height="150" rx="8" fill="none" stroke="#ffffff" stroke-width="2"/>
   <circle cx="540" cy="52" r="15" fill="none" stroke="#ffffff" stroke-width="2"/>
   <text x="540" y="58" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#ffffff">3</text>
-  <text x="540" y="102" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#ffffff">Read politely</text>
-  <text x="540" y="128" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#ffffff">It checks the site's rules</text>
-  <text x="540" y="148" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#ffffff">and waits between pages</text>
+  <text x="540" y="102" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#ffffff">Choose</text>
+  <text x="540" y="128" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#ffffff">Pick the chapters,</text>
+  <text x="540" y="148" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#ffffff">for example 350 to 400</text>
   <g stroke="#ffffff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="636" y1="95" x2="664" y2="95"/><path d="M657 89 L664 95 L657 101"/></g>
   <rect x="670" y="20" width="180" height="150" rx="8" fill="none" stroke="#ffffff" stroke-width="2"/>
   <circle cx="760" cy="52" r="15" fill="none" stroke="#ffffff" stroke-width="2"/>
   <text x="760" y="58" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#ffffff">4</text>
-  <text x="760" y="102" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#ffffff">Your files</text>
-  <text x="760" y="128" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#ffffff">One text file per chapter,</text>
-  <text x="760" y="148" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#ffffff">plus one combined file</text>
+  <text x="760" y="102" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#ffffff">Save</text>
+  <text x="760" y="128" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#ffffff">One TXT or PDF,</text>
+  <text x="760" y="148" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#ffffff">in reading order</text>
 </svg>

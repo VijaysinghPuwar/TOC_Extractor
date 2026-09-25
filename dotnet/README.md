@@ -1,13 +1,13 @@
-# TOC Extractor — C# implementation
+# TOC Extractor: the C# implementation
 
-A second implementation of the extractor, built against .NET 10 and (from step 7)
-Microsoft.Playwright. The Python package under `../src/toc_extractor` remains the
+A second implementation of the extractor, built on .NET 10 and
+Microsoft.Playwright. It is also what the desktop app is made of. The Python package under `../src/toc_extractor` remains the
 reference implementation.
 
 ## Why two
 
 The two exist to be compared. Where both implement the same rule, a shared
-corpus asserts they agree rather than each testing itself in isolation — the
+corpus asserts they agree rather than each testing itself in isolation, the
 text-cleaning and filename rules are pinned by `../tests/golden/v1_golden.json`,
 which both suites read. A behaviour that differs between them is either a bug or
 a decision recorded below, never an accident.
@@ -24,6 +24,7 @@ a decision recorded below, never an accident.
 | Exporters, checkpoint | done | `exporters/`, `checkpoint.py` |
 | Playwright page source | done | `browser.py` |
 | CLI, TOML profiles | done | `cli.py`, `config.py` |
+| Scanner, range planner, desktop app | C# only | none |
 
 ## Deliberate differences from Python
 
@@ -37,20 +38,13 @@ ASCII case clash, which is what the corpus covers and what the target
 filesystems actually collide on. Inventing a folding table for a case APFS and
 ext4 do not agree on either would be worse than the gap.
 
-**robots.txt group selection.** Python defers the decision to
-`urllib.robotparser`, which puts an agent in a group when the group's name
-appears anywhere inside it: "MyTOCExtractorBot" joins the "TOCExtractor"
-group. This matches the product token instead - the part before any slash,
-compared case-insensitively - per RFC 9309. Three of the 1920 conformance
-cases differ because of it, all for that one agent, and all listed in
-`RobotsConformanceTests`.
-
-The divergence is deliberate because Python's two code paths disagree with
-each other on exactly those inputs: `can_fetch` selects the group by substring
-while `matched_rule` selects it by prefix, so a permitted path is reported
-with a Disallow that never applied - the thing `_applicable_group`'s own
-docstring says must never happen. One evaluation answers both questions here,
-so it cannot.
+**robots.txt is no longer a difference.** An earlier version recorded that
+Python's `urllib.robotparser` chose a group by substring while this chose it
+by product token, and that the two disagreed on three conformance cases.
+Python now has its own RFC 9309 evaluator (longest match, `*` and `$`, Allow
+winning ties, groups by product token), because `robotparser` also answered
+differently on different Python versions. Both sides now agree on every case
+in the corpus.
 
 **`LinkCollection` is named `LinkTally`.** A .NET type whose name ends in
 `Collection` is expected to implement `ICollection`; this one is a count of
@@ -75,8 +69,8 @@ dictionary and sink writes go through a gate. This is the one place the two
 concurrency models differ in a way a port cannot paper over.
 
 **`Task.WhenAll` rather than a task group.** Python's task group cancels its
-siblings when a child raises. No child here is expected to raise — every path
-records either a record or a failure — so the difference is unobservable, and
+siblings when a child raises. No child here is expected to raise, every path
+records either a record or a failure, so the difference is unobservable, and
 the run accounting is the backstop either way.
 
 **Merged files are assembled by URL, in table-of-contents order.** Python
@@ -175,7 +169,9 @@ Directory.Build.props     shared compiler settings; warnings are errors
 Directory.Packages.props  central package versions
 src/TocExtractor.Core     policy and the fetch loop; no browser dependency
 src/TocExtractor.Browser  the Playwright page source, and nothing else
+src/TocExtractor.App      scanner, range planner, sessions, shared pipeline
 src/TocExtractor.Cli      System.CommandLine front end and TOML profiles
+src/TocExtractor.Desktop  Avalonia window and view models
 tests/                    xUnit v3, self-hosting on Microsoft Testing Platform
 ```
 
@@ -185,12 +181,12 @@ them with `make cs-browser-install` once, then `make cs-test-browser`.
 
 The C# suite reads three fixtures generated on the Python side and copied in at
 build time: `corpus.json` (cleaning and filename inputs), `v1_golden.json` (what
-v1 produced for them) and `robots_conformance.json` (1920 robots decisions and
-`urllib.robotparser`'s answer to each). Regenerate them with
+v1 produced for them) and `robots_conformance.json` (2048 robots decisions and
+the Python evaluator's answer to each). Regenerate them with
 `tests/golden/export_corpus.py` and `tests/golden/export_robots_conformance.py`;
 Python tests fail if either falls behind its source.
 
-`TocExtractor.Core` must stay free of any browser driver — the fetch loop and
+`TocExtractor.Core` must stay free of any browser driver, the fetch loop and
 every policy decision are testable without one, and `AssemblyBoundaryTests`
 fails the build if that stops being true.
 

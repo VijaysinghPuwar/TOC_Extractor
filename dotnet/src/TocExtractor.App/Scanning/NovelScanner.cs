@@ -41,6 +41,13 @@ public sealed class NovelScanner(
     /// <summary>List pages in a row that add nothing before paging stops.</summary>
     private const int UnproductiveLimit = 2;
 
+    /// <summary>Times the person is asked to pass a check before the scan says it will not pass.</summary>
+    private const int CheckRounds = 3;
+
+    internal const string CheckWontPass =
+        "The site's security check did not let this browser through. Wait a few minutes and scan again. "
+        + "If it keeps happening, the site blocks tools like this app.";
+
     private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
     private static readonly string FindChapters = Script("find-chapters.js");
     private static readonly string FindContent = Script("find-content.js");
@@ -51,6 +58,7 @@ public sealed class NovelScanner(
     // Keyed by address, not number: a site can give two chapters one number.
     private readonly Dictionary<string, ChapterLink> links = new(StringComparer.Ordinal);
     private string? locked;
+    private bool checkFailed;
     private List<ScannedChapter> chapters = [];
 
     public async Task<ScanResult> ScanAsync(string novelUrl, CancellationToken cancellationToken = default)
@@ -60,7 +68,9 @@ public sealed class NovelScanner(
         var first = await this.ReadListAsync(novelUrl, cancellationToken).ConfigureAwait(false);
         if (first is null)
         {
-            return this.Result(novelUrl, "", problem: "The novel page could not be read. See the activity log for why.");
+            return this.checkFailed
+                ? this.Result(novelUrl, "", CheckWontPass, Obstacle.HumanCheck)
+                : this.Result(novelUrl, "", problem: "The novel page could not be read. See the activity log for why.");
         }
 
         if (first.Probe.Challenge || first.Probe.SignIn)
@@ -108,7 +118,7 @@ public sealed class NovelScanner(
             return this.Result(
                 novelUrl,
                 title,
-                "No chapter list was found on this page. Open the page that lists the chapters and scan that, or set the selectors under Advanced.");
+                "No chapter list was found on this page. Open the page that lists the chapters and scan that instead.");
         }
 
         var layout = await this.FindLayoutAsync(cancellationToken).ConfigureAwait(false);
@@ -125,15 +135,26 @@ public sealed class NovelScanner(
         {
             return await probe.ProbeAsync(url, script, settle, cancellationToken).ConfigureAwait(false);
         }
-        catch (HumanCheckException check) when (onHumanCheck is not null)
+        catch (HumanCheckException first) when (onHumanCheck is not null)
         {
-            log?.Invoke($"scan: {url} asked to check you are human; waiting for you in the browser");
-            if (!await onHumanCheck(check, cancellationToken).ConfigureAwait(false))
+            var check = first;
+            for (var round = 1; ; round++)
             {
-                throw;
-            }
+                log?.Invoke($"scan: {url} asked to check you are human; waiting for you in the browser");
+                if (!await onHumanCheck(check, cancellationToken).ConfigureAwait(false))
+                {
+                    throw;
+                }
 
-            return await probe.ProbeAsync(url, script, settle, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    return await probe.ProbeAsync(url, script, settle, cancellationToken).ConfigureAwait(false);
+                }
+                catch (HumanCheckException again) when (round < CheckRounds)
+                {
+                    check = again;
+                }
+            }
         }
     }
 
@@ -262,6 +283,13 @@ public sealed class NovelScanner(
             log?.Invoke($"scan: read {url}: {found.Chapters.Count} chapter link(s)"
                 + (this.locked is null ? "" : $", {added} new"));
             return new ListPage(url, found);
+        }
+        catch (HumanCheckException)
+        {
+            log?.Invoke($"scan: the check on {url} did not pass");
+            this.notes.Add($"The security check on {url} did not pass.");
+            this.checkFailed = true;
+            return null;
         }
         catch (PageException exception)
         {
@@ -408,7 +436,7 @@ public sealed class NovelScanner(
 
         if (found is null || found.Content is null || found.ContentChars < 200)
         {
-            return (null, $"Could not find the story text on chapter {sample.Number}. Set the selectors under Advanced.");
+            return (null, $"Could not find the story text on chapter {sample.Number}. This site may not be supported yet; Details shows what was tried.");
         }
 
         if (found.Challenge)
@@ -427,7 +455,7 @@ public sealed class NovelScanner(
             var confirm = await this.ProbeContentAsync(check.Url, Confirm(found), cancellationToken).ConfigureAwait(false);
             if (confirm is null || confirm.ContentChars < 200)
             {
-                return (null, $"The story text was found on chapter {sample.Number} but not on chapter {check.Number}. Set the selectors under Advanced.");
+                return (null, $"The story text was found on chapter {sample.Number} but not on chapter {check.Number}, so the pages differ too much to save safely.");
             }
         }
 

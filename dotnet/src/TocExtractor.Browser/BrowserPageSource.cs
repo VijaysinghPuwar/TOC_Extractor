@@ -511,6 +511,9 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         }
     }
 
+    /// <summary>Looks in a row, two seconds apart, that a check must stay gone for.</summary>
+    private const int ClearLooks = 3;
+
     private async Task<bool> WaitForPersonCoreAsync(TimeSpan timeout, CancellationToken cancellationToken)
     {
         if (this.context is not { } context)
@@ -520,6 +523,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
 
         var watch = Stopwatch.StartNew();
         var shown = false;
+        var clear = 0;
         while (watch.Elapsed < timeout)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -540,7 +544,10 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                 }
             }
 
-            if (!blocked)
+            // A check reloads itself after a click, so one clear look can be the
+            // blink between two checks. Only a page that stays clear has passed.
+            clear = blocked ? 0 : clear + 1;
+            if (clear >= ClearLooks)
             {
                 return true;
             }

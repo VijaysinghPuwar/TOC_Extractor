@@ -88,14 +88,17 @@ jobs:
       - run: make test-fast
 
   dotnet:
-    # The C# implementation. Pinned by global.json so a runner image bump
-    # cannot quietly change the SDK the build was verified against.
-    runs-on: ubuntu-latest
+    # The C# implementation on every system the desktop app ships for.
+    # Pinned by global.json so a runner image bump cannot quietly change the
+    # SDK the build was verified against.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
         with:
-          # test_readme.py checks that the v1.0.0 tag still resolves, and a
-          # default checkout fetches no tags.
           fetch-depth: 0
       - uses: actions/setup-dotnet@v6
         with:
@@ -103,11 +106,32 @@ jobs:
       - run: dotnet restore dotnet/TocExtractor.slnx
       - run: dotnet build dotnet/TocExtractor.slnx --no-restore
       - name: Formatting
+        if: runner.os == 'Linux'
         run: dotnet format dotnet/TocExtractor.slnx --verify-no-changes --no-restore
       - name: Core tests
-        run: dotnet test dotnet/tests/TocExtractor.Core.Tests --no-build
+        run: dotnet test --project dotnet/tests/TocExtractor.Core.Tests --no-build
+      - name: App tests
+        run: dotnet test --project dotnet/tests/TocExtractor.App.Tests --no-build
       - name: CLI tests
-        run: dotnet test dotnet/tests/TocExtractor.Cli.Tests --no-build
+        run: dotnet test --project dotnet/tests/TocExtractor.Cli.Tests --no-build
+      - name: Desktop window tests (headless)
+        run: dotnet test --project dotnet/tests/TocExtractor.Desktop.Tests --no-build
+
+  test-windows:
+    # The Python tool on Windows: paths, file names and line endings are
+    # where a Unix-only assumption would show.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PRIMARY_PYTHON }}
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -m "not browser"
 
   dotnet-browser:
     # One job, because Chromium is the only thing this downloads.
@@ -130,7 +154,7 @@ jobs:
       - name: Install Chromium
         working-directory: dotnet/tests/TocExtractor.Browser.Tests/bin/Debug/net10.0
         run: ./.playwright/node/linux-x64/node ./.playwright/package/cli.js install --with-deps chromium
-      - run: dotnet test dotnet/tests/TocExtractor.Browser.Tests --no-build
+      - run: dotnet test --project dotnet/tests/TocExtractor.Browser.Tests --no-build
 
   test-macos:
     runs-on: macos-latest

@@ -94,6 +94,40 @@ public sealed class PipelineTests
         },
     };
 
+    [Fact]
+    public async Task A_range_is_saved_as_one_file_in_reading_order_and_nothing_else_merged()
+    {
+        var chapters = Enumerable.Range(1, 5)
+            .Select(n => new Scanning.ScannedChapter(n, $"Chapter {n}", $"https://e.com/ch/{n}"))
+            .ToList();
+        var scan = new Scanning.ScanResult
+        {
+            NovelUrl = Book.Toc,
+            BookTitle = "Stub Book",
+            Chapters = chapters,
+            Layout = new Scanning.ChapterLayout("h1", "article", "a[rel=next]", "a[rel=prev]"),
+        };
+        var request = new RangeRequest
+        {
+            Scan = scan,
+            Plan = Scanning.RangePlanner.Plan(scan, 2, 4),
+            From = 2,
+            To = 4,
+            OutputRoot = Scratch.Directory(),
+            Fetch = new Core.Fetching.FetchOptions { Concurrency = 1, MinDelay = TimeSpan.Zero, MaxDelay = TimeSpan.Zero, WaitAfterLoad = TimeSpan.Zero },
+        };
+
+        var result = await RangePipeline.RunAsync(
+            request, new StubPageSource(Book.Pages(5)), Guard, RobotsPolicy.Missing("https://e.com"),
+            new RateLimiter(TimeSpan.Zero), new RecordingObserver(), cancellationToken: Token);
+
+        Assert.Equal(PipelineOutcome.Ok, result.Outcome);
+        Assert.False(File.Exists(Path.Combine(request.BookDirectory, "combined.txt")));
+        var book = await File.ReadAllTextAsync(Assert.Single(result.Files), Token);
+        var headings = book.Split('\n').Where(line => line.StartsWith("Chapter ", StringComparison.Ordinal)).ToList();
+        Assert.Equal(["Chapter 2", "Chapter 3", "Chapter 4"], headings);
+    }
+
     private sealed class OrderObserver : IPipelineObserver
     {
         private readonly Lock gate = new();
@@ -121,15 +155,16 @@ public sealed class PipelineTests
 public sealed class ChapterTitleTests
 {
     [Theory]
-    [InlineData("Page 1", "Chapter 1")]
-    [InlineData("page 185", "Chapter 185")]
-    [InlineData("  Page 007 ", "Chapter 7")]
-    [InlineData("Page 12: The Storm Road", "Page 12: The Storm Road")]
-    [InlineData("Chapter 3: Low Tide", "Chapter 3: Low Tide")]
-    [InlineData("The Last Page 9", "The Last Page 9")]
-    [InlineData("Part 2", "Part 2")]
-    public void Only_a_bare_page_number_becomes_a_chapter(string heading, string saved)
+    [InlineData("Page 1", "Chapter 1\nThe text.", "Chapter 1")]
+    [InlineData("page 185", "  Chapter 185: The Road\nText.", "Chapter 185")]
+    [InlineData("Page 130", "the end of chapter 140.\n\nChapter 141 A Melee\nText.", "Page 130")]
+    [InlineData("Page 128", "The middle of a long chapter.", "Page 128")]
+    [InlineData("Page 7", "Chapter 8\nText.", "Page 7")]
+    [InlineData("Page 12: The Storm Road", "Chapter 12\nText.", "Page 12: The Storm Road")]
+    [InlineData("Chapter 3: Low Tide", "Text.", "Chapter 3: Low Tide")]
+    [InlineData("The Last Page 9", "Chapter 9\nText.", "The Last Page 9")]
+    public void A_page_becomes_a_chapter_only_when_its_text_opens_as_that_chapter(string heading, string body, string saved)
     {
-        Assert.Equal(saved, Pipeline.ChapterTitles.Tidy(heading));
+        Assert.Equal(saved, Pipeline.ChapterTitles.Tidy(heading, body));
     }
 }

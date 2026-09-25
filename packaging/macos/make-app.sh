@@ -43,7 +43,12 @@ find "$app/Contents/Resources/.playwright/node" -name node -exec chmod +x {} +
 codesign --force --deep --sign - "$app"
 codesign --verify --deep --strict "$app"
 
-"$app/Contents/MacOS/TocExtractor" --self-test
+# An Intel build is checked under Rosetta on an Apple silicon machine.
+if [ "$rid" = "osx-x64" ] && [ "$(uname -m)" = "arm64" ]; then
+  arch -x86_64 "$app/Contents/MacOS/TocExtractor" --self-test
+else
+  "$app/Contents/MacOS/TocExtractor" --self-test
+fi
 
 zip="$out/TOC-Extractor-$version-macos-$arch.zip"
 rm -f "$zip"

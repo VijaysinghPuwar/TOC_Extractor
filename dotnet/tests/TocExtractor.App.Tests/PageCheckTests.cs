@@ -76,3 +76,34 @@ public sealed class PageCheckTests
         Assert.Null(preview.SampleProblem);
     }
 }
+
+public sealed class ScanCheckTests
+{
+    private static CancellationToken Token => TestContext.Current.CancellationToken;
+
+    [Fact]
+    public async Task A_check_that_never_passes_says_so_after_three_tries()
+    {
+        var waits = 0;
+        var scanner = new Scanning.NovelScanner(
+            new AlwaysChecking(), new Core.Politeness.UrlGuard(resolver: new PublicResolver()),
+            Core.Politeness.RobotsPolicy.Missing("https://e.com"), new Core.Politeness.RateLimiter(TimeSpan.Zero),
+            onHumanCheck: (_, _) =>
+            {
+                waits++;
+                return Task.FromResult(true);
+            });
+
+        var scan = await scanner.ScanAsync("https://e.com/novel", Token);
+
+        Assert.Equal(3, waits);
+        Assert.Equal(Obstacle.HumanCheck, scan.Obstacle);
+        Assert.Equal(Scanning.NovelScanner.CheckWontPass, scan.Problem);
+    }
+
+    private sealed class AlwaysChecking : Core.Pages.IPageProbe
+    {
+        public Task<(string FinalUrl, string Json)> ProbeAsync(string url, string script, TimeSpan settle, CancellationToken cancellationToken = default) =>
+            throw new Core.Pages.HumanCheckException();
+    }
+}

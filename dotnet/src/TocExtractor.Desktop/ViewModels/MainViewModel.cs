@@ -364,7 +364,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
 
             this.OnPropertyChanged(nameof(this.HasNotes));
 
-            this.Log($"Scan: {scan.BookTitle}. {this.ScanSummary} {scan.Problem}".Trim());
+            this.Log((string.IsNullOrWhiteSpace(scan.BookTitle) ? "Scan:" : $"Scan: {scan.BookTitle.TrimEnd('.')}.") + $" {this.ScanSummary} {scan.Problem}".TrimEnd());
             if (scan.Ready)
             {
                 this.From ??= scan.FirstNumber;

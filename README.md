@@ -6,70 +6,202 @@
 </p>
 
 <p align="center">
-  Save the chapters of a web book or series as clean text files you can read offline.
+  Save any chapters of a web novel as one clean TXT or PDF, on Mac or Windows.
+</p>
+
+<p align="center">
+  <a href="https://github.com/VijaysinghPuwar/TOC_Extractor/releases/latest"><strong>Download the app</strong></a>
 </p>
 
 ---
 
 ## What is this?
 
-Many websites publish long writing as a series of chapters, with one page that
-lists them all. That list is called a **table of contents** (the "TOC" in the
-name).
-
-TOC Extractor takes that one page, visits each chapter in order, pulls out
-just the story text (no menus, no ads, no comment sections), and saves it on
-your computer. You end up with one tidy file per chapter, plus one file with
-everything joined together.
+Web novels are often hundreds or thousands of chapters long, one page per
+chapter, with ads and menus around every one. TOC Extractor is a desktop app
+that saves just the story, in reading order, so you can read it offline.
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/how-it-works-dark.svg">
-    <img src="docs/images/how-it-works.svg" alt="How it works: contents page, find chapters, read politely, your files" width="860">
+    <img src="docs/images/how-it-works.svg" alt="How it works: paste the page, scan, choose, save" width="860">
   </picture>
 </p>
 
-It works on almost any site, because it does not have anything built in for
-one particular website. Instead, you tell it three things about the site you
-are using:
+1. **Paste** the novel's main page.
+2. **Scan.** The app finds the chapter list and where the story text sits.
+3. **Choose** the chapters you want, for example 350 to 400.
+4. **Save** them as one TXT, one PDF, or both.
 
-| You tell it | In plain words | Example |
-|---|---|---|
-| **Link** | Which links on the contents page are chapters | `ol.toc a` |
-| **Title** | Where the chapter name sits on a chapter page | `h1.title` |
-| **Content** | Where the actual story text sits | `article.reader` |
+There is nothing to set up per site. The scan works out each site's layout
+by itself.
 
-These are called *CSS selectors*. They look technical, but they are just
-short labels that point at parts of a web page. The section
-[Finding the three labels](#finding-the-three-labels) walks through it.
+<p align="center">
+  <img src="docs/images/app-saved.png" alt="The app after saving chapters 12 to 20" width="820">
+</p>
+
+## Download
+
+Get the latest version from the
+[Releases page](https://github.com/VijaysinghPuwar/TOC_Extractor/releases/latest).
+
+| Your computer | File to download |
+|---|---|
+| Mac with Apple silicon (M1 or newer) | `TOC-Extractor-...-macos-arm64.zip` |
+| Mac with Intel | `TOC-Extractor-...-macos-x64.zip` |
+| Windows 10 or 11 | `TOC-Extractor-...-windows-x64.zip` |
+
+**Mac:** unzip it and move **TOC Extractor** to Applications. The first time,
+right-click the app and choose **Open**. macOS asks once, because the app is
+not from the App Store.
+
+**Windows:** unzip the folder anywhere and run `TocExtractor.exe`. If a blue
+SmartScreen box appears, choose **More info**, then **Run anyway**.
+
+The first time it starts, the app downloads its own private browser (about
+150 MB to download, 350 MB on disk). It is kept in the app's own data folder
+and never touches the browser you normally use.
+
+## Using the app
+
+<p align="center">
+  <img src="docs/images/app-start.png" alt="The app when it opens" width="820">
+</p>
+
+1. Paste the address of the novel's main page (the one with the chapter
+   list) into **Novel page**, then press **Scan**.
+2. The app shows the book's name and how many chapters it found.
+3. Under **Chapters**, type the first and last chapter you want, or press
+   **All**. Below it, the app says how long it will take.
+4. Tick **TXT**, **PDF**, or both, and pick a folder.
+5. Press **Save**. Each chapter appears in the list as it is saved. Open the
+   **Reader** tab to read one, or **Activity** to see every step.
+
+Press **Stop** at any time. Nothing is lost: next time the app skips the
+chapters it already has.
+
+### Long books
+
+The app does not click through a book one chapter at a time to reach
+chapter 2000. It learns how the site numbers its chapter addresses, checks
+that guess on the real site, and then opens each chapter you asked for
+directly. If a site gives no such pattern, the app walks from the nearest
+chapter it knows. When that would mean visiting a lot of extra pages, it
+tells you first and waits for you to press Save again.
+
+### When a site asks "are you a person?"
+
+<p align="center">
+  <img src="docs/images/app-person-needed.png" alt="The app waiting while the person completes a check" width="820">
+</p>
+
+Some sites show a check halfway through a long download. The app pauses,
+brings the check to the front of its browser window, and waits for you. Once
+you finish it, saving carries on by itself, and the app waits a little
+longer between pages so another check is less likely.
+
+The app never tries to solve these checks for you. Some checks, such as
+Cloudflare's "Verify you are human", may refuse any browser that another
+program is controlling, even after you click them. If that happens three
+times, the app says so plainly instead of trying forever.
+
+### Sites that need you to sign in
+
+<p align="center">
+  <img src="docs/images/app-sign-in-needed.png" alt="The app asking the person to sign in" width="820">
+</p>
+
+Some sites only show whole chapters to members. The scan spots this and
+shows a **Sign in** button. Press it, sign in on the site in the browser
+window yourself, then press **Done** and scan again. The app never sees or
+stores your password; the site remembers you the same way your own browser
+would.
+
+## What you get
+
+```
+Your folder/
+  The Lighthouse/
+    012 - Chapter 12.txt                     one file per chapter
+    013 - Chapter 13.txt
+    ...
+    The Lighthouse 12-20.txt                 the whole range, in order
+    The Lighthouse 12-20.pdf                 the same, as a book
+    log 2026-09-25 18-31-40.csv              every step, if the log is on
+```
+
+Only the chapter heading and the story text are kept. Ads, menus, comments,
+"next chapter" links and hidden text that some sites use to mark copies are
+all left out.
+
+### Settings
+
+Open **Settings** at the bottom left to change:
+
+- **At once** and **Delay**: how many chapters are fetched at the same
+  time, and how many seconds to wait between pages;
+- **Keep links in text** and **Remove ad markers**: what is kept in the
+  chapter text;
+- **Start over**: fetch every chapter again, even ones already saved;
+- **Keep a log (CSV) of every run.** The log has one row per step, with the
+  time, the chapter, its address, and what happened. When a chapter fails,
+  the reason is in that row. It opens in Excel, Numbers or Google Sheets.
 
 ## Good manners are built in
 
-This tool is meant for content you own or have permission to save. It is
-built to behave like a patient reader, not a bot hammering a website:
+This app is meant for reading, and for content you have the right to save.
+It behaves like a patient reader, not a bot hammering a website:
 
 - **It follows each site's rules.** Websites publish a file called
   `robots.txt` that says what automated tools may visit. If a site says no,
-  the tool stops. There is no switch to turn this off.
-- **It takes its time.** It waits between pages, and if a site asks for an
-  even longer wait, it waits longer. It never goes faster than you set.
-- **It does not break in.** No captcha solving, no disguises, no hidden
-  tricks. If a site needs you to sign in, you do that yourself, by hand.
-- **It stays on the public web.** Links pointing at private or local network
+  the app stops. The only exception is a site you have signed in to yourself.
+- **It takes its time.** It waits between pages, and longer if the site asks.
+- **It does not break in.** No captcha solving, no disguises. If a site needs
+  a person, you do that part yourself.
+- **It stays on the public web.** Links to private or local network
   addresses are refused.
 
-Please respect each site's Terms of Service and its limits.
+Please respect each site's Terms of Service.
 
-## What you need
+## Common problems
 
-- A Mac or Linux computer (Windows may work, but it is not tested)
+**The scan says no chapter list was found.**
+Paste the novel's main page, the one that lists the chapters, rather than a
+chapter page.
+
+**"The site's security check did not let this browser through."**
+Wait a few minutes and scan again. Some sites block every automated browser,
+and then the app cannot save from them.
+
+**The first start is slow.**
+The app is downloading its browser. This happens once.
+
+**Mac says the app "cannot be opened".**
+Right-click the app and choose **Open** instead of double-clicking it.
+
+**Some chapters say "Page 12" instead of "Chapter 12".**
+That is how the site names them. Some sites split a book into pages that do
+not line up with its chapters, and the app keeps the site's own label rather
+than guess.
+
+---
+
+## The command line version
+
+The original Python tool is still here, for people who like the terminal or
+want to script it. You tell it three things about a site (where the chapter
+links, the title, and the story text are) and it saves every chapter.
+
+### What you need
+
+- A Mac, Windows or Linux computer
 - Python 3.11 to 3.14 (free, from [python.org](https://www.python.org/downloads/))
 - About 5 minutes for the first setup
 
 Playwright, the only runtime dependency, is installed for you in the steps
 below. It lets the tool open web pages the same way a normal browser does.
 
-## Getting started
+### Getting started
 
 Open the **Terminal** app and run these lines one at a time.
 
@@ -97,34 +229,17 @@ pip install -e ".[dev]"
 python -m playwright install chromium
 ```
 
-**3. Open the app**
+**3. Open it**
 
 ```bash
 make gui
 ```
 
-## Using the app
+This opens the Python version's own window, where you fill in the three
+labels and press its three buttons in order. The command line reference is
+under **For developers** below.
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/three-buttons-dark.svg">
-    <img src="docs/images/three-buttons.svg" alt="The three buttons: Launch browser, I'm Ready, Start extraction" width="780">
-  </picture>
-</p>
-
-1. Paste the address of the contents page into **Table of contents URL**.
-2. Fill in the three labels: **Chapter link**, **Title**, and **Content**.
-3. Pick an **Output folder**. This is where your files will go.
-4. Press **1. Launch browser**. A browser window opens on the contents page.
-5. If the site needs you to sign in or tick a "not a robot" box, do it in that
-   window now, like you normally would.
-6. Press **2. I'm Ready**.
-7. Press **3. Start extraction**. Each chapter appears in the list as it saves.
-
-Press **Stop** at any time. Nothing is lost: see
-[Stopping and starting again](#stopping-and-starting-again).
-
-## What you get
+### What you get
 
 ```
 downloads/
@@ -147,7 +262,7 @@ Web addresses are removed from the chapter text by default so it reads
 cleanly. The tool tells you how many it removed. Tick **Include source URLs**
 (or use `--include-links`) to keep them.
 
-## Stopping and starting again
+### Stopping and starting again
 
 You can stop a run halfway and start it again later. The tool remembers which
 chapters it already saved and only fetches the ones that are missing. If the
@@ -156,7 +271,7 @@ site has added new chapters since last time, it picks those up too.
 To throw away saved progress and start fresh, tick **Ignore saved progress**
 (or use `--force`).
 
-## Finding the three labels
+### Finding the three labels
 
 This is the only fiddly part, and you only do it once per site.
 
@@ -182,7 +297,7 @@ This is the only fiddly part, and you only do it once per site.
 4. Save your three labels in a small file, called a **profile**, so you never
    have to type them again (see below).
 
-## Saving your settings in a profile
+### Saving your settings in a profile
 
 A profile is a short text file that remembers the labels and options for one
 site. There is a ready example at `profiles/example.toml`.
@@ -213,7 +328,7 @@ change one setting for one run without editing the file. If the profile has a
 typo in a setting name, the tool refuses it and lists the correct names,
 rather than quietly ignoring it.
 
-## Common problems
+### Common problems
 
 **"Tk is missing" or the app window will not open (Mac).**
 The Python that comes from Homebrew does not include the part that draws
@@ -242,7 +357,7 @@ A browser from an earlier run may still be open. Close it, then try again.
 The second one gets a number added (for example `Chapter One (2).txt`) so
 nothing is overwritten. The log mentions it.
 
-## Things it cannot do
+### Things it cannot do
 
 - It cannot make e-books directly. Export `markdown` and use pandoc, as shown
   above.
@@ -254,6 +369,18 @@ nothing is overwritten. The log mentions it.
   address check. Closing that needs control the browser does not offer.
 
 ## Version history
+
+**2.1.0** (2026-09-25)
+- New: a desktop app for Mac and Windows, written in C# with .NET. Paste a
+  novel's page, scan it, choose any chapters, and save them as TXT or PDF.
+- New: the scan finds the chapter list, the story text, and the site's
+  chapter address pattern by itself. There are no labels to fill in.
+- New: long books are fetched by address, so any range is quick to reach.
+- New: pauses for "are you a person" checks and sign-in walls, and waits for
+  you, instead of saving half a chapter.
+- New: an optional CSV log of every step.
+- Changed: the robots.txt rules are now read the same way on every Python
+  version, following the published standard (RFC 9309).
 
 **2.0.1** (2026-09-25)
 - Fixed: when a chapter page loaded but your content label matched nothing,
@@ -283,6 +410,43 @@ nothing is overwritten. The log mentions it.
 
 <details>
 <summary><strong>For developers</strong></summary>
+
+### The desktop app (C# and .NET)
+
+```
+dotnet/
+  src/TocExtractor.Core      rules: links, robots.txt, pacing, fetching, files
+  src/TocExtractor.Browser   Playwright page source, PDF printing
+  src/TocExtractor.App       scanner, range planner, sessions, CSV log
+  src/TocExtractor.Cli       the same pipeline as a command line
+  src/TocExtractor.Desktop   Avalonia window, MVVM view models
+  tests/                     xUnit, including headless window tests
+```
+
+```bash
+cd dotnet
+dotnet test --project tests/TocExtractor.Core.Tests
+dotnet test --project tests/TocExtractor.Desktop.Tests   # renders the window with no screen
+dotnet run --project src/TocExtractor.Desktop
+../packaging/macos/make-app.sh osx-arm64                 # builds and self-tests the .app
+```
+
+Built on .NET 10, Avalonia 12 and Microsoft.Playwright, with warnings as
+errors and the recommended analysers on. CI runs every .NET test project on
+Linux, Windows and macOS. Pushing a `v` tag builds the Mac (Apple silicon and
+Intel) and Windows downloads, runs each one's self-test, and publishes them
+to a GitHub release. The screenshots in this guide come from the headless
+window tests, run against a made-up book.
+
+How the scan works: scripts run inside the page to find the largest group of
+links that look like chapters, then the block of text that stays the same
+shape across two sample chapters. Addresses are compared to find a pattern
+such as "id = 3,254,000 + chapter number", which is checked against the live
+site before it is used. The Python tool and the C# app share test corpora
+for text cleaning, file names and robots.txt, so both read the rules the
+same way.
+
+### The Python tool
 
 ### Commands
 
