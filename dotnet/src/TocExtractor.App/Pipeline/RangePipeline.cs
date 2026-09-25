@@ -29,6 +29,12 @@ public sealed record RangeRequest
 
     public bool WritePdf { get; init; }
 
+    /// <summary>Each chapter in the TXT book starts with its number and title. The PDF always has them.</summary>
+    public bool TextHeadings { get; init; } = true;
+
+    /// <summary>Take the symbols a text-to-speech voice reads aloud out of the books.</summary>
+    public bool ForSpeech { get; init; }
+
     public required FetchOptions Fetch { get; init; }
 
     public bool Force { get; init; }
@@ -83,45 +89,94 @@ public static class RangePipeline
         var folder = request.BookDirectory;
         Directory.CreateDirectory(folder);
 
+        // The book files sit in the book's folder; the one-file-per-chapter
+        // working set, and the progress record, sit in its Chapters folder,
+        // so 500 chapters never bury the book a person is looking for.
+        using var book = SharedBook.Enter(folder, observer.Log);
+        var chaptersFolder = book.ChaptersFolder;
+
+        // Several extractions can save one book at once (say 101-150 and
+        // 151-200). They share one progress record, in memory and behind one
+        // lock, so neither overwrites what the other has saved.
         var fingerprint = Checkpoint.FingerprintOf(request.Scan.NovelUrl, selectors);
-        var checkpoint = Checkpoint.Load(folder, observer.Log);
-        if (checkpoint is not null && (request.Force || checkpoint.Fingerprint != fingerprint))
+        Checkpoint checkpoint;
+        lock (book.Gate)
         {
-            if (!request.Force)
+            if (book.Checkpoint is null)
             {
-                observer.Log($"refusing to resume: {folder} holds progress for a different book or layout. Use Start over.");
+                var loaded = Checkpoint.Load(chaptersFolder, observer.Log);
+                if (loaded is not null && (request.Force || loaded.Fingerprint != fingerprint))
+                {
+                    if (!request.Force)
+                    {
+                        observer.Log($"refusing to resume: {folder} holds progress for a different book or layout. Use Start over.");
+                        return new RangeResult(PipelineOutcome.Refused, null, [], []);
+                    }
+
+                    loaded.Discard();
+                    loaded = null;
+                }
+
+                book.Checkpoint = loaded ?? new Checkpoint
+                {
+                    Path = Checkpoint.PathFor(chaptersFolder),
+                    TocUrl = request.Scan.NovelUrl,
+                    Fingerprint = fingerprint,
+                    Selectors = new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["title"] = layout.TitleSelector,
+                        ["content"] = layout.ContentSelector,
+                    },
+                };
+            }
+            else if (book.Checkpoint.Fingerprint != fingerprint)
+            {
+                observer.Log($"refusing: another extraction is saving a different layout of this book into {folder} right now.");
                 return new RangeResult(PipelineOutcome.Refused, null, [], []);
             }
+            else if (request.Force)
+            {
+                // Throwing away progress another extraction is adding to
+                // would lose its chapters mid-save.
+                observer.Log("Start over was not applied: another extraction is saving this book right now.");
+            }
 
-            checkpoint.Discard();
-            checkpoint = null;
+            checkpoint = book.Checkpoint;
         }
 
-        checkpoint ??= new Checkpoint
+        IReadOnlyDictionary<string, PriorChapter> resumed;
+        int already;
+        lock (book.Gate)
         {
-            Path = Checkpoint.PathFor(folder),
-            TocUrl = request.Scan.NovelUrl,
-            Fingerprint = fingerprint,
-            Selectors = new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["title"] = layout.TitleSelector,
-                ["content"] = layout.ContentSelector,
-            },
-        };
+            resumed = checkpoint.AsPriorChapters();
+            already = request.Plan.Direct.Count(link => checkpoint.IsDone(link.Url));
+        }
 
-        var resumed = checkpoint.AsPriorChapters();
-        var already = request.Plan.Direct.Count(link => checkpoint.IsDone(link.Url));
         if (already > 0)
         {
             observer.Log($"{already} chapter(s) in this range were saved before and are not fetched again.");
         }
 
-        ISink sink = ExporterRegistry.Build([TextExporter.FormatName], folder, request.Fetch.IncludeLinks, resumed);
+        // Only the chapter files: the book itself is built below, for exactly
+        // the chosen range, so the exporter's own merged file is not wanted.
+        var sink = new ChapterFilesOnly(ExporterRegistry.Build([TextExporter.FormatName], chaptersFolder, request.Fetch.IncludeLinks, resumed));
         void Persist(ChapterRecord record)
         {
-            checkpoint.Record(record, sink.OutputsFor(record.Index));
-            checkpoint.Save();
+            lock (book.Gate)
+            {
+                checkpoint.Record(record, sink.OutputsFor(record.Index));
+                checkpoint.Save();
+            }
+
             observer.Record(record);
+        }
+
+        bool IsDone(string url)
+        {
+            lock (book.Gate)
+            {
+                return checkpoint.IsDone(url);
+            }
         }
 
         using var fetcher = new Fetcher(
@@ -143,7 +198,7 @@ public static class RangePipeline
                 request.Plan.Direct,
                 request.Plan.Walks,
                 selectors,
-                checkpoint.IsDone,
+                IsDone,
                 page => ChapterNumbers.FromTitle(page.Title),
                 cancellationToken).ConfigureAwait(false);
         }
@@ -155,11 +210,12 @@ public static class RangePipeline
             observer.Log("Stopped. Writing the chapters saved so far.");
         }
 
-        checkpoint.Save();
-
-        // The exporter's merged file follows fetch order, which is backwards
-        // after a walk back; the range files below are the book, in order.
-        File.Delete(Path.Combine(folder, TextExporter.CombinedName));
+        SortedDictionary<int, SavedChapter> saved;
+        lock (book.Gate)
+        {
+            checkpoint.Save();
+            saved = BookFiles.ReadRange(chaptersFolder, checkpoint, request.From, request.To);
+        }
 
         foreach (var failure in result?.Failed ?? [])
         {
@@ -168,7 +224,6 @@ public static class RangePipeline
 
         // The combined files, from the chapter files, for exactly this range.
         // Not cancellable: after a Stop, these are exactly what should still happen.
-        var saved = BookFiles.ReadRange(folder, checkpoint, request.From, request.To);
         var missing = Enumerable.Range(request.From, request.To - request.From + 1)
             .Where(n => !saved.ContainsKey(n)).ToList();
         List<string> files = [];
@@ -193,7 +248,7 @@ public static class RangePipeline
         if (request.WriteText && chapters.Count > 0)
         {
             var path = Path.Combine(folder, stem + ".txt");
-            await File.WriteAllTextAsync(path, BookFiles.Combined(chapters.Values), new UTF8Encoding(false), CancellationToken.None)
+            await File.WriteAllTextAsync(path, BookFiles.Combined(chapters.Values, request.TextHeadings, request.ForSpeech), new UTF8Encoding(false), CancellationToken.None)
                 .ConfigureAwait(false);
             files.Add(path);
             observer.Log($"Wrote {Path.GetFileName(path)} ({chapters.Count} chapters).");
@@ -206,7 +261,7 @@ public static class RangePipeline
             {
                 await pdf.WriteAsync(
                     request.Scan.BookTitle,
-                    [.. chapters.Values.Select(c => (c.Heading, c.Body))],
+                    [.. chapters.Values.Select(c => (c.Heading, request.ForSpeech ? SpeechText.Clean(c.Body) : c.Body))],
                     path,
                     CancellationToken.None).ConfigureAwait(false);
                 files.Add(path);
@@ -251,8 +306,51 @@ public static class RangePipeline
 public sealed record SavedChapter(int Number, string Heading, string Body);
 
 /// <summary>Names and assembles the files for one book.</summary>
-public static class BookFiles
+public static partial class BookFiles
 {
+    /// <summary>The subfolder of a book's folder that holds one file per chapter.</summary>
+    public const string ChaptersFolderName = "Chapters";
+
+    /// <summary>
+    /// The book's Chapters folder, created if need be. A book saved before
+    /// there was one has its chapter files and progress record moved in, so
+    /// nothing is fetched again and the book's folder is left tidy.
+    /// </summary>
+    public static string MoveChaptersIn(string folder, Action<string>? log = null)
+    {
+        var chapters = Path.Combine(folder, ChaptersFolderName);
+        Directory.CreateDirectory(chapters);
+        var oldState = Checkpoint.PathFor(folder);
+        if (!File.Exists(oldState) || File.Exists(Checkpoint.PathFor(chapters)))
+        {
+            return chapters;
+        }
+
+        var moved = 0;
+        foreach (var file in Directory.EnumerateFiles(folder, "*.txt"))
+        {
+            if (ChapterFile().IsMatch(Path.GetFileName(file)))
+            {
+                File.Move(file, Path.Combine(chapters, Path.GetFileName(file)), overwrite: false);
+                moved++;
+            }
+        }
+
+        File.Move(oldState, Checkpoint.PathFor(chapters));
+        var combined = Path.Combine(folder, TextExporter.CombinedName);
+        if (File.Exists(combined))
+        {
+            File.Delete(combined);
+        }
+
+        log?.Invoke($"Moved {moved} chapter file(s) into the {ChaptersFolderName} folder, so the book files stand out.");
+        return chapters;
+    }
+
+    /// <summary>A chapter's own file: "012 - Chapter 12.txt".</summary>
+    [System.Text.RegularExpressions.GeneratedRegex(@"^\d{3,} - .*\.txt$")]
+    private static partial System.Text.RegularExpressions.Regex ChapterFile();
+
     public static string FolderName(string title, string novelUrl)
     {
         var name = Core.Text.FileName.Sanitise(string.IsNullOrWhiteSpace(title) ? HostOf(novelUrl) : FirstLine(title), 80);
@@ -341,17 +439,32 @@ public static class BookFiles
         return stale;
     }
 
-    public static string Combined(IEnumerable<SavedChapter> chapters)
+    /// <summary>The chapters as one text, in order.</summary>
+    /// <param name="chapters">The chapters.</param>
+    /// <param name="headings">Start each with its heading. Without, chapters are parted by a blank line only, so a voice reads straight on.</param>
+    /// <param name="forSpeech">Take out symbols a voice would read aloud, the dividers included.</param>
+    public static string Combined(IEnumerable<SavedChapter> chapters, bool headings = true, bool forSpeech = false)
     {
         ArgumentNullException.ThrowIfNull(chapters);
         var text = new StringBuilder();
         foreach (var chapter in chapters)
         {
-            text.Append(chapter.Heading).Append("\n\n").Append(chapter.Body).Append("\n\n")
-                .Append(new string('-', 40)).Append("\n\n");
+            text.Append(Chapter(chapter.Heading, chapter.Body, headings, forSpeech)).Append("\n\n");
+            if (!forSpeech && headings)
+            {
+                text.Append(new string('-', 40)).Append("\n\n");
+            }
         }
 
         return text.ToString();
+    }
+
+    /// <summary>One chapter as text, with or without its heading, cleaned for a voice or not.</summary>
+    public static string Chapter(string? heading, string body, bool headings = true, bool forSpeech = false)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        var story = forSpeech ? SpeechText.Clean(body) : body.Trim();
+        return headings && !string.IsNullOrWhiteSpace(heading) ? heading.Trim() + "\n\n" + story : story;
     }
 
     /// <summary>"3, 5-9, 12" from a sorted list of numbers.</summary>
@@ -378,4 +491,71 @@ public static class BookFiles
 
     private static string HostOf(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host : "Book";
+}
+
+/// <summary>
+/// One book's folder while extractions are saving into it: its Chapters
+/// folder and the progress record they all share.
+/// </summary>
+internal sealed class SharedBook : IDisposable
+{
+    private static readonly Dictionary<string, SharedBook> Open = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Lock Registry = new();
+
+    private readonly string key;
+    private int users;
+
+    private SharedBook(string key, string chaptersFolder)
+    {
+        this.key = key;
+        this.ChaptersFolder = chaptersFolder;
+    }
+
+    public string ChaptersFolder { get; }
+
+    /// <summary>Guards <see cref="Checkpoint"/>, which several runs read and write.</summary>
+    public Lock Gate { get; } = new();
+
+    /// <summary>The progress record, loaded by the first run in and shared until the last one leaves.</summary>
+    public Checkpoint? Checkpoint { get; set; }
+
+    public static SharedBook Enter(string folder, Action<string>? log)
+    {
+        var key = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
+        lock (Registry)
+        {
+            if (!Open.TryGetValue(key, out var book))
+            {
+                book = new SharedBook(key, BookFiles.MoveChaptersIn(folder, log));
+                Open[key] = book;
+            }
+
+            book.users++;
+            return book;
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (Registry)
+        {
+            if (--this.users == 0)
+            {
+                Open.Remove(this.key);
+            }
+        }
+    }
+}
+
+/// <summary>Writes each chapter's file and nothing else: no merged file when the run closes.</summary>
+internal sealed class ChapterFilesOnly(ISink inner) : ISink
+{
+    public Task OpenAsync(CancellationToken cancellationToken = default) => inner.OpenAsync(cancellationToken);
+
+    public Task WriteAsync(ChapterRecord record, CancellationToken cancellationToken = default) =>
+        inner.WriteAsync(record, cancellationToken);
+
+    public Task CloseAsync(RunResult result, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public IReadOnlyDictionary<string, ChapterOutput> OutputsFor(int index) => inner.OutputsFor(index);
 }

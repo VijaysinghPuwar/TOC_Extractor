@@ -127,6 +127,12 @@ internal static class Autopilot
         job.From = run.From;
         job.To = run.To;
         await job.SaveCommand.ExecuteAsync(null).ConfigureAwait(true);
+
+        // A long walk is asked about first; a person would press Save again.
+        if (job.Stage == Stage.Idle && job.Problem?.Contains("Press Save again", StringComparison.Ordinal) == true)
+        {
+            await job.SaveCommand.ExecuteAsync(null).ConfigureAwait(true);
+        }
     }
 
     private static async Task Shoot(Window window, string? path, string suffix)

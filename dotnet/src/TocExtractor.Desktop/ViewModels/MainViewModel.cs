@@ -41,7 +41,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     private readonly SettingsStore store;
     private readonly Action<Action> post;
     private readonly Action<AppTheme>? applyTheme;
-    private readonly Dictionary<string, JobViewModel> claimedFolders = new(StringComparer.OrdinalIgnoreCase);
     private int nextNumber = 1;
     private bool loading;
 
@@ -182,31 +181,6 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         this.OnPropertyChanged(nameof(this.HasOtherNeedsPerson));
     }
 
-    /// <summary>Claim a book's folder for one extraction's save. False if another is saving there.</summary>
-    internal bool TryClaimFolder(string folder, JobViewModel job)
-    {
-        var key = FolderKey(folder);
-        if (this.claimedFolders.TryGetValue(key, out var holder) && holder != job)
-        {
-            return false;
-        }
-
-        this.claimedFolders[key] = job;
-        return true;
-    }
-
-    internal void ReleaseFolder(string folder, JobViewModel job)
-    {
-        var key = FolderKey(folder);
-        if (this.claimedFolders.TryGetValue(key, out var holder) && holder == job)
-        {
-            this.claimedFolders.Remove(key);
-        }
-    }
-
-    private static string FolderKey(string folder) =>
-        Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
-
     // -- settings -------------------------------------------------------------
 
     [ObservableProperty]
@@ -268,6 +242,18 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     partial void OnIncludeLinksChanged(bool value) => this.SaveSettings();
 
     partial void OnStripAdsChanged(bool value) => this.SaveSettings();
+
+    /// <summary>For audiobooks: no "Chapter 12. The Storm" read out before each chapter.</summary>
+    [ObservableProperty]
+    public partial bool LeaveOutHeadings { get; set; }
+
+    /// <summary>For audiobooks: no "hash hash hash" or "equals equals" read out.</summary>
+    [ObservableProperty]
+    public partial bool ForSpeech { get; set; }
+
+    partial void OnLeaveOutHeadingsChanged(bool value) => this.SaveSettings();
+
+    partial void OnForSpeechChanged(bool value) => this.SaveSettings();
 
     /// <summary>The one log every extraction writes into, or null when there is none.</summary>
     internal CsvLog? Log { get; }
@@ -445,6 +431,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         MaxDelaySeconds = (double)Math.Max(this.MaxDelay ?? 4, Math.Max(0, this.MinDelay ?? 2)),
         IncludeLinks = this.IncludeLinks,
         StripAds = this.StripAds,
+        BookHeadings = !this.LeaveOutHeadings,
+        ForSpeech = this.ForSpeech,
     };
 
     /// <summary>An extraction's form, remembered as the starting point for the next one and the next launch.</summary>
@@ -471,6 +459,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         MaxDelay = (double)(this.MaxDelay ?? 4),
         IncludeLinks = this.IncludeLinks,
         StripAds = this.StripAds,
+        LeaveOutHeadings = this.LeaveOutHeadings,
+        ForSpeech = this.ForSpeech,
         Theme = this.Theme.ToString(),
     };
 
@@ -489,6 +479,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
             this.MaxDelay = (decimal)Math.Max(settings.MinDelay, settings.MaxDelay);
             this.IncludeLinks = settings.IncludeLinks;
             this.StripAds = settings.StripAds;
+            this.LeaveOutHeadings = settings.LeaveOutHeadings;
+            this.ForSpeech = settings.ForSpeech;
             this.Theme = Enum.TryParse<AppTheme>(settings.Theme, ignoreCase: true, out var theme) ? theme : AppTheme.System;
         }
         finally

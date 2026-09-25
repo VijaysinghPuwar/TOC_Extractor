@@ -90,10 +90,13 @@ left with its own progress bar, and they all keep going in the background.
 Click one to see its chapters, reader and activity. There is no limit on how
 many you run.
 
-Books from the same site share that site's pace, so two books from one site
-never ask more of it than one would. Books from different sites do not slow
-each other down. The same book can only be saved into the same folder by one
-extraction at a time. Close a finished extraction with the **×** beside it.
+You can even save two parts of the same book at once, say 101 to 150 and 151
+to 200: both go into the same book folder and share its record of what is
+saved, so neither undoes the other. Books from the same site share that
+site's pace, so two extractions from one site never ask more of it than one
+would, which keeps "are you a person" checks rare. Books from different
+sites do not slow each other down. Close a finished extraction with the
+**×** beside it.
 
 If the app's browser tab is closed, or even the whole browser window, the
 app opens a new one and carries on. Before, every chapter after that point
@@ -141,12 +144,18 @@ would.
 ```
 Your folder/
   The Lighthouse/
-    012 - Chapter 12.txt                     one file per chapter
-    013 - Chapter 13.txt
-    ...
-    The Lighthouse 12-20.txt                 the whole range, in order
-    The Lighthouse 12-20.pdf                 the same, as a book
+    The Lighthouse 12-20.pdf                 the range as a book, if PDF is ticked
+    The Lighthouse 12-20.txt                 the same as one text, if TXT is ticked
+    Chapters/                                the app's working files, one per chapter
+      012 - Chapter 12.txt
+      013 - Chapter 13.txt
+      ...
 ```
+
+The book files are all you need. The Chapters folder is how the app knows
+what it already has, so a later save never downloads a chapter twice; leave
+it be, or delete the whole book folder to start fresh. Books saved by older
+versions are tidied into this layout the next time you save them.
 
 A book file is only ever named for the chapters it really holds. If you ask
 for 1 to 50 and chapter 27 fails, or you press Stop there, you get
@@ -169,6 +178,12 @@ same window; press **Back** to return. Changes are saved as you make them.
 - **Pace**: how many chapters each extraction fetches at the same time, and
   how many seconds to wait between pages.
 - **Text**: keep links in the text, and remove ad markers.
+- **For audiobooks (text to speech)**: leave chapter numbers and titles out
+  of the TXT book and **Copy text**, so a voice goes straight into the story
+  (the PDF keeps them); and remove symbols a voice would read aloud, such as
+  lines of `=====` or `-----` and stray `# _ = * ~ |`. Words and punctuation
+  are never changed. Press Save again to rebuild a book with these;
+  nothing is downloaded again.
 
 **Start over**, under Save as, fetches every chapter again, even ones already
 saved.
@@ -421,6 +436,11 @@ nothing is overwritten. The log mentions it.
   every page, retry, check and error of every extraction, and crashes.
 - New: a book file is named for exactly the chapters in it. Asked for 1-50
   with chapter 27 failed, it is "1-26", never "1-50".
+- New: two parts of the same book can be saved at the same time.
+- New: audiobook options: leave out chapter headings, and remove symbols a
+  text-to-speech voice would read aloud.
+- Changed: the one-file-per-chapter working files now live in a Chapters
+  folder inside the book's folder, so the book files are easy to find.
 - Fixed: after a browser tab was closed or crashed, every later chapter
   failed with "Target page, context or browser has been closed". The app now
   opens a fresh tab, or a fresh browser, and carries on.

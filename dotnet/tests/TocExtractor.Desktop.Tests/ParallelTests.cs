@@ -94,7 +94,40 @@ public sealed class ParallelTests
     }
 
     [AvaloniaFact]
-    public async Task The_same_book_into_the_same_folder_is_refused_while_it_is_being_saved()
+    public async Task Two_ranges_of_the_same_book_save_at_the_same_time()
+    {
+        var harness = new Harness();
+        harness.Service.Chapters = 200;
+        harness.Service.PauseBefore = 105;
+        harness.Service.PauseAt = new TaskCompletionSource();
+        await harness.StartAsync();
+        await harness.ScannedAsync();
+        var first = harness.Job;
+        first.From = 101;
+        first.To = 150;
+        var firstSaving = first.SaveCommand.ExecuteAsync(null);
+        Harness.Pump();
+
+        var second = harness.NewJob();
+        harness.Services[1].Chapters = 200;
+        await harness.ScannedAsync();
+        second.From = 151;
+        second.To = 200;
+        await second.SaveCommand.ExecuteAsync(null);
+        Harness.Pump();
+
+        // The second finished while the first was still saving: no queue.
+        Assert.Equal("Done. 50 of 50 saved.", second.Status);
+        Assert.Equal(Stage.Saving, first.Stage);
+
+        harness.Service.PauseAt.SetResult();
+        await firstSaving;
+        Harness.Pump();
+        Assert.Equal("Done. 50 of 50 saved.", first.Status);
+    }
+
+    [AvaloniaFact]
+    public async Task The_same_book_into_another_folder_runs_at_once()
     {
         var harness = new Harness();
         harness.Service.PauseBefore = 2;
@@ -106,18 +139,11 @@ public sealed class ParallelTests
 
         var second = harness.NewJob();
         await harness.ScannedAsync();
-        await second.SaveCommand.ExecuteAsync(null);
-        Harness.Pump();
-
-        Assert.Contains("Another extraction is saving \"The Lighthouse\"", second.Problem, StringComparison.Ordinal);
-        Assert.Equal(0, harness.Services[1].Saves);
-        Assert.Equal(Stage.Idle, second.Stage);
-
-        // In another folder it is fine.
         second.OutputDirectory = Harness.Scratch();
         await second.SaveCommand.ExecuteAsync(null);
         Harness.Pump();
-        Assert.Equal(1, harness.Services[1].Saves);
+
+        Assert.StartsWith("Done.", second.Status, StringComparison.Ordinal);
 
         harness.Service.PauseAt.SetResult();
         await saving;
@@ -329,6 +355,26 @@ public sealed class ParallelTests
         Assert.Equal(Stage.Idle, harness.Job.Stage);
         Assert.StartsWith("Stopped. 3 of 10 saved", harness.Job.Status, StringComparison.Ordinal);
         Assert.Equal("Stopped", harness.Job.RailStatus);
+    }
+
+    [AvaloniaFact]
+    public async Task Copy_text_follows_the_audiobook_settings()
+    {
+        var harness = new Harness();
+        await harness.StartAsync();
+        await harness.ScannedAsync();
+        harness.Job.From = 1;
+        harness.Job.To = 2;
+        await harness.Job.SaveCommand.ExecuteAsync(null);
+        Harness.Pump();
+        harness.Job.SelectedChapter = harness.Job.Chapters[0];
+
+        await harness.Job.CopyChapterCommand.ExecuteAsync(null);
+        Assert.StartsWith("Chapter 1: The Lighthouse Keeper\n\nThe lamp", harness.Shell.Copied, StringComparison.Ordinal);
+
+        harness.ViewModel.LeaveOutHeadings = true;
+        await harness.Job.CopyChapterCommand.ExecuteAsync(null);
+        Assert.StartsWith("The lamp", harness.Shell.Copied, StringComparison.Ordinal);
     }
 
     private static bool Visible(Harness harness, string name) =>

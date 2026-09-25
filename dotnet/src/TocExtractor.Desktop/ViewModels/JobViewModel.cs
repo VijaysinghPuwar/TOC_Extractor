@@ -497,16 +497,6 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
             return;
         }
 
-        // Two extractions writing one book's folder at once would overwrite
-        // each other's progress record. Different books, or the same book in
-        // different folders, run side by side.
-        var folder = this.BookFolder!;
-        if (!this.owner.TryClaimFolder(folder, this))
-        {
-            this.Fail($"Another extraction is saving \"{FirstLine(scan.BookTitle)}\" into this folder right now. Wait for it to finish, or choose another folder.");
-            return;
-        }
-
         this.Problem = null;
         this.Files.Clear();
         this.ResetChapters([.. Enumerable.Range(plan.From, plan.To - plan.From + 1)]);
@@ -575,7 +565,6 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
         }
         finally
         {
-            this.owner.ReleaseFolder(folder, this);
             this.running = null;
             this.PersonMessage = null;
             this.Stage = Stage.Idle;
@@ -623,9 +612,12 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
     [RelayCommand]
     private async Task CopyChapterAsync()
     {
-        if (this.SelectedChapter?.Text is { } text)
+        if (this.SelectedChapter is { Text: { } text } chapter)
         {
-            await this.owner.Shell.CopyTextAsync(text).ConfigureAwait(true);
+            // As the TXT book has it: with or without the heading, and ready
+            // for a voice if that is asked for in Settings.
+            var copy = BookFiles.Chapter(chapter.Heading, text, !this.owner.LeaveOutHeadings, this.owner.ForSpeech);
+            await this.owner.Shell.CopyTextAsync(copy).ConfigureAwait(true);
             this.Status = "Copied.";
         }
     }

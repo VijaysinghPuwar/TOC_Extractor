@@ -240,6 +240,62 @@ public sealed class ParallelAndLogTests
     }
 
     [Fact]
+    public async Task Two_ranges_of_one_book_save_at_the_same_time_and_neither_loses_the_others_chapters()
+    {
+        var output = Scratch.Directory();
+        var first = Request(output, 1, 10, total: 20);
+        var second = Request(output, 11, 20, total: 20);
+
+        var results = await Task.WhenAll(
+            RangePipeline.RunAsync(
+                first, new StubPageSource(Book.Pages(20)), Guard, RobotsPolicy.Missing("https://e.com"),
+                new RateLimiter(TimeSpan.Zero), new RecordingObserver(), cancellationToken: Token),
+            RangePipeline.RunAsync(
+                second, new StubPageSource(Book.Pages(20)), Guard, RobotsPolicy.Missing("https://e.com"),
+                new RateLimiter(TimeSpan.Zero), new RecordingObserver(), cancellationToken: Token));
+
+        Assert.All(results, result => Assert.Equal(PipelineOutcome.Ok, result.Outcome));
+        var chapters = Path.Combine(first.BookDirectory, BookFiles.ChaptersFolderName);
+        var checkpoint = Core.Checkpoints.Checkpoint.Load(chapters);
+        Assert.NotNull(checkpoint);
+        Assert.Equal(20, checkpoint.Completed.Count);
+        Assert.Equal(20, Directory.GetFiles(chapters, "*.txt").Length);
+
+        // The book's own folder holds the books and one Chapters folder, nothing else.
+        Assert.Equal(["Stub Book 1-10.txt", "Stub Book 11-20.txt"], Directory.GetFiles(first.BookDirectory).Select(Path.GetFileName).Order());
+        Assert.Equal([chapters], Directory.GetDirectories(first.BookDirectory));
+    }
+
+    [Fact]
+    public async Task A_book_saved_before_the_chapters_folder_is_tidied_and_nothing_is_fetched_again()
+    {
+        var output = Scratch.Directory();
+        var request = Request(output, 1, 3);
+        await RangePipeline.RunAsync(
+            request, new StubPageSource(Book.Pages(5)), Guard, RobotsPolicy.Missing("https://e.com"),
+            new RateLimiter(TimeSpan.Zero), new RecordingObserver(), cancellationToken: Token);
+
+        // Put it back the way older versions laid a book out.
+        var chapters = Path.Combine(request.BookDirectory, BookFiles.ChaptersFolderName);
+        foreach (var file in Directory.GetFiles(chapters))
+        {
+            File.Move(file, Path.Combine(request.BookDirectory, Path.GetFileName(file)));
+        }
+
+        Directory.Delete(chapters);
+
+        var source = new StubPageSource(Book.Pages(5));
+        var again = await RangePipeline.RunAsync(
+            Request(output, 1, 3), source, Guard, RobotsPolicy.Missing("https://e.com"),
+            new RateLimiter(TimeSpan.Zero), new RecordingObserver(), cancellationToken: Token);
+
+        Assert.Equal(PipelineOutcome.Ok, again.Outcome);
+        Assert.Empty(source.UrlsLoaded);
+        Assert.Equal(3, Directory.GetFiles(chapters, "0*.txt").Length);
+        Assert.Equal(["Stub Book 1-3.txt"], Directory.GetFiles(request.BookDirectory).Select(Path.GetFileName));
+    }
+
+    [Fact]
     public async Task Each_page_load_is_traced_for_the_log()
     {
         var observer = new TraceObserver();
@@ -260,9 +316,9 @@ public sealed class ParallelAndLogTests
         Resolver = new PublicResolver(),
     };
 
-    private static RangeRequest Request(string output, int from, int to)
+    private static RangeRequest Request(string output, int from, int to, int total = 5)
     {
-        var chapters = Enumerable.Range(1, 5)
+        var chapters = Enumerable.Range(1, total)
             .Select(n => new ScannedChapter(n, $"Chapter {n}", $"https://e.com/ch/{n}"))
             .ToList();
         var scan = new ScanResult

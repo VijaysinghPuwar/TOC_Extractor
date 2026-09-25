@@ -28,6 +28,12 @@ public sealed record DesktopSettings
 
     public bool StripAds { get; init; } = true;
 
+    /// <summary>Leave chapter numbers and titles out of the TXT book and copied text.</summary>
+    public bool LeaveOutHeadings { get; init; }
+
+    /// <summary>Take out symbols a text-to-speech voice reads aloud.</summary>
+    public bool ForSpeech { get; init; }
+
     /// <summary>"System", "Light" or "Dark".</summary>
     public string Theme { get; init; } = "System";
 }

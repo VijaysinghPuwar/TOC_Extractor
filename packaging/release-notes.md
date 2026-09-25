@@ -17,6 +17,9 @@ On first start the app downloads its own copy of Chromium (about 150 MB). Nothin
 ## What is new
 
 - **Several books at once.** Press **New extraction**, paste another novel's page, pick chapters and save. You never wait for the first book to finish. Every extraction has its own entry on the left with a progress bar, and there is no limit on how many run together.
+- **Two parts of one book at once.** Save 101-150 and 151-200 of the same novel side by side; they share the book's record of what is saved, so neither undoes the other.
+- **Tidy folders.** The book's folder now holds just your PDF/TXT books and one Chapters folder with the app's per-chapter working files, so 500 chapters never bury the book.
+- **For audiobooks.** In Settings: leave chapter numbers and titles out of the TXT book and Copy text, and remove symbols a text-to-speech voice would read aloud (===== lines, # _ = * ~ and the like). Words and punctuation are never changed.
 - **Settings screen.** Press **Settings** at the bottom left: appearance (automatic, light or dark), pace, text options, and **Open log folder**.
 - **One detailed log.** Every extraction writes into one CSV log as it works: each page opened and how long it took, retries and why, checks that needed you, every chapter saved or failed with the reason, and full details of any error, including crashes. A column says which extraction each row belongs to.
 - **Honest file names.** A book file is named for exactly the chapters in it. Ask for 1-50 and have chapter 27 fail, and the file is "1-26", never "1-50".

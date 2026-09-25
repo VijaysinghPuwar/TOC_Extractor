@@ -203,6 +203,8 @@ public sealed class NovelSession : INovelService
             OutputRoot = outputRoot,
             WriteText = text,
             WritePdf = pdf,
+            TextHeadings = this.Pace.BookHeadings,
+            ForSpeech = this.Pace.ForSpeech,
             Force = force,
             Fetch = this.Pace.ToFetchOptions(this.SignedIn),
         };

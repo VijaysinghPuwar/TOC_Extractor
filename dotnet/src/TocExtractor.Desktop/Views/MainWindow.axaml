@@ -336,6 +336,18 @@
               <CheckBox Content="Keep links in text" IsChecked="{Binding IncludeLinks}" />
               <CheckBox Content="Remove ad markers" IsChecked="{Binding StripAds}" />
             </StackPanel>
+
+            <StackPanel Spacing="6">
+              <TextBlock Classes="label" Text="For audiobooks (text to speech)" Margin="0,0,0,2" />
+              <CheckBox x:Name="LeaveOutHeadingsBox" Content="Leave out chapter numbers and titles"
+                        IsChecked="{Binding LeaveOutHeadings}" />
+              <TextBlock Classes="hint" TextWrapping="Wrap" Margin="28,0,0,4"
+                         Text="In the TXT book and in Copy text, so a voice goes straight into the story. The PDF keeps them, so you can find your place." />
+              <CheckBox x:Name="ForSpeechBox" Content="Remove symbols a voice would read aloud"
+                        IsChecked="{Binding ForSpeech}" />
+              <TextBlock Classes="hint" TextWrapping="Wrap" Margin="28,0,0,0"
+                         Text="Lines like ===== or -----, and stray # _ = * ~ | &lt; &gt;. Words and punctuation are kept; well-known keeps its hyphen. Press Save again to rebuild a book with these; nothing is downloaded again." />
+            </StackPanel>
         </StackPanel>
       </ScrollViewer>
     </Border>
