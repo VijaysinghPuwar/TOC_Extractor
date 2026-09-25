@@ -85,6 +85,70 @@ public sealed class BrowserPageSourceTests
         Assert.Equal("Body text.", chapter.Body);
     }
 
+    /// <summary>Built like a real reading site: the story shares its box with everything else.</summary>
+    [Fact]
+    public async Task Only_the_story_is_kept_from_a_cluttered_chapter()
+    {
+        using var site = new LocalSite();
+        site.Html("/ch/7", """
+            <h1 class="title">Chapter 7: The Tide<br><span class="book">A Very Long Book</span></h1>
+            <div id="story">
+              <div class="chapter-nav">
+                <a href="/ch/6">Previous chapter</a><a href="/ch/8">Next chapter</a>
+              </div>
+              <p>The first line of the story.</p>
+              <div class="ads"><p>BUY NOW advertisement</p></div>
+              <ins class="adsbygoogle">ad slot</ins>
+              <script>var tracking = "tracking script text";</script>
+              <script>
+                var slot = document.createElement("div");
+                slot.className = "ad-banner";
+                slot.textContent = "injected advertisement";
+                document.currentScript.after(slot);
+              </script>
+              <p>The second line of the story.</p>
+              <div class="share-buttons">Share on social media</div>
+              <button>Report chapter</button>
+              <nav><a href="/toc">Table of contents</a></nav>
+              <div id="comments"><p>Great chapter, first!</p></div>
+              <p>The last line of the story.</p>
+            </div>
+            """);
+
+        await using var source = await StartAsync();
+        var chapter = await source.LoadChapterAsync(site.Url("/ch/7"), "h1.title", "#story", Token);
+
+        Assert.Equal("Chapter 7: The Tide", chapter.Title);
+        Assert.Equal(
+            ["The first line of the story.", "The second line of the story.", "The last line of the story."],
+            chapter.Body.Split('\n').Where(line => line.Trim().Length > 0));
+    }
+
+    /// <summary>Many sites fetch the chapter list with a second request once the page is up.</summary>
+    [Fact]
+    public async Task A_chapter_list_that_arrives_late_is_still_read()
+    {
+        using var site = new LocalSite();
+        site.Html("/toc/late", """
+            <ol id="list"></ol>
+            <script>
+            setTimeout(function () {
+              var list = document.getElementById('list');
+              for (var i = 1; i <= 3; i++) {
+                var item = document.createElement('li');
+                item.innerHTML = '<a class="ch" href="/ch/' + i + '">Chapter ' + i + '</a>';
+                list.appendChild(item);
+              }
+            }, 800);
+            </script>
+            """);
+
+        await using var source = await StartAsync();
+        var toc = await source.LoadTocAsync(site.Url("/toc/late"), "a.ch", cancellationToken: Token);
+
+        Assert.Equal(3, toc.RawLinks.Count);
+    }
+
     /// <summary>
     /// The reason the redirect loop lives in the route handler: a handler fires
     /// once per navigation, and the browser follows the chain internally, so the

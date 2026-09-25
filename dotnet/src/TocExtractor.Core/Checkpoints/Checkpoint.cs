@@ -37,6 +37,12 @@ public sealed record CompletedChapter
 
     public string FetchedAt { get; init; } = "";
 
+    /// <summary>Where this chapter's next-chapter link led, when the run was following them.</summary>
+    /// <remarks>Lets a resumed walk step past a saved chapter without loading it again.</remarks>
+    [JsonPropertyName("next")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Next { get; init; }
+
     /// <summary>What each exporter wrote, keyed by format name.</summary>
     public Dictionary<string, ChapterOutput> Outputs { get; init; } = new(StringComparer.Ordinal);
 
@@ -127,6 +133,9 @@ public sealed class Checkpoint
     /// </remarks>
     public bool IsDone(string url) => this.Completed.ContainsKey(url);
 
+    /// <summary>Where a saved chapter's next link led, if that was recorded.</summary>
+    public string? NextOf(string url) => this.Completed.TryGetValue(url, out var done) ? done.Next : null;
+
     public void Record(ChapterRecord record, IReadOnlyDictionary<string, ChapterOutput> outputs)
     {
         ArgumentNullException.ThrowIfNull(record);
@@ -141,6 +150,7 @@ public sealed class Checkpoint
             Sha256 = record.Sha256,
             StrippedUrls = record.StrippedUrls,
             FetchedAt = record.FetchedAt.ToString("O"),
+            Next = record.NextUrl,
             Outputs = outputs.ToDictionary(e => e.Key, e => e.Value, StringComparer.Ordinal),
         };
 

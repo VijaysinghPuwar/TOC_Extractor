@@ -33,9 +33,66 @@ namespace TocExtractor.Browser;
 /// needs no proxying at all.
 /// </para>
 /// </remarks>
-public sealed class BrowserPageSource : IPageSource
+public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanGate
 {
     private const int MaxRedirectHops = 20;
+
+    /// <summary>The least time a probe watches a page before trusting a stable answer.</summary>
+    private static readonly TimeSpan MinimumSettle = TimeSpan.FromSeconds(1.5);
+
+    /// <summary>The longest the contents page waits for its first chapter link.</summary>
+    private static readonly TimeSpan LinkWait = TimeSpan.FromSeconds(10);
+
+    /// <summary>Whether a page is a site's "verify you are human" page rather than content.</summary>
+    /// <remarks>
+    /// The wording alone is not enough, since a chapter can mention a
+    /// security check. It also has to be a short page, or carry an actual
+    /// challenge widget, as every real check page does.
+    /// </remarks>
+    internal const string HumanCheckScript = """
+        () => {
+          const body = document.body ? document.body.innerText : '';
+          const words = (document.title + ' ' + body.slice(0, 4000)).toLowerCase();
+          const says = /just a moment|security check|verify you are (?:a )?human|checking your browser|abnormal activity|if you are human, click|are you a robot|attention required|try another captcha/.test(words);
+          const widget = !!document.querySelector('iframe[src*="challenges.cloudflare.com"], .cf-turnstile, #challenge-form, #cf-challenge-running, .g-recaptcha, .h-captcha, [data-sitekey]');
+          return says && (body.length < 6000 || widget);
+        }
+        """;
+
+    /// <summary>Reads a chapter's text the way a reader sees it.</summary>
+    /// <remarks>
+    /// Inside the content element, anything that is not the story is removed
+    /// first: scripts, frames and ad slots, buttons, forms and navigation,
+    /// share and comment widgets, and "next" or "previous" bars, which on real
+    /// sites sit in the same container as the text. Only descendants are
+    /// removed, never the element itself. Kept identical to READABLE_TEXT_JS
+    /// in browser.py, so both implementations save the same text.
+    /// </remarks>
+    internal const string ReadableTextScript = """
+        (element) => {
+          const junk = [
+            'script', 'style', 'noscript', 'template', 'iframe', 'frame', 'object',
+            'embed', 'ins', 'video', 'audio', 'canvas', 'svg', 'button', 'select',
+            'form', 'nav', 'aside', '[hidden]', '[aria-hidden="true"]',
+            '[role="navigation"]', '[role="complementary"]',
+          ].join(', ');
+          const marker = new RegExp(
+            '(?:^|[\\s_-])(?:ads?|adsbygoogle|advert\\w*|sponsor\\w*|banner|promo\\w*'
+            + '|share|sharing|social|comments?|disqus|related|recommend\\w*|newsletter'
+            + '|subscribe|popup|modal|cookie\\w*|chapter-?nav\\w*|nav|navigation'
+            + '|pagination|pager|breadcrumbs?|toolbar|prev|next|notice|notif\\w*'
+            + '|report\\w*|tips?|feedback|rating|donat\\w*)(?:[\\s_-]|$)',
+            'i');
+          for (const node of element.querySelectorAll(junk)) node.remove();
+          for (const node of element.querySelectorAll('[class], [id]')) {
+            const names = (node.getAttribute('class') || '') + ' '
+              + (node.getAttribute('id') || '');
+            if (marker.test(names)) node.remove();
+          }
+          // Zero-width characters some sites put between words.
+          return element.innerText.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '');
+        }
+        """;
 
     private readonly UrlScreen screen;
     private readonly BrowserPageSourceOptions options;
@@ -325,6 +382,128 @@ public sealed class BrowserPageSource : IPageSource
         return nav.Blocked is not null ? throw nav.Blocked : nav.FinalUrl ?? url;
     }
 
+    /// <summary>
+    /// Open <paramref name="url"/> and run a detection script on it, waiting
+    /// until the answer stops changing.
+    /// </summary>
+    /// <remarks>
+    /// Used by the scanner, which has to see a page the way a reader does:
+    /// chapter lists that arrive by a second request, content injected after
+    /// load. The script is run every half second until two runs in a row
+    /// agree, or <paramref name="settle"/> passes, so a list still filling in
+    /// is not counted half way. The navigation goes through the same guard
+    /// and redirect checks as every other load.
+    /// </remarks>
+    /// <returns>The final URL and the script's last answer, as JSON.</returns>
+    public async Task<(string FinalUrl, string Json)> ProbeAsync(
+        string url,
+        string script,
+        TimeSpan settle,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(script);
+
+        var deadline = Stopwatch.StartNew();
+        var slot = await this.AcquireAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var finalUrl = await this.GotoAsync(slot, url, this.Remaining(deadline)).ConfigureAwait(false);
+            await ThrowIfHumanCheckAsync(slot.Page, url).ConfigureAwait(false);
+            var watch = Stopwatch.StartNew();
+            string? previous = null;
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                string current;
+                try
+                {
+                    current = await slot.Page.EvaluateAsync<string>(script).ConfigureAwait(false);
+                }
+                catch (PlaywrightException exception)
+                {
+                    throw new PageException($"{finalUrl}: could not inspect the page: {exception.Message}", exception);
+                }
+
+                // A floor as well as a ceiling: two empty answers half a
+                // second apart are not evidence the list is finished loading.
+                var floor = settle < MinimumSettle ? settle : MinimumSettle;
+                if ((current == previous && watch.Elapsed >= floor) || watch.Elapsed >= settle)
+                {
+                    return (finalUrl, current);
+                }
+
+                previous = current;
+                await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            this.Release(slot);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> WaitForPersonAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
+    {
+        if (this.context is null)
+        {
+            return false;
+        }
+
+        var watch = Stopwatch.StartNew();
+        var shown = false;
+        while (watch.Elapsed < timeout)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var blocked = false;
+            foreach (var page in this.context.Pages)
+            {
+                if (!await IsHumanCheckAsync(page).ConfigureAwait(false))
+                {
+                    continue;
+                }
+
+                blocked = true;
+                if (!shown)
+                {
+                    // Put the check in front of the person, once.
+                    await page.BringToFrontAsync().ConfigureAwait(false);
+                    shown = true;
+                }
+            }
+
+            if (!blocked)
+            {
+                return true;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+        }
+
+        return false;
+    }
+
+    private static async Task<bool> IsHumanCheckAsync(IPage page)
+    {
+        try
+        {
+            return await page.EvaluateAsync<bool>(HumanCheckScript).ConfigureAwait(false);
+        }
+        catch (PlaywrightException)
+        {
+            // Mid-navigation, which is what passing a check looks like.
+            return false;
+        }
+    }
+
+    private static async Task ThrowIfHumanCheckAsync(IPage page, string url)
+    {
+        if (await IsHumanCheckAsync(page).ConfigureAwait(false))
+        {
+            throw new HumanCheckException($"{url}: the site is asking to check that you are human");
+        }
+    }
+
     public async Task<bool> HasSessionCookiesAsync(CancellationToken cancellationToken = default)
     {
         if (this.context is null)
@@ -333,7 +512,7 @@ public sealed class BrowserPageSource : IPageSource
         }
 
         var cookies = await this.context.CookiesAsync().ConfigureAwait(false);
-        return cookies.Count > 0;
+        return cookies.Any(cookie => IsAccountCookie(cookie.Name));
     }
 
     public async Task<string> OpenPageAsync(string url, CancellationToken cancellationToken = default)
@@ -362,6 +541,8 @@ public sealed class BrowserPageSource : IPageSource
         {
             var finalUrl = await this.GotoAsync(slot, url, this.Remaining(deadline)).ConfigureAwait(false);
             var page = slot.Page;
+            await ThrowIfHumanCheckAsync(page, url).ConfigureAwait(false);
+            await WaitForLinksAsync(page, linkSelector, this.Remaining(deadline)).ConfigureAwait(false);
 
             var html = captureHtml ? await page.ContentAsync().ConfigureAwait(false) : null;
 
@@ -391,11 +572,19 @@ public sealed class BrowserPageSource : IPageSource
         }
     }
 
+    public Task<ChapterPage> LoadChapterAsync(
+        string url,
+        string titleSelector,
+        string contentSelector,
+        CancellationToken cancellationToken = default) =>
+        this.LoadChapterAsync(url, titleSelector, contentSelector, nextSelector: null, cancellationToken);
+
     public async Task<ChapterPage> LoadChapterAsync(
         string url,
         string titleSelector,
         string contentSelector,
-        CancellationToken cancellationToken = default)
+        string? nextSelector,
+        CancellationToken cancellationToken)
     {
         // One stopwatch for the whole operation. Navigation and both selector
         // reads draw down the same budget, which is what makes the caller's
@@ -407,12 +596,20 @@ public sealed class BrowserPageSource : IPageSource
         try
         {
             var finalUrl = await this.GotoAsync(slot, url, this.Remaining(deadline)).ConfigureAwait(false);
+            await ThrowIfHumanCheckAsync(slot.Page, url).ConfigureAwait(false);
             var title = await ReadFieldAsync(slot.Page, titleSelector, finalUrl, this.Remaining(deadline))
                 .ConfigureAwait(false);
-            var body = await ReadFieldAsync(slot.Page, contentSelector, finalUrl, this.Remaining(deadline))
+
+            // Before the body: reading the body removes navigation from the
+            // page, and the next link is navigation.
+            var next = nextSelector is null
+                ? null
+                : await NextLinkAsync(slot.Page, nextSelector).ConfigureAwait(false);
+
+            var body = await ReadFieldAsync(slot.Page, contentSelector, finalUrl, this.Remaining(deadline), readable: true)
                 .ConfigureAwait(false);
 
-            return new ChapterPage(url, finalUrl, title, body);
+            return new ChapterPage(url, finalUrl, title, body, next);
         }
         finally
         {
@@ -420,8 +617,41 @@ public sealed class BrowserPageSource : IPageSource
         }
     }
 
+    /// <summary>Where the page's next-chapter link points, or null if it has none.</summary>
+    /// <remarks>
+    /// The last chapter often keeps the button but points it nowhere useful:
+    /// at "#", at "javascript:;", or back at the contents page. Only a real web
+    /// address counts, and it is resolved against the page, as a click would be.
+    /// </remarks>
+    private static async Task<string?> NextLinkAsync(IPage page, string nextSelector)
+    {
+        try
+        {
+            var href = await page.EvaluateAsync<string?>(
+                """
+                selector => {
+                  const link = document.querySelector(selector);
+                  if (!link) return null;
+                  const raw = link.getAttribute('href');
+                  if (!raw || raw.startsWith('#') || raw.toLowerCase().startsWith('javascript:')) return null;
+                  try { return new URL(raw, document.baseURI).href; } catch (e) { return null; }
+                }
+                """,
+                nextSelector).ConfigureAwait(false);
+            return href is not null && (href.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                || href.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                ? href
+                : null;
+        }
+        catch (PlaywrightException)
+        {
+            // An invalid selector is the person's to fix; the preview says so.
+            return null;
+        }
+    }
+
     private static async Task<string> ReadFieldAsync(
-        IPage page, string selector, string url, TimeSpan remaining)
+        IPage page, string selector, string url, TimeSpan remaining, bool readable = false)
     {
         // A wait, not a bare read. On a hydrated page the element is
         // legitimately absent for a moment after the DOM is ready, and a bare
@@ -453,12 +683,84 @@ public sealed class BrowserPageSource : IPageSource
 
         try
         {
-            return await element.InnerTextAsync().ConfigureAwait(false);
+            return readable
+                ? await element.EvaluateAsync<string>(ReadableTextScript).ConfigureAwait(false)
+                : FirstLine(await element.InnerTextAsync().ConfigureAwait(false));
         }
         catch (PlaywrightException exception)
         {
             throw new PageException($"{url}: reading {selector}: {exception.Message}", exception);
         }
+    }
+
+    /// <summary>
+    /// Give a chapter list that arrives after the page has loaded a moment to
+    /// appear.
+    /// </summary>
+    /// <remarks>
+    /// Many sites fetch their chapter list with a second request once the page
+    /// is up, so reading links the instant navigation finishes finds none and
+    /// reports an empty book. Chapter pages already wait for their selectors;
+    /// the contents page now does the same. It is not an error if nothing
+    /// arrives: a selector that matches nothing is reported as zero links, as
+    /// before, just after a short wait rather than immediately.
+    /// </remarks>
+    private static async Task WaitForLinksAsync(IPage page, string linkSelector, TimeSpan remaining)
+    {
+        var wait = remaining < LinkWait ? remaining : LinkWait;
+        if (wait <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        try
+        {
+            await page.WaitForSelectorAsync(
+                linkSelector,
+                new PageWaitForSelectorOptions
+                {
+                    State = WaitForSelectorState.Attached,
+                    Timeout = (float)wait.TotalMilliseconds,
+                }).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            // Nothing matched in time; the count below will say so.
+        }
+    }
+
+    /// <summary>A cookie name that sign-in sets, as opposed to analytics or a visitor id.</summary>
+    /// <remarks>
+    /// Not "any cookie": nearly every site sets analytics, Cloudflare or
+    /// visitor cookies before anyone signs in, and treating those as a sign-in
+    /// would switch the robots.txt override on for everyone. Kept identical to
+    /// is_account_cookie in browser.py.
+    /// </remarks>
+    internal static bool IsAccountCookie(string name) =>
+        !AnonymousCookie().IsMatch(name) && AccountCookie().IsMatch(name);
+
+    [System.Text.RegularExpressions.GeneratedRegex("[\u200B-\u200D\u2060\uFEFF]")]
+    private static partial System.Text.RegularExpressions.Regex ZeroWidth();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"(?:user_?id|userid|member|logged|login|auth|remember|access_?token|refresh_?token|jwt|wordpress_logged_in|dle_user_id|dle_password|xf_user|ips4_member_id|phpbb\d*_u|bb_userid|sessionid_account)", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex AccountCookie();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^(?:_ga|_gid|_gat|_fbp|_ym|__cf|cf_|_cf|_pk|__utm|_hj|viewed|__stripe|phpsessid|laravel_session|ci_session|xsrf-token|csrftoken|__gads|__gpi|_clck|_clsk)", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex AnonymousCookie();
+
+    /// <summary>A title is one line. Headings often carry the book name or a date under it.</summary>
+    internal static string FirstLine(string text)
+    {
+        text = ZeroWidth().Replace(text, "");
+        foreach (var line in text.Split('\n'))
+        {
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                return line.Trim();
+            }
+        }
+
+        return text.Trim();
     }
 
     private TimeSpan Remaining(Stopwatch deadline)

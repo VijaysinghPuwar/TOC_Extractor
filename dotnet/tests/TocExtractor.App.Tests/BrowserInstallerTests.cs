@@ -97,4 +97,43 @@ public sealed class BrowserInstallerTests
             Environment.SetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", original);
         }
     }
+
+    [Fact]
+    public void Inside_a_mac_bundle_the_driver_is_found_in_resources()
+    {
+        var contents = Scratch.Directory();
+        var macOs = Path.Combine(contents, "MacOS");
+        var resources = Path.Combine(contents, "Resources");
+        Directory.CreateDirectory(macOs);
+        Directory.CreateDirectory(Path.Combine(resources, ".playwright"));
+        var original = Environment.GetEnvironmentVariable("PLAYWRIGHT_DRIVER_SEARCH_PATH");
+        Environment.SetEnvironmentVariable("PLAYWRIGHT_DRIVER_SEARCH_PATH", null);
+        try
+        {
+            BrowserInstaller.UseBundledDriver(macOs);
+
+            Assert.Equal(Path.GetFullPath(resources), BrowserInstaller.DriverRoot);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PLAYWRIGHT_DRIVER_SEARCH_PATH", original);
+        }
+    }
+
+    [Fact]
+    public void Beside_the_executable_nothing_is_redirected()
+    {
+        var original = Environment.GetEnvironmentVariable("PLAYWRIGHT_DRIVER_SEARCH_PATH");
+        Environment.SetEnvironmentVariable("PLAYWRIGHT_DRIVER_SEARCH_PATH", null);
+        try
+        {
+            BrowserInstaller.UseBundledDriver(AppContext.BaseDirectory);
+
+            Assert.Null(Environment.GetEnvironmentVariable("PLAYWRIGHT_DRIVER_SEARCH_PATH"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PLAYWRIGHT_DRIVER_SEARCH_PATH", original);
+        }
+    }
 }

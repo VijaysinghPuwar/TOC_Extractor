@@ -50,7 +50,7 @@
 
             <StackPanel Spacing="6">
               <TextBlock Classes="label" Text="Contents page" />
-              <TextBox x:Name="TocUrlBox" Text="{Binding TocUrl}" Watermark="https://"
+              <TextBox x:Name="TocUrlBox" AutomationProperties.Name="Contents page" Text="{Binding TocUrl}" PlaceholderText="https://"
                        IsEnabled="{Binding !FormLocked}" />
             </StackPanel>
 
@@ -64,18 +64,18 @@
                           ToolTip.Tip="Save as a profile (.toml)" />
                 </StackPanel>
               </Grid>
-              <TextBox x:Name="LinkBox" Text="{Binding LinkSelector}" Watermark="Chapter links, e.g. ol.toc a"
+              <TextBox x:Name="LinkBox" AutomationProperties.Name="Chapter links selector" Text="{Binding LinkSelector}" PlaceholderText="Chapter links, e.g. ol.toc a"
                        IsEnabled="{Binding !OptionsLocked}" />
-              <TextBox Text="{Binding TitleSelector}" Watermark="Title, e.g. h1"
+              <TextBox Text="{Binding TitleSelector}" AutomationProperties.Name="Title selector" PlaceholderText="Title, e.g. h1"
                        IsEnabled="{Binding !OptionsLocked}" />
-              <TextBox Text="{Binding ContentSelector}" Watermark="Text, e.g. article"
+              <TextBox Text="{Binding ContentSelector}" AutomationProperties.Name="Text selector" PlaceholderText="Text, e.g. article"
                        IsEnabled="{Binding !OptionsLocked}" />
             </StackPanel>
 
             <StackPanel Spacing="8" IsEnabled="{Binding !OptionsLocked}">
               <TextBlock Classes="label" Text="Save to" />
               <Grid ColumnDefinitions="*,8,Auto">
-                <TextBox Text="{Binding OutputDirectory}" />
+                <TextBox Text="{Binding OutputDirectory}" AutomationProperties.Name="Output folder" />
                 <Button Grid.Column="2" Classes="quiet" Content="Choose" Command="{Binding ChooseFolderCommand}" />
               </Grid>
               <WrapPanel>

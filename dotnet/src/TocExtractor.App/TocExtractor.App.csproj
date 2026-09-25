@@ -13,6 +13,12 @@
     <PackageReference Include="Tomlyn" />
   </ItemGroup>
 
+  <!-- The page detection scripts run inside the browser; kept as .js files
+       so they read and diff as JavaScript. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Scanning/Scripts/*.js" LogicalName="%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="../TocExtractor.Core/TocExtractor.Core.csproj" />
     <ProjectReference Include="../TocExtractor.Browser/TocExtractor.Browser.csproj" />

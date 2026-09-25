@@ -79,9 +79,11 @@ internal static class Book
         IReadOnlyDictionary<string, StubPage> pages,
         string? robots = null,
         bool authenticated = false,
-        string? profileDirectory = null)
+        string? profileDirectory = null,
+        bool supportsCapture = false)
     {
-        var source = new StubPageSource(pages, authenticated: authenticated, maxConcurrent: 3);
+        var source = new StubPageSource(
+            pages, authenticated: authenticated, maxConcurrent: 3, supportsCapture: supportsCapture);
         var environment = new SessionEnvironment
         {
             StartSource = (_, _, _) => Task.FromResult<Core.Pages.IPageSource>(source),

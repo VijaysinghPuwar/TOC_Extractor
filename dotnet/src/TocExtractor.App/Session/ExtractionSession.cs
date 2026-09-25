@@ -46,7 +46,8 @@ public sealed record SelectorPreview(
     string? SampleTitle = null,
     string? SampleExcerpt = null,
     int SampleWords = 0,
-    string? SampleProblem = null);
+    string? SampleProblem = null,
+    Obstacle Obstacle = Obstacle.None);
 
 /// <summary>The collaborators a session needs, so tests can run the whole flow without a browser.</summary>
 public sealed record SessionEnvironment
@@ -214,10 +215,8 @@ public sealed class ExtractionSession(SessionEnvironment environment) : IAsyncDi
 
             if (kept.Count == 0)
             {
-                return preview with
-                {
-                    SampleProblem = "The link selector matched no chapter links on the contents page.",
-                };
+                var obstacle = await this.ObstacleOnAsync(settings, cancellationToken).ConfigureAwait(false);
+                return preview with { SampleProblem = PageCheck.Advice(obstacle), Obstacle = obstacle };
             }
 
             await robots.Limiter.AcquireAsync(new Uri(kept[0]), cancellationToken).ConfigureAwait(false);
@@ -316,6 +315,22 @@ public sealed class ExtractionSession(SessionEnvironment environment) : IAsyncDi
 
         var cut = trimmed.LastIndexOf(' ', ExcerptCharacters);
         return string.Concat(trimmed.AsSpan(0, cut > ExcerptCharacters / 2 ? cut : ExcerptCharacters), " ...");
+    }
+
+    /// <summary>Look at the contents page again, this time keeping its HTML, to see what is in the way.</summary>
+    private async Task<Obstacle> ObstacleOnAsync(SessionSettings settings, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var page = await this.Source.LoadTocAsync(
+                settings.TocUrl.Trim(), settings.LinkSelector, captureHtml: true, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            return PageCheck.Detect(page.Html);
+        }
+        catch (PageException)
+        {
+            return Obstacle.None;
+        }
     }
 
     private IPageSource Source => this.source ?? throw new SessionException("The browser is not open.");

@@ -131,3 +131,26 @@ public sealed class SelectorNotFoundException : PageException
     {
     }
 }
+
+/// <summary>The site showed a "verify you are human" page instead of the one asked for.</summary>
+/// <remarks>
+/// Not a failure of the chapter and never retried on its own: loading again
+/// just shows the check again, and faster. The fetch loop pauses and asks the
+/// person to complete it in the visible browser, then carries on.
+/// </remarks>
+public sealed class HumanCheckException : PageException
+{
+    public HumanCheckException()
+    {
+    }
+
+    public HumanCheckException(string message)
+        : base(message)
+    {
+    }
+
+    public HumanCheckException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}

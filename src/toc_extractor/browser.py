@@ -27,6 +27,8 @@ Two consequences fall out of that:
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import re
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from functools import partial
@@ -52,6 +54,39 @@ from .parser import LINK_COLLECTOR_JS
 from .politeness import RejectionReason, UrlGuard
 
 MAX_REDIRECT_HOPS = 20
+# The longest the contents page waits for its first chapter link.
+LINK_WAIT_MS = 10_000
+
+# Reads a chapter's text the way a reader sees it: inside the content element,
+# anything that is not the story is removed first. Scripts, frames and ad slots,
+# buttons, forms and navigation, share and comment widgets, and "next" or
+# "previous" bars all tend to sit inside the same container as the text on
+# real sites, so a content selector alone brings them along. Only descendants
+# are removed, never the element itself. Kept identical to READABLE_TEXT_JS in
+# BrowserPageSource.cs, so both implementations save the same text.
+READABLE_TEXT_JS = r"""(element) => {
+  const junk = [
+    'script', 'style', 'noscript', 'template', 'iframe', 'frame', 'object',
+    'embed', 'ins', 'video', 'audio', 'canvas', 'svg', 'button', 'select',
+    'form', 'nav', 'aside', '[hidden]', '[aria-hidden="true"]',
+    '[role="navigation"]', '[role="complementary"]',
+  ].join(', ');
+  const marker = new RegExp(
+    '(?:^|[\\s_-])(?:ads?|adsbygoogle|advert\\w*|sponsor\\w*|banner|promo\\w*'
+    + '|share|sharing|social|comments?|disqus|related|recommend\\w*|newsletter'
+    + '|subscribe|popup|modal|cookie\\w*|chapter-?nav\\w*|nav|navigation'
+    + '|pagination|pager|breadcrumbs?|toolbar|prev|next|notice|notif\\w*'
+    + '|report\\w*|tips?|feedback|rating|donat\\w*)(?:[\\s_-]|$)',
+    'i');
+  for (const node of element.querySelectorAll(junk)) node.remove();
+  for (const node of element.querySelectorAll('[class], [id]')) {
+    const names = (node.getAttribute('class') || '') + ' '
+      + (node.getAttribute('id') || '');
+    if (marker.test(names)) node.remove();
+  }
+  // Zero-width characters some sites put between words.
+  return element.innerText.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '');
+}"""
 
 log = get_logger("browser")
 
@@ -278,9 +313,18 @@ class BrowserPageSource:
     # -- PageSource ---------------------------------------------------------
 
     async def has_session_cookies(self) -> bool:
+        """Whether the browser carries a cookie that belongs to an account.
+
+        Not "any cookie": nearly every site sets analytics, Cloudflare or
+        visitor cookies before anyone signs in, and treating those as a
+        sign-in would switch the robots.txt override on for everyone. The
+        names are checked for what sign-in cookies are called on common
+        platforms, and analytics and anonymous session ids are ignored.
+        Kept identical to BrowserPageSource.IsAccountCookie in C#.
+        """
         if self._context is None:
             return False
-        return bool(await self._context.cookies())
+        return any(is_account_cookie(cookie["name"]) for cookie in await self._context.cookies())
 
     async def open_page(self, url: str) -> str:
         async with self._acquire() as slot:
@@ -297,6 +341,7 @@ class BrowserPageSource:
         async with self._acquire() as slot:
             final_url = await self._goto(slot, url)
             page = slot.page
+            await self._wait_for_links(page, link_selector)
 
             html = await page.content() if capture_html else None
             if screenshot_path is not None:
@@ -313,6 +358,19 @@ class BrowserPageSource:
             html=html,
         )
 
+    async def _wait_for_links(self, page: Page, link_selector: str) -> None:
+        # Many sites fetch the chapter list with a second request after the
+        # page has loaded, so reading links the moment navigation ends finds
+        # none. Chapter pages already wait for their selectors; the contents
+        # page gets a bounded wait too. Nothing arriving is not an error: the
+        # selector then reports zero links, as it always has.
+        with contextlib.suppress(PlaywrightTimeout):
+            await page.wait_for_selector(
+                link_selector,
+                state="attached",
+                timeout=min(LINK_WAIT_MS, self._navigation_timeout_ms),
+            )
+
     async def load_chapter(
         self,
         url: str,
@@ -323,7 +381,7 @@ class BrowserPageSource:
         async with self._acquire() as slot:
             final_url = await self._goto(slot, url)
             title = await self._read_field(slot.page, title_selector, final_url)
-            body = await self._read_field(slot.page, content_selector, final_url)
+            body = await self._read_field(slot.page, content_selector, final_url, readable=True)
         return ChapterPage(
             requested_url=url,
             final_url=final_url,
@@ -331,7 +389,9 @@ class BrowserPageSource:
             body=body,
         )
 
-    async def _read_field(self, page: Page, selector: str, url: str) -> str:
+    async def _read_field(
+        self, page: Page, selector: str, url: str, *, readable: bool = False
+    ) -> str:
         # wait_for_selector, not a bare read. On a JS-hydrated page the element
         # is legitimately absent for a moment after domcontentloaded, and a
         # bare read would raise SelectorNotFound - which the fetch loop is
@@ -347,7 +407,10 @@ class BrowserPageSource:
         if element is None:
             raise SelectorNotFound(f"{selector} matched nothing on {url}")
         try:
-            return await element.inner_text()
+            if readable:
+                text: str = await element.evaluate(READABLE_TEXT_JS)
+                return text
+            return first_line(await element.inner_text())
         except PlaywrightError as exc:
             raise PageError(f"{url}: reading {selector}: {exc}") from exc
 
@@ -360,3 +423,30 @@ async def open_browser_source(**kwargs: Any) -> BrowserPageSource:
 
 
 __all__ = ["BrowserPageSource", "open_browser_source"]
+
+
+def first_line(text: str) -> str:
+    """A title is one line. Headings often carry the book name or a date under it."""
+    visible = re.sub("[\u200b-\u200d\u2060\ufeff]", "", text)
+    for line in visible.splitlines():
+        if line.strip():
+            return line.strip()
+    return visible.strip()
+
+
+_ACCOUNT_COOKIE = re.compile(
+    r"(?:user_?id|userid|member|logged|login|auth|remember|access_?token|refresh_?token|jwt"
+    r"|wordpress_logged_in|dle_user_id|dle_password|xf_user|ips4_member_id|phpbb\d*_u"
+    r"|bb_userid|sessionid_account)",
+    re.IGNORECASE,
+)
+_ANONYMOUS_COOKIE = re.compile(
+    r"^(?:_ga|_gid|_gat|_fbp|_ym|__cf|cf_|_cf|_pk|__utm|_hj|viewed|__stripe|phpsessid"
+    r"|laravel_session|ci_session|xsrf-token|csrftoken|__gads|__gpi|_clck|_clsk)",
+    re.IGNORECASE,
+)
+
+
+def is_account_cookie(name: str) -> bool:
+    """A cookie name that sign-in sets, as opposed to analytics or a visitor id."""
+    return not _ANONYMOUS_COOKIE.match(name) and bool(_ACCOUNT_COOKIE.search(name))

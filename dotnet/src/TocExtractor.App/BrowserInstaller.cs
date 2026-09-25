@@ -27,6 +27,35 @@ public sealed record InstallProgress(string Message, double? Percent = null);
 public static partial class BrowserInstaller
 {
     private const string BrowsersVariable = "PLAYWRIGHT_BROWSERS_PATH";
+    private const string DriverVariable = "PLAYWRIGHT_DRIVER_SEARCH_PATH";
+
+    /// <summary>The folder holding Playwright's <c>.playwright</c> driver directory.</summary>
+    public static string DriverRoot =>
+        Environment.GetEnvironmentVariable(DriverVariable) is { Length: > 0 } configured
+            ? configured
+            : AppContext.BaseDirectory;
+
+    /// <summary>
+    /// Inside a macOS app bundle the driver lives in Contents/Resources, not
+    /// beside the executable: Contents/MacOS may hold only code, and a folder
+    /// of scripts there makes codesign refuse the whole bundle. Point
+    /// Playwright at it when that is the layout. Elsewhere this does nothing.
+    /// </summary>
+    public static void UseBundledDriver(string? baseDirectory = null)
+    {
+        var here = baseDirectory ?? AppContext.BaseDirectory;
+        if (Directory.Exists(Path.Combine(here, ".playwright"))
+            || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable(DriverVariable)))
+        {
+            return;
+        }
+
+        var resources = Path.GetFullPath(Path.Combine(here, "..", "Resources"));
+        if (Directory.Exists(Path.Combine(resources, ".playwright")))
+        {
+            Environment.SetEnvironmentVariable(DriverVariable, resources);
+        }
+    }
 
     /// <summary>
     /// Point Playwright at the app's browser folder. Call once at startup,
@@ -119,7 +148,7 @@ public static partial class BrowserInstaller
             .Select(match => match.Groups[1].Value.Trim())];
 
     /// <summary>Playwright's bundled node and CLI, laid out beside the app by the build.</summary>
-    internal static (string Node, string Cli) FindDriver(string baseDirectory)
+    public static (string Node, string Cli) FindDriver(string baseDirectory)
     {
         var root = Path.Combine(baseDirectory, ".playwright");
         var cli = Path.Combine(root, "package", "cli.js");
@@ -144,7 +173,7 @@ public static partial class BrowserInstaller
         Action<string>? onLine,
         CancellationToken cancellationToken)
     {
-        var (node, cli) = FindDriver(AppContext.BaseDirectory);
+        var (node, cli) = FindDriver(DriverRoot);
         var start = new ProcessStartInfo(node)
         {
             RedirectStandardOutput = true,

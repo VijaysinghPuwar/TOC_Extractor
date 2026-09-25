@@ -409,9 +409,13 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         try
         {
             this.Preview = await this.session.PreviewAsync(this.Snapshot(), cancel.Token).ConfigureAwait(true);
-            this.Status = this.Preview.SampleProblem is null && this.Preview.ChapterCount > 0
-                ? "Looks good. Press Start."
-                : "Adjust the selectors and test again.";
+            this.Status = this.Preview switch
+            {
+                { Obstacle: Obstacle.HumanCheck } => "Complete the check in the browser, then test again.",
+                { Obstacle: Obstacle.SignIn } => "Sign in in the browser, then test again.",
+                { SampleProblem: null, ChapterCount: > 0 } => "Looks good. Press Start.",
+                _ => "Adjust the selectors and test again.",
+            };
             this.Log($"Test: {this.PreviewHeadline}. {this.Preview.SampleProblem}".TrimEnd(' ', '.'));
         }
         catch (SessionException exception)

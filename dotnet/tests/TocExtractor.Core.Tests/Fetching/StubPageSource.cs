@@ -23,6 +23,12 @@ public sealed class StubPage
 
     public bool MissingSelector { get; init; }
 
+    /// <summary>Where this page's next link points, for walks.</summary>
+    public string? Next { get; init; }
+
+    /// <summary>Where this page's previous link points, for walks.</summary>
+    public string? Prev { get; init; }
+
     /// <summary>Real time, for the one test that needs the budget to actually elapse.</summary>
     public TimeSpan Hang { get; init; }
 
@@ -103,6 +109,20 @@ public sealed class StubPageSource(
         var (page, finalUrl) = this.Resolve(url);
         return Task.FromResult(new TocPage(
             url, finalUrl, page.Links, captureHtml ? page.Html : null));
+    }
+
+    /// <summary>A walk asks for "prev" to go back and anything else to go forward.</summary>
+    public async Task<ChapterPage> LoadChapterAsync(
+        string url,
+        string titleSelector,
+        string contentSelector,
+        string nextSelector,
+        CancellationToken cancellationToken)
+    {
+        var page = await this.LoadChapterAsync(url, titleSelector, contentSelector, cancellationToken)
+            .ConfigureAwait(false);
+        var stub = this.pages[page.FinalUrl];
+        return page with { NextUrl = nextSelector == "prev" ? stub.Prev : stub.Next };
     }
 
     public async Task<ChapterPage> LoadChapterAsync(

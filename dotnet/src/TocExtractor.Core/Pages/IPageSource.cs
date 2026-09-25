@@ -21,7 +21,8 @@ public sealed record ChapterPage(
     string RequestedUrl,
     string FinalUrl,
     string Title,
-    string Body);
+    string Body,
+    string? NextUrl = null);
 
 /// <summary>Loads pages and reads named fields out of them.</summary>
 /// <remarks>
@@ -72,4 +73,21 @@ public interface IPageSource : IAsyncDisposable
         string titleSelector,
         string contentSelector,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// As <see cref="LoadChapterAsync(string, string, string, CancellationToken)"/>, also reading
+    /// where the page's "next chapter" link points, in the same visit.
+    /// </summary>
+    /// <remarks>
+    /// For following a book chapter by chapter when no permitted page lists
+    /// them all. A source that cannot read links reports no next chapter, which
+    /// ends the walk rather than failing it.
+    /// </remarks>
+    Task<ChapterPage> LoadChapterAsync(
+        string url,
+        string titleSelector,
+        string contentSelector,
+        string nextSelector,
+        CancellationToken cancellationToken) =>
+        this.LoadChapterAsync(url, titleSelector, contentSelector, cancellationToken);
 }

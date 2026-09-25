@@ -40,6 +40,11 @@ public sealed class Fetcher : IDisposable
     private readonly Func<string, bool> alreadyDone;
     private readonly Action<ChapterRecord>? onRecord;
     private readonly Action<FailedChapter>? onFailure;
+    private readonly Func<string, CancellationToken, Task<bool>>? onHumanCheck;
+
+    // One person, one check at a time: workers that hit it together wait on
+    // the first, then find it already passed and simply try again.
+    private readonly SemaphoreSlim humanGate = new(1, 1);
 
     /// <summary>
     /// Serialises sink writes and the progress tally.
@@ -68,7 +73,8 @@ public sealed class Fetcher : IDisposable
         Func<TimeSpan, CancellationToken, ValueTask>? sleep = null,
         Func<string, bool>? alreadyDone = null,
         Action<ChapterRecord>? onRecord = null,
-        Action<FailedChapter>? onFailure = null)
+        Action<FailedChapter>? onFailure = null,
+        Func<string, CancellationToken, Task<bool>>? onHumanCheck = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(guard);
@@ -77,6 +83,7 @@ public sealed class Fetcher : IDisposable
         this.source = source;
         this.guard = guard;
         this.sink = sink;
+        this.onHumanCheck = onHumanCheck;
         this.options = options ?? new FetchOptions();
         this.robots = robots;
         this.now = now ?? (() => DateTimeOffset.UtcNow);
@@ -88,7 +95,11 @@ public sealed class Fetcher : IDisposable
         this.limiter = limiter ?? new RateLimiter(this.options.MinDelay, sleep: (d, t) => this.sleep(d, t));
     }
 
-    public void Dispose() => this.writeGate.Dispose();
+    public void Dispose()
+    {
+        this.writeGate.Dispose();
+        this.humanGate.Dispose();
+    }
 
     /// <summary>Swap the sink before fetching.</summary>
     /// <remarks>
@@ -215,14 +226,191 @@ public sealed class Fetcher : IDisposable
         return result;
     }
 
-    private async Task FetchOneAsync(
+    /// <summary>
+    /// Fetch a chosen range of chapters: those whose addresses are known
+    /// directly, and those reached by walking next or previous links from a
+    /// known neighbour, in one run with one set of output files.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Chapters are saved under their own chapter numbers, so a run of
+    /// 350 to 400 writes "350 - ..." to "400 - ..." and the combined file is
+    /// in reading order whichever way the chapters were reached.
+    /// </para>
+    /// <para>
+    /// A walk is for the part of a book no permitted page lists: a site whose
+    /// robots.txt allows chapter pages but not the later pages of its list.
+    /// Every step is vetted exactly as a listed link would be (the URL guard,
+    /// then robots.txt, with the same signed-in override) and fetched by the
+    /// same per-chapter code, so retries, rate limiting and writing are
+    /// unchanged. A page inside the range is saved on the visit that finds it;
+    /// one outside it is a step and nothing more. The walk ends past the far
+    /// end of the range, at a page with no link onward, at a link back to a
+    /// page already visited, at anything refused, or at a page that fails,
+    /// since a failed page names no next one.
+    /// </para>
+    /// </remarks>
+    public async Task<RunResult> FetchRangeAsync(
+        string bookUrl,
+        IReadOnlyList<NumberedLink> direct,
+        IReadOnlyList<WalkSpec> walks,
+        SelectorSet selectors,
+        Func<string, bool>? alreadyDone = null,
+        Func<ChapterPage, int?>? numberOf = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(direct);
+        ArgumentNullException.ThrowIfNull(walks);
+        ArgumentNullException.ThrowIfNull(selectors);
+
+        var isDone = alreadyDone ?? this.alreadyDone;
+        var progress = new Progress();
+        List<string> skipped = [];
+        List<string> kept = [];
+        List<RejectedLink> rejected = [];
+        var candidates = 0;
+        HashSet<string> claimed = new(UrlIdentity.Comparer);
+
+        await this.sink.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        // Direct links first, concurrently, as a contents page would be.
+        var vetted = LinkCollector.Collect(
+            [.. direct.Select(link => (object?)link.Url)], this.guard, this.robots, this.options.SessionAuthenticated);
+        candidates += direct.Count;
+        rejected.AddRange(vetted.Collection.Rejected);
+        var numbers = direct.ToDictionary(link => link.Url, link => link.Number, UrlIdentity.Comparer);
+        List<Task> pending = [];
+        using (var slots = new SemaphoreSlim(Math.Max(1, this.options.Concurrency)))
+        {
+            for (var i = 0; i < vetted.Collection.Kept.Count; i++)
+            {
+                var url = vetted.Collection.Kept[i];
+                claimed.Add(url);
+                kept.Add(url);
+                if (isDone(url))
+                {
+                    skipped.Add(url);
+                    continue;
+                }
+
+                pending.Add(this.FetchOneAsync(
+                    numbers[url], url, vetted.Decisions[i], selectors, slots, progress, cancellationToken));
+            }
+
+            await Task.WhenAll(pending).ConfigureAwait(false);
+        }
+
+        // Then each walk, one page at a time: every page names the next.
+        using (var single = new SemaphoreSlim(1))
+        {
+            foreach (var walk in walks)
+            {
+                var url = walk.StartUrl;
+                var expected = walk.StartNumber;
+                HashSet<string> seen = new(UrlIdentity.Comparer);
+                for (var step = 0; url is not null && step < walk.MaxSteps; step++)
+                {
+                    if (!seen.Add(url))
+                    {
+                        break;
+                    }
+
+                    var check = LinkCollector.Collect([url], this.guard, this.robots, this.options.SessionAuthenticated);
+                    if (check.Collection.Kept.Count == 0)
+                    {
+                        candidates++;
+                        rejected.AddRange(check.Collection.Rejected);
+                        break;
+                    }
+
+                    var here = check.Collection.Kept[0];
+                    var guess = expected;
+                    int? Decide(ChapterPage page)
+                    {
+                        var number = numberOf?.Invoke(page) ?? guess;
+                        expected = number;
+                        return walk.Saves(number) && !claimed.Contains(here) ? number : null;
+                    }
+
+                    // Saved by an earlier run: it still has to be visited to
+                    // learn where it leads, but nothing is written again.
+                    var savedBefore = walk.Saves(guess) && isDone(here) && !claimed.Contains(here);
+
+                    var before = progress.Count;
+                    var page = await this.FetchOneAsync(
+                        guess, here, check.Decisions[0], selectors, single, progress, cancellationToken,
+                        walk.StepSelector, savedBefore ? static _ => null : Decide).ConfigureAwait(false);
+
+                    // Counted exactly once: as saved or failed on this run, or
+                    // as skipped when an earlier run saved it and it loaded.
+                    if (progress.Count > before)
+                    {
+                        if (claimed.Add(here))
+                        {
+                            candidates++;
+                            kept.Add(here);
+                        }
+                    }
+                    else if (savedBefore && claimed.Add(here))
+                    {
+                        candidates++;
+                        kept.Add(here);
+                        skipped.Add(here);
+                    }
+
+                    if (page is null || walk.IsPast(expected))
+                    {
+                        break;
+                    }
+
+                    expected += walk.Direction;
+                    url = page.NextUrl;
+                }
+            }
+        }
+
+        var tally = new LinkTally(candidates, kept, rejected);
+        var result = new RunResult(bookUrl, tally, progress.OrderedCompleted(), progress.OrderedFailed(), skipped);
+        if (!result.AccountsForEveryLink())
+        {
+            throw new LinkAccountingException(
+                $"range accounting lost chapters: kept={kept.Count} completed={result.Completed.Count} "
+                + $"failed={result.Failed.Count} skipped={result.SkippedResumed.Count}");
+        }
+
+        await this.sink.CloseAsync(result, cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    private async Task<bool> WaitForPersonAsync(string url, CancellationToken cancellationToken)
+    {
+        if (this.onHumanCheck is null)
+        {
+            return false;
+        }
+
+        await this.humanGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await this.onHumanCheck(url, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            this.humanGate.Release();
+        }
+    }
+
+    /// <returns>The page on success, or null once the failure is recorded.</returns>
+    private async Task<ChapterPage?> FetchOneAsync(
         int index,
         string url,
         RobotsDecision? decision,
         SelectorSet selectors,
         SemaphoreSlim slots,
         Progress progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? nextSelector = null,
+        Func<ChapterPage, int?>? decide = null)
     {
         var host = new Uri(url);
 
@@ -242,7 +430,7 @@ public sealed class Fetcher : IDisposable
                 ChapterPage page;
                 try
                 {
-                    page = await this.LoadAsync(url, selectors, cancellationToken).ConfigureAwait(false);
+                    page = await this.LoadAsync(url, selectors, nextSelector, cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
@@ -253,7 +441,20 @@ public sealed class Fetcher : IDisposable
                         progress, index, url,
                         new PageException($"{url}: source cancelled without being asked"),
                         attempt);
-                    return;
+                    return null;
+                }
+                catch (HumanCheckException exception)
+                {
+                    // Not the chapter's fault, and not an attempt: the site
+                    // wants a person. Wait for them, then load it again.
+                    if (await this.WaitForPersonAsync(url, cancellationToken).ConfigureAwait(false))
+                    {
+                        attempt--;
+                        continue;
+                    }
+
+                    this.RecordFailure(progress, index, url, exception, attempt);
+                    return null;
                 }
                 catch (Exception exception)
                     when (exception is PageBlockedException or SelectorNotFoundException)
@@ -261,23 +462,30 @@ public sealed class Fetcher : IDisposable
                     // Neither is worth retrying: the target is disallowed, or the
                     // page loaded fine and simply lacks the selector.
                     this.RecordFailure(progress, index, url, (PageException)exception, attempt);
-                    return;
+                    return null;
                 }
                 catch (PageException exception)
                 {
                     if (attempt > this.options.Retries)
                     {
                         this.RecordFailure(progress, index, url, exception, attempt);
-                        return;
+                        return null;
                     }
 
                     await this.sleep(this.Backoff(attempt), cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
-                await this.RecordSuccessAsync(progress, index, url, page, decision, attempt, cancellationToken)
-                    .ConfigureAwait(false);
-                return;
+                // A walk decides after loading: the page's own title says which
+                // chapter it is, and a page outside the range is only a step.
+                var number = decide is null ? index : decide(page);
+                if (number is { } keep)
+                {
+                    await this.RecordSuccessAsync(progress, keep, url, page, decision, attempt, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                return page;
             }
         }
         finally
@@ -289,6 +497,7 @@ public sealed class Fetcher : IDisposable
     private async Task<ChapterPage> LoadAsync(
         string url,
         SelectorSet selectors,
+        string? nextSelector,
         CancellationToken cancellationToken)
     {
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -298,7 +507,9 @@ public sealed class Fetcher : IDisposable
         try
         {
             page = await OnlyPageErrors(
-                token => this.source.LoadChapterAsync(url, selectors.Title, selectors.Content, token),
+                token => nextSelector is null
+                    ? this.source.LoadChapterAsync(url, selectors.Title, selectors.Content, token)
+                    : this.source.LoadChapterAsync(url, selectors.Title, selectors.Content, nextSelector, token),
                 url,
                 budget.Token,
                 cancellationToken).ConfigureAwait(false);
@@ -357,7 +568,8 @@ public sealed class Fetcher : IDisposable
             cleaned.StrippedUrls,
             this.now(),
             attempts,
-            decision);
+            decision,
+            page.NextUrl);
 
         await this.writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -434,6 +646,8 @@ public sealed class Fetcher : IDisposable
     {
         private readonly ConcurrentDictionary<int, ChapterRecord> completed = new();
         private readonly ConcurrentDictionary<int, FailedChapter> failed = new();
+
+        internal int Count => this.completed.Count + this.failed.Count;
 
         internal void RecordSuccess(ChapterRecord record) => this.completed[record.Index] = record;
 

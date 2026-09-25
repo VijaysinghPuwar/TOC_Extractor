@@ -19,7 +19,8 @@ public sealed record ChapterRecord(
     int StrippedUrls,
     DateTimeOffset FetchedAt,
     int Attempts,
-    RobotsDecision? Robots = null)
+    RobotsDecision? Robots = null,
+    string? NextUrl = null)
 {
     public int ByteCount => Encoding.UTF8.GetByteCount(this.Text);
 

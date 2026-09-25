@@ -50,6 +50,50 @@ setTimeout(function () {
 </body></html>"""
 
 
+# Built like a real reading site: the story shares its container with an ad
+# slot, a script, a next/previous bar, share buttons, a report button and a
+# comments block, and the heading carries the book name on a second line.
+CLUTTERED_CHAPTER_HTML = """<!doctype html><html><body>
+<h1 class="title">Chapter 7: The Tide<br><span class="book">A Very Long Book</span></h1>
+<div id="story">
+  <div class="chapter-nav">
+    <a href="/ch/6">Previous chapter</a><a href="/ch/8">Next chapter</a>
+  </div>
+  <p>The first line of the story.</p>
+  <div class="ads"><p>BUY NOW advertisement</p></div>
+  <ins class="adsbygoogle">ad slot</ins>
+  <script>var tracking = "tracking script text";</script>
+  <script>
+    var slot = document.createElement("div");
+    slot.className = "ad-banner";
+    slot.textContent = "injected advertisement";
+    document.currentScript.after(slot);
+  </script>
+  <p>The second line of the story.</p>
+  <div class="share-buttons">Share on social media</div>
+  <button>Report chapter</button>
+  <nav><a href="/toc">Table of contents</a></nav>
+  <div id="comments"><p>Great chapter, first!</p></div>
+  <p>The last line of the story.</p>
+</div>
+</body></html>"""
+
+# The chapter list arrives by a second request after the page has loaded.
+LATE_TOC_HTML = """<!doctype html><html><body>
+<ol id="list"></ol>
+<script>
+setTimeout(function () {
+  var list = document.getElementById('list');
+  for (var i = 1; i <= 3; i++) {
+    var item = document.createElement('li');
+    item.innerHTML = '<a class="ch" href="/ch/' + i + '">Chapter ' + i + '</a>';
+    list.appendChild(item);
+  }
+}, 800);
+</script>
+</body></html>"""
+
+
 class Handler(BaseHTTPRequestHandler):
     # Shared across instances on purpose: the server makes one handler per
     # request, so per-instance state could not record a redirect chain.
@@ -69,6 +113,10 @@ class Handler(BaseHTTPRequestHandler):
             self._html(SVG_TOC_HTML)
         elif self.path == "/hydrated":
             self._html(HYDRATED_HTML)
+        elif self.path == "/cluttered":
+            self._html(CLUTTERED_CHAPTER_HTML)
+        elif self.path == "/toc/late":
+            self._html(LATE_TOC_HTML)
         else:
             self._html(CHAPTER_HTML)
 
@@ -371,3 +419,33 @@ async def test_open_page_then_load_chapter_share_the_pool(server: str) -> None:
             )
         )
     assert all(page.title == "Chapter Title" for page in pages)
+
+
+async def test_only_the_story_is_kept_from_a_cluttered_chapter(server: str) -> None:
+    async with BrowserPageSource(guard=loopback_permitted()) as source:
+        page = await source.load_chapter(
+            f"{server}/cluttered", title_selector="h1.title", content_selector="#story"
+        )
+
+    lines = [line for line in page.body.splitlines() if line.strip()]
+    assert lines == [
+        "The first line of the story.",
+        "The second line of the story.",
+        "The last line of the story.",
+    ]
+
+
+async def test_a_title_keeps_only_its_first_line(server: str) -> None:
+    async with BrowserPageSource(guard=loopback_permitted()) as source:
+        page = await source.load_chapter(
+            f"{server}/cluttered", title_selector="h1.title", content_selector="#story"
+        )
+
+    assert page.title == "Chapter 7: The Tide"
+
+
+async def test_a_chapter_list_that_arrives_late_is_still_read(server: str) -> None:
+    async with BrowserPageSource(guard=loopback_permitted()) as source:
+        toc = await source.load_toc(f"{server}/toc/late", link_selector="a.ch")
+
+    assert len(toc.raw_links) == 3

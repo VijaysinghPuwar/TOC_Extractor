@@ -121,7 +121,8 @@ def draw_mark(
     ):
         x0, y0 = p(cx - outer, cy - outer)
         x1, y1 = p(cx + outer, cy + outer)
-        draw.arc((x0, y0, x1, y1), start, start + 90, fill=ink, width=round((outer - inner) * scale))
+        thickness = round((outer - inner) * scale)
+        draw.arc((x0, y0, x1, y1), start, start + 90, fill=ink, width=thickness)
     for y in ROWS:
         line((DOT[0], y), (DOT[1], y))
         line((LINE[0], y), (LINE[1], y))
