@@ -124,7 +124,7 @@ public static class RangePipeline
         }
 
         using var fetcher = new Fetcher(
-            source, guard, sink, request.Fetch, limiter, robots,
+            new TidyTitles(source), guard, sink, request.Fetch, limiter, robots,
             onRecord: Persist, onFailure: observer.Failure, onHumanCheck: onHumanCheck);
 
         observer.Log($"Fetching chapters {request.From}-{request.To}: {request.Plan.Direct.Count} by address"

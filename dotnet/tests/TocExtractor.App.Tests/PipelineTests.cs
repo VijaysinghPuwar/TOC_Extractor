@@ -117,3 +117,19 @@ public sealed class PipelineTests
         }
     }
 }
+
+public sealed class ChapterTitleTests
+{
+    [Theory]
+    [InlineData("Page 1", "Chapter 1")]
+    [InlineData("page 185", "Chapter 185")]
+    [InlineData("  Page 007 ", "Chapter 7")]
+    [InlineData("Page 12: The Storm Road", "Page 12: The Storm Road")]
+    [InlineData("Chapter 3: Low Tide", "Chapter 3: Low Tide")]
+    [InlineData("The Last Page 9", "The Last Page 9")]
+    [InlineData("Part 2", "Part 2")]
+    public void Only_a_bare_page_number_becomes_a_chapter(string heading, string saved)
+    {
+        Assert.Equal(saved, Pipeline.ChapterTitles.Tidy(heading));
+    }
+}

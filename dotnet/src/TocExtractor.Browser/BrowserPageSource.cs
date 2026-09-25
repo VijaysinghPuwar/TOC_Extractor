@@ -127,6 +127,9 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
     private readonly ConcurrentQueueOfSlots pool = new();
 
     private IPlaywright? playwright;
+
+    // The site being read, for telling its own cookies from ad networks'.
+    private string? siteUrl;
     private IBrowser? browser;
     private IBrowserContext? context;
 
@@ -396,6 +399,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
 
     private async Task<string> GotoAsync(PageSlot slot, string url, TimeSpan remaining)
     {
+        this.siteUrl ??= url;
         var verdict = this.screen.Check(url);
         if (!verdict.Allowed)
         {
@@ -617,7 +621,14 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             return false;
         }
 
-        var cookies = await this.context.CookiesAsync().ConfigureAwait(false);
+        if (this.siteUrl is null)
+        {
+            return false;
+        }
+
+        // Only the site's own cookies: ad networks set user-id cookies on
+        // their own domains in the same browser, and those sign no one in.
+        var cookies = await this.context.CookiesAsync([this.siteUrl]).ConfigureAwait(false);
         return cookies.Any(cookie => IsAccountCookie(cookie.Name));
     }
 

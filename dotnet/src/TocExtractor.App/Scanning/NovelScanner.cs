@@ -397,7 +397,15 @@ public sealed class NovelScanner(
         var sample = ordered[ordered.Count / 2];
         var check = ordered.Count > 1 ? ordered[0] : null;
 
+        // One more try before giving up: a single slow or interrupted page
+        // load must not decide the whole scan.
         var found = await this.ProbeContentAsync(sample.Url, FindContent, cancellationToken).ConfigureAwait(false);
+        if (found is null || found.Content is null || found.ContentChars < 200)
+        {
+            log?.Invoke($"scan: chapter {sample.Number} did not show its story; trying once more");
+            found = await this.ProbeContentAsync(sample.Url, FindContent, cancellationToken).ConfigureAwait(false);
+        }
+
         if (found is null || found.Content is null || found.ContentChars < 200)
         {
             return (null, $"Could not find the story text on chapter {sample.Number}. Set the selectors under Advanced.");

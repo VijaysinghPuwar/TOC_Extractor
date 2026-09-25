@@ -27,7 +27,9 @@ public sealed partial class App : Application
             window.DataContext = viewModel;
             desktop.MainWindow = window;
             desktop.ShutdownRequested += (_, _) => viewModel.Shutdown();
-            _ = viewModel.StartAsync();
+            _ = Autopilot.Plan() is { } plan
+                ? Autopilot.RunAsync(plan, viewModel, window, desktop)
+                : viewModel.StartAsync();
         }
 
         base.OnFrameworkInitializationCompleted();

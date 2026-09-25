@@ -156,6 +156,7 @@ class BrowserPageSource:
         self._user_agent = user_agent
         self._storage_state = storage_state
         self._user_data_dir = user_data_dir
+        self._site_url: str | None = None
         self._navigation_timeout_ms = navigation_timeout_ms
         self._max_pages = max(1, max_pages)
 
@@ -312,6 +313,8 @@ class BrowserPageSource:
             self._pool.put_nowait(slot)
 
     async def _goto(self, slot: _PageSlot, url: str) -> str:
+        # The site being read, for telling its own cookies from ad networks'.
+        self._site_url = self._site_url or url
         allowed, reason, detail = self._screen(url)
         if not allowed:
             raise PageBlocked(url, reason or RejectionReason.MALFORMED, detail)
@@ -343,11 +346,15 @@ class BrowserPageSource:
         sign-in would switch the robots.txt override on for everyone. The
         names are checked for what sign-in cookies are called on common
         platforms, and analytics and anonymous session ids are ignored.
-        Kept identical to BrowserPageSource.IsAccountCookie in C#.
+        Only cookies that belong to the site being read count. Kept identical
+        to BrowserPageSource.IsAccountCookie in C#.
         """
-        if self._context is None:
+        if self._context is None or self._site_url is None:
             return False
-        return any(is_account_cookie(cookie["name"]) for cookie in await self._context.cookies())
+        # Only the site's own cookies: ad networks set user-id cookies on
+        # their own domains in the same browser, and those sign no one in.
+        cookies = await self._context.cookies([self._site_url])
+        return any(is_account_cookie(cookie["name"]) for cookie in cookies)
 
     async def open_page(self, url: str) -> str:
         async with self._acquire() as slot:
