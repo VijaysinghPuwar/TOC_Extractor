@@ -1,0 +1,35 @@
+<Project>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- A warning that survives review is a warning nobody reads. The Python
+         side runs mypy in strict mode and ruff with the same intent; this is
+         the equivalent, so neither implementation is the lenient one. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+
+    <!-- Deliberately NOT InvariantGlobalization. Chapter titles arrive as
+         arbitrary Unicode and filename allocation compares them case-folded;
+         dropping ICU would change how those compare for non-ASCII titles,
+         which is the one thing the golden corpus pins. -->
+
+    <!-- Required for IDE0005 (unused usings) to run at build time. CS1591 is
+         suppressed with it: a rule that demands a doc comment on every public
+         member does not produce documentation, it produces restated signatures.
+         Comments here explain why something is not the obvious alternative, or
+         they are not written. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>

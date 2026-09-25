@@ -17,6 +17,10 @@ __pycache__/
 build/
 dist/
 
+# .NET build output
+dotnet/**/bin/
+dotnet/**/obj/
+
 # Tooling caches
 .mypy_cache/
 .ruff_cache/

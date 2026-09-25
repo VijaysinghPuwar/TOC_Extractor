@@ -70,6 +70,43 @@ jobs:
           "
       - run: make test-fast
 
+  dotnet:
+    # The C# implementation. Pinned by global.json so a runner image bump
+    # cannot quietly change the SDK the build was verified against.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet restore dotnet/TocExtractor.slnx
+      - run: dotnet build dotnet/TocExtractor.slnx --no-restore
+      - name: Formatting
+        run: dotnet format dotnet/TocExtractor.slnx --verify-no-changes --no-restore
+      - name: Core tests
+        run: dotnet test dotnet/tests/TocExtractor.Core.Tests --no-build
+      - name: CLI tests
+        run: dotnet test dotnet/tests/TocExtractor.Cli.Tests --no-build
+
+  dotnet-browser:
+    # One job, because Chromium is the only thing this downloads.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet build dotnet/tests/TocExtractor.Browser.Tests
+      - name: Cache the browser build
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-dotnet-${{ runner.os }}-${{ hashFiles('dotnet/Directory.Packages.props') }}
+      - name: Install Chromium
+        working-directory: dotnet/tests/TocExtractor.Browser.Tests/bin/Debug/net10.0
+        run: ./.playwright/node/linux-x64/node ./.playwright/package/cli.js install --with-deps chromium
+      - run: dotnet test dotnet/tests/TocExtractor.Browser.Tests --no-build
+
   test-macos:
     runs-on: macos-latest
     steps:

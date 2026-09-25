@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>TocExtractor.Cli</RootNamespace>
+    <AssemblyName>toc-extractor</AssemblyName>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+    <PackageReference Include="Tomlyn" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../TocExtractor.Core/TocExtractor.Core.csproj" />
+    <ProjectReference Include="../TocExtractor.Browser/TocExtractor.Browser.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="TocExtractor.Cli.Tests" />
+  </ItemGroup>
+
+</Project>

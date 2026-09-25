@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TocExtractor.Browser/TocExtractor.Browser.csproj" />
+    <Project Path="src/TocExtractor.Cli/TocExtractor.Cli.csproj" />
+    <Project Path="src/TocExtractor.Core/TocExtractor.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TocExtractor.Browser.Tests/TocExtractor.Browser.Tests.csproj" />
+    <Project Path="tests/TocExtractor.Cli.Tests/TocExtractor.Cli.Tests.csproj" />
+    <Project Path="tests/TocExtractor.Core.Tests/TocExtractor.Core.Tests.csproj" />
+  </Folder>
+</Solution>
