@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="440" height="96" viewBox="0 0 440 96" role="img" aria-label="TOC Extractor">
+  <g fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="6" y="10" width="60" height="76" rx="6"/>
+    <line x1="20" y1="30" x2="24" y2="30"/><line x1="32" y1="30" x2="54" y2="30"/>
+    <line x1="20" y1="48" x2="24" y2="48"/><line x1="32" y1="48" x2="54" y2="48"/>
+    <line x1="20" y1="66" x2="24" y2="66"/><line x1="32" y1="66" x2="46" y2="66"/>
+    <path d="M74 48 h14 m-6 -6 l6 6 l-6 6"/>
+  </g>
+  <text x="104" y="58" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="36" font-weight="700" fill="#ffffff">TOC Extractor</text>
+  <text x="106" y="82" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" fill="#ffffff">contents page in, chapter files out</text>
+</svg>

@@ -1,145 +1,314 @@
-# TOC Extractor
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.svg">
+    <img src="docs/images/logo.svg" alt="TOC Extractor" width="440">
+  </picture>
+</p>
 
-Extracts chapter text from a table-of-contents page using CSS selectors **you**
-supply. Nothing is hard-coded per site: you give it the TOC URL and three
-selectors — chapter links, title, content — and it writes one file per chapter
-plus a merged one. Scraping tutorials usually hard-code selectors for a single
-site and break the week it redesigns; inverting that is the entire point.
+<p align="center">
+  Save the chapters of a web book or series as clean text files you can read offline.
+</p>
 
-Two front ends over one engine: a command line tool, and a Tk window whose
-whole reason to exist is the step where you sign in or solve a challenge
-yourself before anything is fetched.
+---
 
-## Requirements
+## What is this?
 
-- Python 3.11–3.14
-- Playwright, the only runtime dependency
-- Tk, for the GUI only — see [macOS notes](#macos-notes)
+Many websites publish long writing as a series of chapters, with one page that
+lists them all. That list is called a **table of contents** (the "TOC" in the
+name).
 
-## Quickstart
+TOC Extractor takes that one page, visits each chapter in order, pulls out
+just the story text (no menus, no ads, no comment sections), and saves it on
+your computer. You end up with one tidy file per chapter, plus one file with
+everything joined together.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/how-it-works-dark.svg">
+    <img src="docs/images/how-it-works.svg" alt="How it works: contents page, find chapters, read politely, your files" width="860">
+  </picture>
+</p>
+
+It works on almost any site, because it does not have anything built in for
+one particular website. Instead, you tell it three things about the site you
+are using:
+
+| You tell it | In plain words | Example |
+|---|---|---|
+| **Link** | Which links on the contents page are chapters | `ol.toc a` |
+| **Title** | Where the chapter name sits on a chapter page | `h1.title` |
+| **Content** | Where the actual story text sits | `article.reader` |
+
+These are called *CSS selectors*. They look technical, but they are just
+short labels that point at parts of a web page. The section
+[Finding the three labels](#finding-the-three-labels) walks through it.
+
+## Good manners are built in
+
+This tool is meant for content you own or have permission to save. It is
+built to behave like a patient reader, not a bot hammering a website:
+
+- **It follows each site's rules.** Websites publish a file called
+  `robots.txt` that says what automated tools may visit. If a site says no,
+  the tool stops. There is no switch to turn this off.
+- **It takes its time.** It waits between pages, and if a site asks for an
+  even longer wait, it waits longer. It never goes faster than you set.
+- **It does not break in.** No captcha solving, no disguises, no hidden
+  tricks. If a site needs you to sign in, you do that yourself, by hand.
+- **It stays on the public web.** Links pointing at private or local network
+  addresses are refused.
+
+Please respect each site's Terms of Service and its limits.
+
+## What you need
+
+- A Mac or Linux computer (Windows may work, but it is not tested)
+- Python 3.11 to 3.14 (free, from [python.org](https://www.python.org/downloads/))
+- About 5 minutes for the first setup
+
+Playwright, the only runtime dependency, is installed for you in the steps
+below. It lets the tool open web pages the same way a normal browser does.
+
+## Getting started
+
+Open the **Terminal** app and run these lines one at a time.
+
+**1. Download the project**
+
+```bash
+git clone https://github.com/VijaysinghPuwar/TOC_Extractor.git
+cd TOC_Extractor
+```
+
+**2. Set it up** (only needed once)
+
+```bash
+make setup
+```
+
+This creates a private workspace for the tool, installs what it needs,
+downloads a browser for it to use, and checks that the app window will work.
+If you do not have `make`, run these four lines instead:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 python -m playwright install chromium
-
-python -m toc_extractor --profile profiles/example.toml --toc https://example.com/toc --dry-run
-python -m toc_extractor --gui
 ```
 
-`make setup` does the four setup steps and then tells you whether Tk is usable.
-
-`--dry-run` lists the chapter URLs it found and writes nothing — the right first
-command against any new site, because it tells you whether your link selector is
-right before a single chapter is fetched.
-
-## Permissions and ethics
-
-Use this only on content you own or are permitted to access. Respect each site's
-Terms of Service, its `robots.txt`, and its rate limits.
-
-This is enforced in code, not asserted in a paragraph:
-
-- **robots.txt is checked before fetching**, and a `Disallow` is a hard refusal.
-  There is no `--ignore-robots` flag, deliberately: a flag that turns the check
-  off gets copied between runs until the check means nothing. The only way past
-  it is a real signed-in session established by hand in the GUI, and every rule
-  that gets overridden is named, shown where it cannot be scrolled past, and
-  recorded in the manifest.
-- **`Crawl-delay` is honoured** and can only ever slow the tool down. A site
-  asking to be hit faster than you configured does not get to.
-- **The per-host delay survives concurrency.** Requests to one host stay spaced
-  by the configured interval no matter how many workers run — see
-  [Architecture](#architecture) for why that is not automatic.
-- **No protection is bypassed.** No captcha solving, no fingerprint spoofing
-  beyond a configurable User-Agent, no stealth plugins, no proxy rotation.
-- **URLs found in a page are untrusted.** Non-HTTP schemes and hosts resolving
-  to loopback, link-local, or private ranges are refused, across redirects too.
-
-## Selector profiles
-
-A profile is how you point this at a particular site. It is a file you own, not
-code in this repository — which is what keeps the tool general.
-
-```toml
-[selectors]
-link = "ol.toc a"          # every chapter anchor on the TOC page
-title = "h1.title"         # the title element on a chapter page
-content = "article.reader" # the readable container, not `body`
-
-[options]
-min_delay = 1.5
-max_delay = 3.0
-concurrency = 2
-max = 25
-formats = ["text", "jsonl"]
-include_links = false
-```
+**3. Open the app**
 
 ```bash
-python -m toc_extractor --profile my-site.toml --toc https://example.com/toc
+make gui
 ```
 
-Flags override the profile, so it is a starting point rather than a file you
-edit to run one different command. An unknown key refuses the whole profile and
-lists the valid ones — a silently ignored typo is a profile that does not do
-what it says.
+## Using the app
 
-`profiles/example.toml` is written against `tests/fixtures/`, so it runs as-is
-and describes no real site.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/three-buttons-dark.svg">
+    <img src="docs/images/three-buttons.svg" alt="The three buttons: Launch browser, I'm Ready, Start extraction" width="780">
+  </picture>
+</p>
 
-### Deriving selectors for a site you have rights to use
+1. Paste the address of the contents page into **Table of contents URL**.
+2. Fill in the three labels: **Chapter link**, **Title**, and **Content**.
+3. Pick an **Output folder**. This is where your files will go.
+4. Press **1. Launch browser**. A browser window opens on the contents page.
+5. If the site needs you to sign in or tick a "not a robot" box, do it in that
+   window now, like you normally would.
+6. Press **2. I'm Ready**.
+7. Press **3. Start extraction**. Each chapter appears in the list as it saves.
 
-1. `--dump-html --screenshot --dry-run` writes `toc.html` and `toc.png` to the
-   output folder and fetches no chapters. If the screenshot shows a login wall,
-   you need the GUI rather than better selectors.
-2. Find the chapter links in `toc.html`. Start broad — `a` — and narrow until
-   only chapters match. `--dry-run` prints exactly what your selector found.
-3. Open one chapter page and check the content selector in DevTools:
-   `document.querySelector('<selector>').innerText`. If that returns the whole
-   page, you have selected `body` by another name.
-4. Put the three in a profile and run without `--dry-run`.
+Press **Stop** at any time. Nothing is lost: see
+[Stopping and starting again](#stopping-and-starting-again).
 
-## Output
+## What you get
 
 ```
 downloads/
   001 - Chapter One.txt
   002 - Chapter Two.txt
-  combined.txt
-  manifest.jsonl
+  003 - Chapter Three.txt
+  combined.txt          every chapter, joined in order
+  manifest.jsonl        a record of what was saved (with the jsonl format)
 ```
 
-`--format` is repeatable: `text` (the default), `markdown`, and `jsonl`. The
-JSONL manifest carries per-chapter URL, final URL after redirects, fetch time,
-byte count, content hash, the number of URLs stripped from the text, and any
-robots override — plus a summary line with every rejected link and why.
+You can choose the file type with `--format` (or the tick boxes in the app):
 
-There is no EPUB exporter. It would need author, language, cover, and spine
-order, none of which a selector-driven scraper has, so it could only invent
-them. `--format markdown` then `pandoc book.md -o book.epub` does the same job
-honestly.
+| Format | What it is good for |
+|---|---|
+| `text` | Plain text. Opens anywhere. This is the default. |
+| `markdown` | Keeps chapter headings. Can be turned into an e-book with a free tool called pandoc: `pandoc book.md -o book.epub` |
+| `jsonl` | A detailed record of every chapter, for people who want to process the results further |
 
-URLs are stripped from body text by default, as in v1. That behaviour is
-unchanged; what is new is that the count removed is reported, so the loss is
-visible rather than silent. `--include-links` keeps them.
+Web addresses are removed from the chapter text by default so it reads
+cleanly. The tool tells you how many it removed. Tick **Include source URLs**
+(or use `--include-links`) to keep them.
 
-## Resume
+## Stopping and starting again
 
-Interrupt a run and start it again — resume is the default, keyed on URL. There
-is no `--resume` flag, because a flag whose only job is to request the default
-is one people forget, and the cost of forgetting is a few hundred redundant
-requests to somebody else's server. `--force` discards saved progress.
+You can stop a run halfway and start it again later. The tool remembers which
+chapters it already saved and only fetches the ones that are missing. If the
+site has added new chapters since last time, it picks those up too.
 
-A table of contents that grew is the normal case for a serial, so growth at
-either end resumes and fetches only what is new. Removals or reordering refuse
-with specifics, because chapter numbers would stop lining up with files already
-written. If new chapters were added to the *start*, numbering reflects fetch
-order rather than TOC order, and the tool says so rather than letting you find
-out in the output folder.
+To throw away saved progress and start fresh, tick **Ignore saved progress**
+(or use `--force`).
 
-## Command line reference
+## Finding the three labels
+
+This is the only fiddly part, and you only do it once per site.
+
+1. Run a **dry run**. It looks at the contents page, lists the chapter links
+   it found, and saves nothing:
+
+   ```bash
+   python -m toc_extractor --toc https://example.com/toc --link "a" --title "h1" --content "body" --dry-run --dump-html --screenshot
+   ```
+
+   The title and content labels are placeholders for now; a dry run does not
+   use them. This also saves `toc.html` (the page) and `toc.png` (a picture of it) to
+   the output folder. If the picture shows a sign-in wall, use the app instead
+   so you can sign in first.
+
+2. **Narrow the link label.** Start with `a` (every link) and make it more
+   specific until the dry run lists only chapters.
+
+3. **Check the content label.** Open one chapter in Chrome, right click the
+   story text, choose **Inspect**, and look at the box that wraps the text.
+   A good content label picks just the story, not the whole page.
+
+4. Save your three labels in a small file, called a **profile**, so you never
+   have to type them again (see below).
+
+## Saving your settings in a profile
+
+A profile is a short text file that remembers the labels and options for one
+site. There is a ready example at `profiles/example.toml`.
+
+```toml
+[selectors]
+link = "ol.toc a"          # every chapter link on the contents page
+title = "h1.title"         # the chapter title on a chapter page
+content = "article.reader" # the box holding the story text
+
+[options]
+min_delay = 1.5            # seconds to wait between pages, at least
+max_delay = 3.0            # and at most
+concurrency = 2            # chapters fetched at the same time
+max = 25                   # chapters per run
+formats = ["text", "jsonl"]
+include_links = false
+```
+
+Use it like this:
+
+```bash
+python -m toc_extractor --profile my-site.toml --toc https://example.com/toc
+```
+
+Anything you type on the command line wins over the profile, so you can
+change one setting for one run without editing the file. If the profile has a
+typo in a setting name, the tool refuses it and lists the correct names,
+rather than quietly ignoring it.
+
+## Common problems
+
+**"Tk is missing" or the app window will not open (Mac).**
+The Python that comes from Homebrew does not include the part that draws
+windows. Install Python from [python.org](https://www.python.org/downloads/),
+then rebuild the workspace with it:
+
+```bash
+make clean
+make setup PYTHON=/Library/Frameworks/Python.framework/Versions/3.14/bin/python3
+```
+
+The command line tool works without Tk either way.
+
+**Every site fails with a certificate error (Mac).**
+Python from python.org needs one extra step after installing. Open the
+Python folder in Applications and double click `Install Certificates.command`.
+
+**The first run is slow to start.**
+The first time the downloaded browser opens, macOS checks it. This takes a
+moment and only happens once. It has not frozen.
+
+**The app cannot open the browser.**
+A browser from an earlier run may still be open. Close it, then try again.
+
+**Two chapters have the same name.**
+The second one gets a number added (for example `Chapter One (2).txt`) so
+nothing is overwritten. The log mentions it.
+
+## Things it cannot do
+
+- It cannot make e-books directly. Export `markdown` and use pandoc, as shown
+  above.
+- If a site's `robots.txt` cannot be reached at all, the rules say the tool
+  may continue. It will, but it warns you clearly.
+- It checks every page it visits, but images and scripts on a page are only
+  blocked, not checked step by step.
+- A rare network trick called DNS rebinding could get past the private
+  address check. Closing that needs control the browser does not offer.
+
+## Version history
+
+**2.0.1** (2026-09-25)
+- Fixed: when a chapter page loaded but your content label matched nothing,
+  the tool wrongly called it a timeout and tried twice more. It now says the
+  label matched nothing and moves on straight away, which is faster and far
+  easier to fix.
+- Fixed: a dry run with `--dump-html` now really saves `toc.html`. Before, it
+  quietly skipped it.
+- Fixed the automatic checks on GitHub, which had been failing since 2.0.0.
+  The checks were set up wrongly; the tool itself was not affected.
+- Rewrote this guide for people who are new to the project, with pictures.
+- Updated the GitHub automation to current versions.
+
+**2.0.0** (2026-08-08)
+- Rebuilt from three separate scripts into one tested program.
+- New: profiles, resume after stopping, Markdown and JSONL output, fetching
+  several chapters at once, and a rebuilt app window.
+- New: follows `robots.txt` and each site's requested wait time.
+- Changed: file names with runs of odd characters are tidier. `Chapter//One`
+  used to become `Chapter__One` and is now `Chapter_One`. Chapter text is
+  exactly the same as before.
+
+**1.0.0**
+- First release: a command line script and a simple app window.
+
+---
+
+<details>
+<summary><strong>For developers</strong></summary>
+
+### Commands
+
+```bash
+make setup       # venv, install, Chromium, Tk check
+make deps        # venv and install only, no browser
+make lint        # ruff check and format check
+make typecheck   # mypy, strict, over src/
+make test        # full suite, browser tests included
+make test-fast   # skips browser tests; what the CI matrix runs
+make run ARGS='--toc ... --link ...'
+make gui
+```
+
+CI runs lint, strict mypy, the test suite on Python 3.11 to 3.14 on Linux and
+3.14 on macOS, and the browser tests on one job with Chromium cached.
+
+After changing a flag, regenerate the reference below:
+
+```bash
+./.venv/bin/python scripts_gen_readme.py
+```
+
+To read the v1 to v2 rewrite: `git diff v1.0.0..v2.0.0`.
+
+### Command line reference
 
 <!-- cli-reference: generated, do not edit by hand -->
 
@@ -217,158 +386,71 @@ politeness:
 
 <!-- /cli-reference -->
 
-## macOS notes
-
-**Tk.** The GUI needs it and Homebrew's `python3` does not ship it. Installing
-`python-tk@3.11` or `python-tk@3.12` only helps if you also have that exact
-Homebrew interpreter, and `/usr/bin/python3` carries the deprecated Tk 8.5.
-Build the environment against a python.org framework build:
-
-```bash
-make clean
-make setup PYTHON=/Library/Frameworks/Python.framework/Versions/3.14/bin/python3
-```
-
-`make setup` reports which case you are in, and the GUI prints the same advice
-instead of an ImportError traceback. The CLI does not need Tk.
-
-**Certificates.** A python.org build ships without root certificates until you
-run `Install Certificates.command` from its install folder. Until you do, every
-HTTPS request fails verification — including the one that reads `robots.txt`.
-
-**First Chromium launch.** `playwright install chromium` downloads a browser
-Gatekeeper has not seen. The first launch is slow while macOS verifies it. Not a
-hang.
-
-**Filenames.** APFS is case-insensitive, so `Chapter One.txt` and
-`chapter one.txt` are the same file; colliding titles get a numeric suffix and a
-log line rather than silently overwriting. Names are normalised to NFC, capped
-at 255 *bytes* rather than characters, and leading dots are stripped so a
-chapter titled `.Prologue` does not vanish from Finder.
-
-## Breaking change from v1
-
-Filenames containing runs of forbidden characters differ from what the v1 GUI
-produced. `Chapter//One` was `Chapter__One` and is now `Chapter_One`.
-
-The two v1 scripts had drifted — the GUI replaced each forbidden character, the
-CLI collapsed each run — and v2 adopts the CLI behaviour. Titles that are URLs
-or Windows paths are the realistic cases: `https://example.com/chapter/1` was
-`https___example.com_chapter_1` and is now `https_example.com_chapter_1`.
-
-Chapter text is unchanged. A golden fixture captured from the tagged v1 pins it.
-
-## Architecture
+### How it is built
 
 ```
-TOC page ─▶ parser ─▶ politeness ─▶ fetcher ─▶ exporters ─▶ files
-            vets       robots +      bounded    text
-            links      rate limit    workers    markdown
-                                                jsonl
+TOC page -> parser -> politeness -> fetcher -> exporters -> files
+            vets      robots and    bounded    text
+            links     rate limit    workers    markdown
+                                               jsonl
 ```
 
 `PageSource` is the seam between the fetch loop and Playwright. Most tests run
 against a dict-backed stub with no browser at all; only browser-marked tests
 open Chromium.
 
-Five things below are non-obvious, and each is here because it was established
-by measurement rather than reasoning. Together they are most of why the code
-looks more complicated than a reader would expect.
+A few decisions look odd without context. Each came from a measured failure:
 
-**The rate limiter is acquired inside the concurrency semaphore, not before it.**
-Acquiring first would let every pending worker queue on the limiter regardless
-of the concurrency ceiling, and the ceiling would stop bounding anything. A test
-runs five workers against one host and asserts the observed spacing holds.
+- **The rate limiter is acquired inside the concurrency semaphore.** Acquiring
+  it first lets every pending worker queue on the limiter, and the concurrency
+  ceiling stops meaning anything. A test runs five workers against one host and
+  asserts the spacing holds.
+- **Redirects are followed by hand.** Playwright's `route` handler fires once
+  per navigation, not per redirect hop. The handler fetches with
+  `max_redirects=0`, validates each target, and aborts on the first disallowed
+  hop. Because the body is fulfilled at the original URL, the final URL is
+  tracked in the handler rather than read from `page.url`.
+- **One browser page per worker.** Two concurrent `goto()` calls on one page
+  abort each other with `net::ERR_ABORTED`. That passed 447 tests and failed
+  on the first live run, so the stub now models page exclusivity.
+- **"Could not check robots.txt" is not "no rules".** RFC 9309 treats a 404 as
+  no restrictions. Treating every failure that way meant a local TLS problem
+  silently marked every site unrestricted. Non-404 failures now warn loudly.
+- **The robots override needs evidence of a session.** After the GUI's manual
+  sign-in step, a signed-in session may pass a `Disallow`. It is keyed on the
+  session carrying cookies, not on the Ready button, so an anonymous run still
+  gets a hard refusal. Every overridden rule is shown and recorded in the
+  manifest.
 
-**Redirects are followed by hand.** Playwright's `route` handler fires once per
-navigation, not once per redirect hop — Chromium follows redirects internally.
-`route.fetch` plus `fulfill` does not re-enter the handler, and request events
-see every hop but cannot block one. So the loop lives in the handler: fetch with
-`max_redirects=0`, validate the target, repeat, abort on the first disallowed
-hop. A consequence is that `page.url` becomes wrong — the body is fulfilled at
-the originally requested URL — so the final URL is tracked in the handler.
+### One invariant, four checks
 
-**One browser page per worker.** Two concurrent `goto()` calls on one page abort
-each other with `net::ERR_ABORTED`. This passed 447 tests and failed on the
-first run against a live server, because a dict-backed stub has no notion of a
-busy resource. The stub now models exclusivity, so a caller has to state how
-many pages it believes it has.
-
-**"I could not check" is not "there are no rules."** RFC 9309 makes a 404
-`robots.txt` mean no restrictions, and treating *every* fetch failure the same
-way looked equally reasonable. It was not: a TLS trust problem on the local
-machine silently marked every site unrestricted, with no output at all. The
-safe-looking default was unsafe because it conflated the absence of rules with
-the inability to read them. Non-404 failures now warn loudly and say when the
-fault is local.
-
-**The robots escape hatch is keyed on evidence, not on a click.** After the
-GUI's human gate, a signed-in session may proceed past a `Disallow` — a site
-routinely disallows exactly the paths a login unlocks. The obvious wiring was to
-key that on the confirm button, which would have made pressing Ready without
-signing in an override, turning the escape hatch into the default path. It is
-keyed on the session actually carrying cookies instead, and an anonymous run
-still takes a hard refusal.
-
-### One invariant, four enforcement points
-
-Every link is accounted for: `raw == kept + rejected + truncated`. That is
-checked in a `LinkCollection` constructor, at the `PageSource` error boundary,
-in `run()` before it returns, and again where output is merged. Four checks for
-one rule looks like defensive layering. It is not — each was added after a real
-bug in which content disappeared without a trace:
+Every link is accounted for: `raw == kept + rejected + truncated`. It is
+checked in the `LinkCollection` constructor, at the `PageSource` error
+boundary, in `run()` before it returns, and where output is merged. Each check
+was added after a real bug where content disappeared silently:
 
 | What vanished | How |
 |---|---|
-| SVG-anchor chapters | `SVGAnimatedString` arrives in Python as `{}` — truthy in JavaScript, falsy in Python, so a `if link` filter dropped it |
+| SVG-anchor chapters | `SVGAnimatedString` arrives in Python as `{}`, truthy in JavaScript and falsy in Python, so an `if link` filter dropped it |
 | A whole run | a stdlib `TimeoutError` escaped the retry vocabulary and killed the task group |
 | One chapter, silently | `asyncio.TaskGroup` absorbs a child's `CancelledError` and discards the task with it |
 | Everything a resume did not refetch | the merged file was rebuilt from only the chapters that run fetched |
 
-The last one is the reason for the fourth check. Every earlier check passed
-while it happened: the links really were all accounted for. The loss was
-downstream of every check that existed.
+### Resume rules
 
-## Known limitations
+Resume is the default, keyed on URL; there is no `--resume` flag. Growth at
+either end of the TOC resumes and fetches only new chapters. Removals or
+reordering refuse with specifics, because chapter numbers would stop matching
+files already written. Chapters added at the start are numbered in fetch order,
+and the tool says so.
 
-- **DNS rebinding is not closed.** The guard resolves a host and checks the
-  addresses; Chromium then resolves it again independently. A name answering
-  differently between those lookups can reach an address the guard rejected.
-  Closing it needs connection-level control the browser does not expose.
-- **Subresources are screened but not proxied.** A disallowed image or script
-  request is aborted, but only navigations are inspected hop by hop.
-- **An unreachable `robots.txt` still permits everything**, per RFC 9309. It is
-  now loud about it, but the default is permissive.
-- **`robots.txt` parsing follows RFC 9309 precedence** via the standard library.
-  Non-standard extensions beyond `Crawl-delay` are ignored.
-- **The GUI holds a persistent browser profile.** A previous run whose browser
-  is still alive locks it, and the next launch fails until that process exits.
+### Filenames
 
-## Development
+APFS is case-insensitive, so colliding titles get a numeric suffix and a log
+line. Names are normalised to NFC, capped at 255 bytes, and leading dots are
+stripped so `.Prologue` does not vanish from Finder.
 
-```bash
-make setup       # venv, install, Chromium, Tk check
-make deps        # venv and install only, no browser
-make lint        # ruff check + format check
-make typecheck   # mypy, strict, over src/
-make test        # full suite, browser tests included
-make test-fast   # skips browser tests; what CI's matrix runs
-make run ARGS='--toc ... --link ...'
-make gui
-```
-
-mypy runs strict over `src/` with no unexplained ignores. CI covers Python
-3.11–3.14 on Linux, one macOS job, and browser tests on a single job with
-Chromium cached on the build Playwright resolves.
-
-After changing a flag, regenerate the reference above:
-
-```bash
-./.venv/bin/python scripts_gen_readme.py
-```
-
-To see the rewrite: `git diff v1.0.0..v2.0.0` — 670 lines across three
-free-standing scripts becoming a tested package.
+</details>
 
 ## License
 

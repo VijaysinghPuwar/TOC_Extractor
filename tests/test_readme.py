@@ -32,9 +32,7 @@ def test_the_stated_python_range_matches_pyproject() -> None:
         for item in classifiers
         if item.startswith("Programming Language :: Python :: 3.")
     )
-    # The README uses an en dash for the range; noqa because that is the
-    # character being asserted, not an accident.
-    assert f"Python 3.11\u20133.{ceiling}" in README
+    assert f"Python 3.11 to 3.{ceiling}" in README
 
 
 def test_the_only_runtime_dependency_claim_holds() -> None:
@@ -123,6 +121,19 @@ def _collected() -> int:
 def test_no_emoji() -> None:
     """A standing constraint on this repository, checked rather than remembered."""
     assert not re.search(r"[\U0001F300-\U0001FAFF☀-➿]", README)
+
+
+def test_no_long_dashes() -> None:
+    """Another standing constraint: no em or en dashes in the README."""
+    assert "\u2014" not in README
+    assert "\u2013" not in README
+
+
+@pytest.mark.parametrize("image", ["logo", "how-it-works", "three-buttons"])
+def test_every_readme_image_exists_in_both_themes(image: str) -> None:
+    for name in (f"{image}.svg", f"{image}-dark.svg"):
+        assert f"docs/images/{name}" in README
+        assert (REPO_ROOT / "docs" / "images" / name).exists(), name
 
 
 def test_the_example_profile_the_readme_points_at_exists() -> None:
