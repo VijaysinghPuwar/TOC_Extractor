@@ -19,8 +19,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PRIMARY_PYTHON }}
           cache: pip
@@ -30,8 +30,8 @@ jobs:
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PRIMARY_PYTHON }}
           cache: pip
@@ -47,20 +47,24 @@ jobs:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+        with:
+          # Full history, so the release tags test_readme checks are present.
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - run: make deps
       - name: Confirm the GUI is importable without Tk
-        # Ubuntu runners have no _tkinter. If gui.bridge or gui.worker ever
-        # grow a Tk import the GUI tests would silently stop running here
-        # rather than fail, so assert the absence explicitly.
+        # gui.bridge and gui.worker must never import Tk, so a headless
+        # install can still use them. The setup-python builds ship with Tk,
+        # so rather than assume its absence, block the import outright: a
+        # None entry in sys.modules makes any `import tkinter` raise.
         run: |
           .venv/bin/python -c "
-          import importlib.util, sys
-          assert importlib.util.find_spec('tkinter') is None, 'expected no Tk on this runner'
+          import sys
+          sys.modules['tkinter'] = None
           import toc_extractor.gui.bridge, toc_extractor.gui.worker
           print('gui.bridge and gui.worker import without Tk')
           "
@@ -69,8 +73,10 @@ jobs:
   test-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PRIMARY_PYTHON }}
           cache: pip
@@ -81,8 +87,8 @@ jobs:
     # One job, because Chromium is the only thing CI downloads.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PRIMARY_PYTHON }}
           cache: pip
@@ -111,7 +117,7 @@ jobs:
           print('resolved chromium-' + match.group(1))
           "
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-chromium-${{ steps.browser.outputs.build }}
