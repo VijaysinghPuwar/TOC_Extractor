@@ -945,7 +945,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             return false;
         }
 
-        foreach (var page in context.Pages)
+        foreach (var page in context.Pages.ToArray())
         {
             if (await IsHumanCheckAsync(page).ConfigureAwait(false))
             {
@@ -986,7 +986,10 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             cancellationToken.ThrowIfCancellationRequested();
             var blocked = false;
             var failing = false;
-            foreach (var page in context.Pages)
+
+            // A copy: with many books at once, tabs open and close during
+            // every await below, and the live list cannot be enumerated then.
+            foreach (var page in context.Pages.ToArray())
             {
                 if (!await IsHumanCheckAsync(page).ConfigureAwait(false))
                 {
@@ -1005,8 +1008,15 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                 if (!shown)
                 {
                     // Put the check in front of the person, once.
-                    await page.BringToFrontAsync().ConfigureAwait(false);
-                    shown = true;
+                    try
+                    {
+                        await page.BringToFrontAsync().ConfigureAwait(false);
+                        shown = true;
+                    }
+                    catch (PlaywrightException)
+                    {
+                        // Closed as it was found; the next look shows another.
+                    }
                 }
             }
 
@@ -1056,13 +1066,22 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         try
         {
             var watch = Stopwatch.StartNew();
-            if (this.context is { Pages.Count: > 0 } open)
+            // A copy: other books open and close tabs while this runs, and the
+            // live list then changes under the enumeration.
+            if (this.context?.Pages.ToArray() is { Length: > 0 } pages)
             {
                 // The tab showing that site, when several sites are open.
                 var host = siteUrl is not null && Uri.TryCreate(siteUrl, UriKind.Absolute, out var site) ? site.Host : null;
-                var page = open.Pages.FirstOrDefault(p => host is not null && Uri.TryCreate(p.Url, UriKind.Absolute, out var at) && at.Host == host)
-                    ?? open.Pages[0];
-                await page.BringToFrontAsync().ConfigureAwait(false);
+                var page = pages.FirstOrDefault(p => host is not null && Uri.TryCreate(p.Url, UriKind.Absolute, out var at) && at.Host == host)
+                    ?? pages[0];
+                try
+                {
+                    await page.BringToFrontAsync().ConfigureAwait(false);
+                }
+                catch (PlaywrightException)
+                {
+                    // Closed as it was found; the wait itself still stands.
+                }
             }
 
             while (watch.Elapsed < timeout)
@@ -1169,7 +1188,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
     internal int OpenTabs => this.context?.Pages.Count ?? 0;
 
     /// <summary>What every open tab is showing. For tests.</summary>
-    internal IReadOnlyList<string> TabUrls => [.. this.context?.Pages.Select(page => page.Url) ?? []];
+    internal IReadOnlyList<string> TabUrls => [.. this.context?.Pages.ToArray().Select(page => page.Url) ?? []];
 
     /// <summary>Close every tab the app works in, as a person clicking their close buttons would. For tests.</summary>
     internal async Task CloseWorkTabsAsync()
