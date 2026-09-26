@@ -393,7 +393,10 @@ public sealed class ParallelTests
         harness.NewJob();
         Assert.True(Visible(harness, "AttentionBar"));
         Assert.Contains("needs you", harness.ViewModel.Attention, StringComparison.Ordinal);
-        Assert.Single(harness.Shell.Notified);
+
+        // At least one: a reminder every 50ms can already have fired on a slow machine.
+        Assert.NotEmpty(harness.Shell.Notified);
+        Assert.Contains("The Lighthouse", harness.Shell.Notified[0], StringComparison.Ordinal);
 
         await harness.ViewModel.ShowCheckCommand.ExecuteAsync(null);
         Assert.Equal(1, harness.Service.ShownChecks);
