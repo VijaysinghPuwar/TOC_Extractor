@@ -12,6 +12,7 @@ internal static class Program
     {
         // Before anything touches Playwright: the browser lives in the app's
         // own folder, downloaded on first launch, not in a shared cache.
+        AppPaths.MoveMachineFilesOutOfRoaming();
         BrowserInstaller.UseAppBrowsers();
         BrowserInstaller.UseBundledDriver();
 

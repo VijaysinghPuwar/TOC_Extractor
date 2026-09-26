@@ -29,6 +29,16 @@ public sealed class BrowserHost(NovelEnvironment environment) : IAsyncDisposable
     /// <summary>How long a tab can sit unused before it is closed.</summary>
     public static readonly TimeSpan IdleTabsCloseAfter = TimeSpan.FromSeconds(30);
 
+    /// <summary>Whether a launch failed because the browser from an earlier run still holds the profile.</summary>
+    /// <remarks>
+    /// macOS and Linux Chromium refuse with a ProcessSingleton error. Windows
+    /// Chromium instead hands the launch to the running browser, says it is
+    /// "Opening in existing browser session", and exits.
+    /// </remarks>
+    public static bool EarlierBrowserStillOpen(string message) =>
+        message.Contains("ProcessSingleton", StringComparison.Ordinal)
+        || message.Contains("Opening in existing browser session", StringComparison.Ordinal);
+
     private readonly SemaphoreSlim starting = new(1, 1);
     private readonly ConcurrentDictionary<string, RateLimiter> limiters = new(StringComparer.OrdinalIgnoreCase);
     private IPageSource? source;
@@ -102,7 +112,7 @@ public sealed class BrowserHost(NovelEnvironment environment) : IAsyncDisposable
             catch (Microsoft.Playwright.PlaywrightException exception)
             {
                 throw new SessionException(
-                    exception.Message.Contains("ProcessSingleton", StringComparison.Ordinal)
+                    BrowserHost.EarlierBrowserStillOpen(exception.Message)
                         ? "The browser from an earlier run is still open. Close it and try again."
                         : $"Could not start the browser: {exception.Message.Split('\n')[0]}",
                     exception);
