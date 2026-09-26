@@ -13,6 +13,12 @@
   <a href="https://github.com/VijaysinghPuwar/TOC_Extractor/releases/latest"><strong>Download the app</strong></a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/VijaysinghPuwar/TOC_Extractor/actions/workflows/ci.yml"><img src="https://github.com/VijaysinghPuwar/TOC_Extractor/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/VijaysinghPuwar/TOC_Extractor/releases/latest"><img src="https://img.shields.io/github/v/release/VijaysinghPuwar/TOC_Extractor" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/VijaysinghPuwar/TOC_Extractor" alt="License"></a>
+</p>
+
 ---
 
 ## What is this?
@@ -36,9 +42,30 @@ that saves just the story, in reading order, so you can read it offline.
 There is nothing to set up per site. The scan works out each site's layout
 by itself.
 
+And while one book saves, you can start the next: run as many at once as you
+like, each with its own progress bar. There are options for audiobooks, a
+detailed log of everything the app does, and it learns which sites need a
+gentler pace so their "are you a person" checks stay rare.
+
 <p align="center">
-  <img src="docs/images/app-saved.png" alt="The app after saving chapters 12 to 20" width="820">
+  <img src="docs/images/app-saved.png" alt="The app after saving chapters 12 to 20 of a book" width="820">
 </p>
+
+## Under the hood
+
+For engineers and reviewers. Each line below is backed by a test in this
+repository or by a measured live run.
+
+| Area | What it does |
+|---|---|
+| **Stack** | C# on .NET 10 with Avalonia 12 for the desktop app on macOS and Windows, and Microsoft Playwright driving Chromium. The original Python tool is kept as a reference implementation; both are checked against the same test data for text cleaning, file names and robots.txt. |
+| **Concurrency** | Any number of downloads run at once in one shared browser whose tab pool grows on demand. Downloads of the same book share one progress record behind a lock. Downloads from the same site share one rate limiter, so running ten books never asks more of a site than running one. |
+| **No per-site setup** | Scripts run inside the page to find the chapter list, the story text and the next and previous links. Address patterns such as "id = 3,254,000 + chapter" are inferred and then checked on the live site before they are used. Books that restart their numbering in each arc are numbered by position instead. |
+| **Fault tolerance** | A tab that is closed or crashes is replaced, and a closed browser is relaunched, without failing the download. A failure in one download cannot stop another. A book file is named only for the chapters it actually contains. |
+| **Measured politeness** | Follows robots.txt (RFC 9309) and Crawl-delay. One site's "are you human" checks were measured over about 15 occurrences: one after about every 50 pages at 9 to 54 pages a minute, none in 75 pages at 5 a minute. The app now learns such sites and paces them to match. It never solves or works around a check. |
+| **Observability** | One CSV log, written as events happen: every page load with its timing, every retry and its cause, every check, and every error with its stack trace, including unhandled exceptions. |
+| **Quality gates** | 3,423 automated tests (2,811 in C# with xUnit, including headless UI render tests; 612 in Python with pytest), warnings treated as errors, mypy strict and ruff on the Python side, and CI on Linux, Windows and macOS. Tagging a version builds the Mac (Apple silicon and Intel) and Windows packages, self-tests each one, and publishes them. |
+| **Scale tested** | Live runs of up to 20 books at once across five sites, 50 chapters each, with every saved chapter checked for completeness and order. |
 
 ## Download
 
@@ -73,15 +100,23 @@ and never touches the browser you normally use.
 2. The app shows the book's name and how many chapters it found.
 3. Under **Chapters**, type the first and last chapter you want, or press
    **All**. Below it, the app says how long it will take.
-4. Tick **TXT**, **PDF**, or both, and pick a folder.
+4. Tick **TXT**, **PDF**, or both, and pick a folder. Each book gets its own
+   folder inside it.
 5. Press **Save**. Each chapter appears in the list as it is saved. Open the
-   **Reader** tab to read one, or **Activity** to see every step.
+   **Reader** tab to read one (with **Copy text**), or **Activity** to see
+   every step.
+6. Press **+ New extraction** at the top left to start another book straight
+   away; this one keeps going.
 
 Press **Stop** at any time. Nothing is lost: the chapters saved so far are
 written as a TXT or PDF straight away, and next time the app skips the
 chapters it already has.
 
 ### Several books at once
+
+<p align="center">
+  <img src="docs/images/app-several.png" alt="Two books in the list on the left: one finished, one waiting for the person to complete a site's check" width="820">
+</p>
 
 You never have to wait for one book to finish before starting the next.
 Press **New extraction** at the top left, paste another novel's page, choose
@@ -124,10 +159,12 @@ across the top of the window with a **Show me** button that brings the
 check to the front, and on a Mac a notification with a sound, repeated
 every five minutes while the site still waits. It waits for as long as it
 takes, so nothing fails while you are away; press Stop to give up instead.
-Once you finish the check, saving carries on by itself, and the app waits a
-little longer between pages on that site so another check is less likely.
-While it does, the window says so ("Going slower on purpose"), so a slower
-download is never mistaken for a stuck one.
+Once you finish the check, saving carries on by itself. The app also
+remembers that site and reads it carefully from then on, a page every 12
+seconds, which in testing kept its checks away entirely. While it does, the
+window says so ("Going slower on purpose"), and the time estimate before you
+press Save allows for it, so a slower download is never mistaken for a stuck
+one. Settings, Sites, lets you choose speed instead for any site.
 
 The app never tries to solve these checks for you. Some checks, such as
 Cloudflare's "Verify you are human", may refuse any browser that another
@@ -228,7 +265,9 @@ It behaves like a patient reader, not a bot hammering a website:
 - **It follows each site's rules.** Websites publish a file called
   `robots.txt` that says what automated tools may visit. If a site says no,
   the app stops. The only exception is a site you have signed in to yourself.
-- **It takes its time.** It waits between pages, and longer if the site asks.
+- **It takes its time.** It waits between pages, and a site that asks for a
+  check is read at a gentle pace from then on. Books from one site share its
+  pace, so running several never asks more of a site than one would.
 - **It does not break in.** No captcha solving, no disguises. If a site needs
   a person, you do that part yourself.
 - **It stays on the public web.** Links to private or local network
@@ -251,6 +290,22 @@ The app is downloading its browser. This happens once.
 
 **Mac says the app "cannot be opened".**
 Right-click the app and choose **Open** instead of double-clicking it.
+
+**One site is much slower than the others.**
+That site asked to check you're a person before, so the app now reads it at a
+careful pace (a page every 12 seconds, shared by every book from that site).
+The window says so while it happens. To go fast anyway and click the odd
+check, turn Careful off for that site in Settings, Sites.
+
+**The app says a chapter "came out much shorter than the rest".**
+Open it in the Reader. Usually the site's own page really is short (an
+author's note, say); the app points it out so a page that loaded without its
+story never slips unnoticed into your book.
+
+**A book file is called 1-26 when I asked for 1-50.**
+Chapter 27 did not save (the Chapters tab says why). The file holds only the
+chapters it names. Press Save again to fetch what is missing; the full file
+then replaces the shorter one.
 
 **Some chapters say "Page 12" instead of "Chapter 12".**
 That is how the site names them. Some sites split a book into pages that do
@@ -443,6 +498,22 @@ nothing is overwritten. The log mentions it.
 
 ## Version history
 
+**2.2.1** (2026-09-25)
+
+From a 20-book stress test on five sites:
+- Fixed: two different novels with the same title (the same book on two
+  sites, say) were given one folder, and the second was refused. The second
+  now gets a folder of its own, named with its site.
+- Fixed: when a site's first-chapter link leads to a cast list or a roster
+  before chapter 1, that page could stand in for chapter 1 in the book. The
+  page whose title names the chapter is now always the one used.
+- Fixed: the time estimate ignored a site's careful pace, so it said "about
+  1 min" for what takes ten. It now says how long, and why.
+- The scan stops paging through a list as soon as a page adds nothing, so
+  sites that count visits see fewer pages.
+- The guide's screenshots now show this version of the app, and it lists the
+  lines of code in each language.
+
 **2.2.0** (2026-09-25)
 - New: run as many extractions at once as you like. Each has its own entry
   on the left with a progress bar, and they all carry on in the background.
@@ -525,6 +596,35 @@ nothing is overwritten. The log mentions it.
 
 <details>
 <summary><strong>For developers</strong></summary>
+
+### Size of the code
+
+Lines per language across the repository, counted from the files git tracks
+for this release. **Code** is every line that is neither blank nor only a
+comment; **of which tests** is the part of it under a `tests/` folder.
+
+| Language | Files | Code | of which tests | Comments | Blank |
+|---|--:|--:|--:|--:|--:|
+| C# | 122 | 14,984 | 5,869 | 2,426 | 3,315 |
+| JSON (shared test data) | 4 | 14,109 | 14,100 | 0 | 4 |
+| Python | 49 | 7,111 | 3,757 | 1,524 | 2,258 |
+| Markdown | 3 | 861 | 0 | 2 | 217 |
+| XAML (Avalonia) | 3 | 598 | 0 | 19 | 46 |
+| MSBuild / project | 13 | 258 | 96 | 0 | 76 |
+| YAML (CI) | 2 | 226 | 0 | 38 | 21 |
+| JavaScript | 2 | 200 | 0 | 59 | 17 |
+| Makefile | 1 | 111 | 0 | 0 | 29 |
+| SVG | 6 | 98 | 0 | 0 | 6 |
+| TOML | 2 | 78 | 0 | 25 | 19 |
+| XML (plist, manifest) | 2 | 46 | 0 | 0 | 2 |
+| Shell | 1 | 35 | 0 | 14 | 8 |
+| PowerShell | 1 | 22 | 0 | 7 | 6 |
+| HTML | 2 | 21 | 21 | 0 | 2 |
+| **Total** | **213** | **38,758** | **23,843** | **4,114** | **6,026** |
+
+C# is the desktop app and its engine; Python is the original command line
+tool, still maintained. The JSON is test data both implementations are
+checked against (text cleaning, file names, robots.txt), not program code.
 
 ### The desktop app (C# and .NET)
 

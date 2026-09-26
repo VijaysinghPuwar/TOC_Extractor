@@ -469,6 +469,15 @@ public sealed class ParallelTests
 
     private static void SaveShot(Window window, string name)
     {
+        // A readable folder in the picture, not the test's temporary one.
+        if (window.DataContext is MainViewModel model)
+        {
+            foreach (var job in model.Jobs)
+            {
+                job.OutputDirectory = "~/Downloads/Novels";
+            }
+        }
+
         Harness.Pump();
         var directory = Environment.GetEnvironmentVariable("TOC_SCREENSHOTS")
             ?? Path.Combine(AppContext.BaseDirectory, "screenshots");

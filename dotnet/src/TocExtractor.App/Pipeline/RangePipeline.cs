@@ -86,14 +86,16 @@ public static class RangePipeline
 
         var layout = request.Scan.Layout ?? throw new InvalidOperationException("the scan found no chapter layout");
         var selectors = SelectorSet.Create("a", layout.TitleSelector, layout.ContentSelector);
-        var folder = request.BookDirectory;
-        Directory.CreateDirectory(folder);
-
         // The book files sit in the book's folder; the one-file-per-chapter
         // working set, and the progress record, sit in its Chapters folder,
         // so 500 chapters never bury the book a person is looking for.
-        using var book = SharedBook.Enter(folder, observer.Log);
+        using var book = SharedBook.Enter(request.BookDirectory, request.Scan.NovelUrl, observer.Log);
+        var folder = book.Folder;
         var chaptersFolder = book.ChaptersFolder;
+        if (!string.Equals(folder, request.BookDirectory, StringComparison.Ordinal))
+        {
+            observer.Log($"\"{Path.GetFileName(request.BookDirectory)}\" already holds the same title from another source, so this one is saved in \"{Path.GetFileName(folder)}\".");
+        }
 
         // Several extractions can save one book at once (say 101-150 and
         // 151-200). They share one progress record, in memory and behind one
@@ -385,10 +387,22 @@ public static partial class BookFiles
             var split = text.IndexOf("\n\n", StringComparison.Ordinal);
             var heading = split > 0 ? text[..split].Trim() : done.Title;
             var body = split > 0 ? text[(split + 2)..].Trim() : text.Trim();
+
+            // Two pages saved under one number: a site's first-chapter link
+            // can lead to a cast list or a roster before "Chapter 1". The
+            // page whose own title names this chapter is the chapter.
+            if (chapters.TryGetValue(done.Index, out var already)
+                && Names(already.Heading, done.Index) && !Names(heading, done.Index))
+            {
+                continue;
+            }
+
             chapters[done.Index] = new SavedChapter(done.Index, heading, body);
         }
 
         return chapters;
+
+        static bool Names(string heading, int number) => Scanning.ChapterNumbers.FromTitle(heading) == number;
     }
 
     /// <summary>The first unbroken run of chapter numbers, so a book file never has a hole in it.</summary>
@@ -507,13 +521,21 @@ internal sealed class SharedBook : IDisposable
     private readonly string key;
     private int users;
 
-    private SharedBook(string key, string chaptersFolder)
+    private SharedBook(string key, string folder, string chaptersFolder, string novelUrl)
     {
         this.key = key;
+        this.Folder = folder;
         this.ChaptersFolder = chaptersFolder;
+        this.NovelUrl = novelUrl;
     }
 
+    /// <summary>The book's own folder.</summary>
+    public string Folder { get; }
+
     public string ChaptersFolder { get; }
+
+    /// <summary>The novel page the book comes from.</summary>
+    public string NovelUrl { get; }
 
     /// <summary>Guards <see cref="Checkpoint"/>, which several runs read and write.</summary>
     public Lock Gate { get; } = new();
@@ -521,20 +543,78 @@ internal sealed class SharedBook : IDisposable
     /// <summary>The progress record, loaded by the first run in and shared until the last one leaves.</summary>
     public Checkpoint? Checkpoint { get; set; }
 
-    public static SharedBook Enter(string folder, Action<string>? log)
+    /// <summary>
+    /// Enter the folder for one book: <paramref name="folder"/>, unless it
+    /// already belongs to a different novel with the same title (the same
+    /// book from another site, say), in which case the title with the site's
+    /// name added, then a number. Decided and taken in one step, so two such
+    /// books starting together never both take one folder.
+    /// </summary>
+    public static SharedBook Enter(string folder, string novelUrl, Action<string>? log)
     {
-        var key = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
         lock (Registry)
         {
-            if (!Open.TryGetValue(key, out var book))
+            var site = Uri.TryCreate(novelUrl, UriKind.Absolute, out var uri) ? uri.Host : "other";
+            for (var n = 0; ; n++)
             {
-                book = new SharedBook(key, BookFiles.MoveChaptersIn(folder, log));
-                Open[key] = book;
-            }
+                var candidate = n switch
+                {
+                    0 => folder,
+                    1 => $"{folder} ({site})",
+                    _ => $"{folder} ({site} {n})",
+                };
+                var key = Path.TrimEndingDirectorySeparator(Path.GetFullPath(candidate));
+                if (Open.TryGetValue(key, out var open))
+                {
+                    if (!SameNovel(open.NovelUrl, novelUrl))
+                    {
+                        continue;
+                    }
 
-            book.users++;
-            return book;
+                    open.users++;
+                    return open;
+                }
+
+                if (StoredNovel(candidate) is { } stored && !SameNovel(stored, novelUrl))
+                {
+                    continue;
+                }
+
+                Directory.CreateDirectory(candidate);
+                var book = new SharedBook(key, candidate, BookFiles.MoveChaptersIn(candidate, log), novelUrl) { users = 1 };
+                Open[key] = book;
+                return book;
+            }
         }
+    }
+
+    /// <summary>The novel page a book folder's progress record belongs to, in either layout.</summary>
+    private static string? StoredNovel(string folder)
+    {
+        foreach (var place in new[] { Path.Combine(folder, BookFiles.ChaptersFolderName), folder })
+        {
+            if (File.Exists(Checkpoint.PathFor(place)) && Checkpoint.Load(place) is { } saved && saved.TocUrl.Length > 0)
+            {
+                return saved.TocUrl;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>One novel page however it was typed: scheme, "www.", case and a trailing slash aside.</summary>
+    internal static bool SameNovel(string a, string b) =>
+        string.Equals(Identity(a), Identity(b), StringComparison.OrdinalIgnoreCase);
+
+    private static string Identity(string url)
+    {
+        if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri))
+        {
+            return url.Trim().TrimEnd('/');
+        }
+
+        var host = uri.Host.StartsWith("www.", StringComparison.OrdinalIgnoreCase) ? uri.Host[4..] : uri.Host;
+        return host + uri.PathAndQuery.TrimEnd('/');
     }
 
     public void Dispose()

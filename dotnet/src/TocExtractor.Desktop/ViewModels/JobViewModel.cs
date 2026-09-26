@@ -58,6 +58,7 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
     private bool slowConfirmed;
     private CsvLog? log;
     private bool closed;
+    private string? savedFolder;
 
     internal JobViewModel(int number, INovelService session, MainViewModel owner, Action<Action> post)
     {
@@ -541,6 +542,7 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
                 observer, cancel.Token).ConfigureAwait(true);
             foreach (var file in result.Files)
             {
+                this.savedFolder = Path.GetDirectoryName(file);
                 this.Files.Add(Path.GetFileName(file));
                 this.log?.Info("file", "Wrote " + file);
             }
@@ -638,7 +640,9 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
     [RelayCommand]
     private async Task OpenFolderAsync()
     {
-        var folder = this.BookFolder ?? this.OutputDirectory;
+        // Where this book was really saved: a same-titled book from another
+        // site gets a folder of its own.
+        var folder = this.savedFolder ?? this.BookFolder ?? this.OutputDirectory;
         await this.owner.Shell.OpenFolderAsync(Directory.Exists(folder) ? folder : this.OutputDirectory).ConfigureAwait(true);
     }
 

@@ -368,3 +368,105 @@ public sealed class ParallelAndLogTests
         }
     }
 }
+
+public sealed class SameTitleTests
+{
+    private static readonly Core.Politeness.UrlGuard Guard = new(resolver: new PublicResolver());
+
+    private static RangeRequest Request(string output, string novelUrl)
+    {
+        var chapters = Enumerable.Range(1, 3)
+            .Select(n => new Scanning.ScannedChapter(n, $"Chapter {n}", $"https://e.com/ch/{n}"))
+            .ToList();
+        var scan = new Scanning.ScanResult
+        {
+            NovelUrl = novelUrl,
+            BookTitle = "Shared Title",
+            Chapters = chapters,
+            Layout = new Scanning.ChapterLayout("h1", "article", "a[rel=next]", "a[rel=prev]"),
+        };
+        return new RangeRequest
+        {
+            Scan = scan,
+            Plan = Scanning.RangePlanner.Plan(scan, 1, 3),
+            From = 1,
+            To = 3,
+            OutputRoot = output,
+            Fetch = new Core.Fetching.FetchOptions { Concurrency = 1, MinDelay = TimeSpan.Zero, MaxDelay = TimeSpan.Zero, WaitAfterLoad = TimeSpan.Zero },
+        };
+    }
+
+    [Fact]
+    public async Task The_same_title_from_another_site_gets_a_folder_of_its_own()
+    {
+        var output = Scratch.Directory();
+        var token = TestContext.Current.CancellationToken;
+
+        var results = await Task.WhenAll(
+            RangePipeline.RunAsync(Request(output, "https://first.example/book"), new StubPageSource(Book.Pages(3)), Guard,
+                Core.Politeness.RobotsPolicy.Missing("https://e.com"), new Core.Politeness.RateLimiter(TimeSpan.Zero), new RecordingObserver(), cancellationToken: token),
+            RangePipeline.RunAsync(Request(output, "https://second.example/book"), new StubPageSource(Book.Pages(3)), Guard,
+                Core.Politeness.RobotsPolicy.Missing("https://e.com"), new Core.Politeness.RateLimiter(TimeSpan.Zero), new RecordingObserver(), cancellationToken: token));
+
+        Assert.All(results, result => Assert.Equal(PipelineOutcome.Ok, result.Outcome));
+        // Whichever started first has the plain name; the other gets its site's.
+        var folders = Directory.GetDirectories(output).Select(path => Path.GetFileName(path)!).Order(StringComparer.Ordinal).ToList();
+        Assert.Equal(2, folders.Count);
+        Assert.Equal("Shared Title", folders[0]);
+        Assert.Matches(@"^Shared Title \((first|second)\.example\)$", folders[1]);
+        Assert.All(results, result => Assert.Single(result.Files));
+    }
+
+    [Theory]
+    [InlineData("https://www.novel.example/book/", "https://novel.example/book")]
+    [InlineData("http://novel.example/Book", "https://NOVEL.example/book/")]
+    public void One_novel_however_its_address_was_typed(string a, string b)
+    {
+        Assert.True(SharedBook.SameNovel(a, b));
+    }
+
+    [Fact]
+    public void Different_novels_are_different()
+    {
+        Assert.False(SharedBook.SameNovel("https://novel.example/book-1", "https://novel.example/book-2"));
+    }
+}
+
+public sealed class TwoPagesOneNumberTests
+{
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void The_page_whose_title_names_the_chapter_is_the_chapter(bool extraFirst)
+    {
+        var folder = Scratch.Directory();
+        var checkpoint = new Core.Checkpoints.Checkpoint
+        {
+            Path = Core.Checkpoints.Checkpoint.PathFor(folder),
+            TocUrl = "https://novel.example/book",
+            Fingerprint = "x",
+        };
+        void Save(string url, string title, string name)
+        {
+            File.WriteAllText(Path.Combine(folder, name), $"{title}\n\nThe text of {title}.\n");
+            checkpoint.Record(
+                new Core.Models.ChapterRecord(1, url, url, title, $"The text of {title}.", 0, DateTimeOffset.Now, 1),
+                new Dictionary<string, Core.Models.ChapterOutput>(StringComparer.Ordinal) { ["text"] = new(name, "") });
+        }
+
+        if (extraFirst)
+        {
+            Save("https://novel.example/1", "Cast and Characters", "001 - Cast and Characters.txt");
+            Save("https://novel.example/2", "Chapter 1: A New Beginning", "001 - Chapter 1.txt");
+        }
+        else
+        {
+            Save("https://novel.example/2", "Chapter 1: A New Beginning", "001 - Chapter 1.txt");
+            Save("https://novel.example/1", "Cast and Characters", "001 - Cast and Characters.txt");
+        }
+
+        var chapter = BookFiles.ReadRange(folder, checkpoint, 1, 1)[1];
+
+        Assert.Equal("Chapter 1: A New Beginning", chapter.Heading);
+    }
+}
