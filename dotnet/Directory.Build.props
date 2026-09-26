@@ -30,7 +30,7 @@
     <!-- Both implementations report the same version string, so the two stay
          recognisably one release. The source revision is dropped from the
          informational version so the output is the version and nothing else. -->
-    <Version>2.2.1</Version>
+    <Version>2.3.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 
     <Deterministic>true</Deterministic>

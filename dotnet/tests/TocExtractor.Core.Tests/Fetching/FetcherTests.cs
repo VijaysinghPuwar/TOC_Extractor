@@ -226,6 +226,45 @@ public sealed class FetcherTests
         Assert.Equal("selector_not_found", result.Failed[0].Reason);
     }
 
+    /// <summary>
+    /// Once the selectors have found a chapter, a page without them is most
+    /// likely a site's busy or error page, so it is tried once more.
+    /// </summary>
+    [Fact]
+    public async Task A_page_without_its_story_is_tried_again_once_the_selectors_have_worked()
+    {
+        var pages = Book(3);
+        pages["https://e.com/ch/3"] = new StubPage
+        {
+            Title = "Chapter 3",
+            FailTimes = 1,
+            Failure = static message => new SelectorNotFoundException(message),
+        };
+        var (fetcher, _, _) = Build(pages, new FetchOptions { Concurrency = 1, WaitAfterLoad = TimeSpan.Zero });
+        using var _guard = fetcher;
+
+        var result = await fetcher.RunAsync(Toc, Selectors, Token);
+
+        Assert.Empty(result.Failed);
+        Assert.Equal(3, result.Completed.Count);
+        Assert.Equal(2, result.Completed.Single(record => record.Index == 3).Attempts);
+    }
+
+    [Fact]
+    public async Task A_page_that_never_has_its_story_is_tried_only_once_more()
+    {
+        var pages = Book(3);
+        pages["https://e.com/ch/3"] = new StubPage { MissingSelector = true };
+        var (fetcher, _, _) = Build(pages, new FetchOptions { Concurrency = 1, WaitAfterLoad = TimeSpan.Zero });
+        using var _guard = fetcher;
+
+        var result = await fetcher.RunAsync(Toc, Selectors, Token);
+
+        var failed = Assert.Single(result.Failed);
+        Assert.Equal(2, failed.Attempts);
+        Assert.Equal("selector_not_found", failed.Reason);
+    }
+
     [Fact]
     public async Task One_chapter_failing_does_not_stop_the_others()
     {

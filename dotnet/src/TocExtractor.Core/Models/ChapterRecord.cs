@@ -22,6 +22,12 @@ public sealed record ChapterRecord(
     RobotsDecision? Robots = null,
     string? NextUrl = null)
 {
+    /// <summary>What the saved text left out of the page, or had twice; null where the page could not be compared.</summary>
+    public Text.TextAudit? Audit { get; init; }
+
+    /// <summary>The file the chapter was saved in, once it has been; null before, or where there is none.</summary>
+    public string? SavedAs { get; init; }
+
     public int ByteCount => Encoding.UTF8.GetByteCount(this.Text);
 
     public string Sha256 =>

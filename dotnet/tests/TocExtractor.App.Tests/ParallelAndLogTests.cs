@@ -198,6 +198,59 @@ public sealed class ParallelAndLogTests
     }
 
     [Fact]
+    public async Task Each_saved_chapter_names_its_file_which_ends_with_its_text()
+    {
+        var output = Scratch.Directory();
+        var observer = new RecordingObserver();
+
+        await RangePipeline.RunAsync(
+            Request(output, 1, 3), new StubPageSource(Book.Pages(3)), Guard, RobotsPolicy.Missing("https://e.com"),
+            new RateLimiter(TimeSpan.Zero), observer, cancellationToken: Token);
+
+        Assert.Equal(3, observer.Records.Count);
+        foreach (var record in observer.Records)
+        {
+            Assert.NotNull(record.SavedAs);
+            Assert.EndsWith(record.Text + "\n", File.ReadAllText(record.SavedAs), StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task Two_chapters_saved_with_the_same_text_are_named_not_hidden()
+    {
+        var output = Scratch.Directory();
+        var pages = Book.Pages(4);
+        pages["https://e.com/ch/3"] = new StubPage { Title = "Chapter 3", Body = pages["https://e.com/ch/2"].Body };
+        var observer = new RecordingObserver();
+
+        var result = await RangePipeline.RunAsync(
+            Request(output, 1, 4), new StubPageSource(pages), Guard, RobotsPolicy.Missing("https://e.com"),
+            new RateLimiter(TimeSpan.Zero), observer, cancellationToken: Token);
+
+        Assert.Equal([[2, 3]], result.SameText.Select(group => group.ToArray()));
+        Assert.Contains(observer.Lines, line => line.Contains("chapters 2, 3 have exactly the same text", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_stopped_run_still_records_every_chapter_it_saved()
+    {
+        var output = Scratch.Directory();
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Token);
+        var request = Request(output, 1, 5);
+
+        await RangePipeline.RunAsync(
+            request, new StubPageSource(Book.Pages(5)), Guard, RobotsPolicy.Missing("https://e.com"),
+            new RateLimiter(TimeSpan.Zero), new StopAfter(2, stop), cancellationToken: stop.Token);
+
+        // The progress record is written in batches while saving, and always
+        // at the end, so nothing saved before Stop is fetched again.
+        var saved = Directory.GetFiles(Path.Combine(request.BookDirectory, BookFiles.ChaptersFolderName), "*.txt").Length;
+        var checkpoint = Core.Checkpoints.Checkpoint.Load(Path.Combine(request.BookDirectory, BookFiles.ChaptersFolderName));
+        Assert.NotNull(checkpoint);
+        Assert.Equal(saved, checkpoint.Completed.Count);
+    }
+
+    [Fact]
     public async Task A_failed_chapter_ends_the_book_file_and_its_name_before_the_gap()
     {
         var output = Scratch.Directory();

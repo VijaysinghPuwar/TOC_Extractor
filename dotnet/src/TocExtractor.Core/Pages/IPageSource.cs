@@ -22,7 +22,15 @@ public sealed record ChapterPage(
     string FinalUrl,
     string Title,
     string Body,
-    string? NextUrl = null);
+    string? NextUrl = null)
+{
+    /// <summary>
+    /// The whole story box as the page showed it, before anything was
+    /// removed, so what was left out can be checked. Null where the source
+    /// cannot say.
+    /// </summary>
+    public string? PageText { get; init; }
+}
 
 /// <summary>Loads pages and reads named fields out of them.</summary>
 /// <remarks>

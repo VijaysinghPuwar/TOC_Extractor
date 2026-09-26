@@ -1,4 +1,4 @@
-Fixes from a 20-book stress test, and an up-to-date guide.
+Lighter on your computer, and every chapter checked as it is saved.
 
 ## Download
 
@@ -14,12 +14,18 @@ Fixes from a 20-book stress test, and an up-to-date guide.
 
 ## What is new
 
-Twenty books were saved at once across five sites, 50 chapters each, to find what was left to fix:
+Measured on 40 books saved at once, 50 chapters each, against 2.2.1:
 
-- **Fixed:** two different novels with the same title (the same book on two sites) were given one folder, and the second was refused. The second now gets a folder of its own, named with its site.
-- **Fixed:** when a site's first-chapter link leads to a cast list or a roster, that page could stand in for chapter 1 in the book. The page whose title names the chapter is now always used.
-- **Fixed:** the time estimate ignored a site's careful pace ("about 1 min" for what takes ten). It now says how long, and why.
-- **Fewer wasted pages:** the scan stops paging through a list as soon as a page adds nothing.
-- **Guide:** new screenshots of this version, and the lines of code in each language.
+| | 2.2.1 | 2.3.0 |
+|---|---|---|
+| Average processor use | 272% | 142% |
+| Average memory | 5.6 GB | 4.8 GB |
+| Peak memory | 8.2 GB | 7.1 GB |
+| Time taken | 11 min | 11 min |
 
-Everything from 2.2.0 is here too: several books at once, one detailed log, honest file names, audiobook options, learned careful pace for sites that check, and the fix for chapters failing after a browser tab closed.
+- **Adapts to your computer.** An 8 GB Mac opens at most 8 browser tabs, a 24 GB one 40. On a Mac, no new tab opens while the system says memory is short. Idle tabs close, and each tab is emptied once its chapter is read, so the page's adverts stop running while it waits. Pictures, video and web fonts are skipped while the app reads on its own; pages load in full while you sign in or complete a check.
+- **Nothing skipped or doubled, and you are told if it is.** Every chapter is compared with its page as it is saved. Text left out, text saved twice, or two chapters with the same text is marked **!** on the chapter and named in the status. When everything checks out, the status says that too.
+- **Fixed:** an advert frame that redirected while a chapter loaded was recorded as the chapter's address, and could fail the whole chapter.
+- **Fixed:** a page a site served without its story was never retried; it is now tried once more.
+- **Fixed:** a range past the end of the book showed "Ready to save"; it now says which chapters the book has.
+- **Fixed:** very long books could fail to become a PDF.

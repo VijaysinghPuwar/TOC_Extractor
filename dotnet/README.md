@@ -60,6 +60,14 @@ budget they were handed. Here the option is named `PageBudget`, the fetch loop
 turns it into one cancellation token, and `IPageSource` is required to honour
 that token rather than impose a timeout of its own.
 
+**A page without its story is tried once more, after the selectors have
+worked.** Python never retries a missing selector: the page loaded, so trying
+again seemed to spend an attempt on a certainty. In a 40-book live run a site
+twice served a chapter page without its story box, on a book whose other
+chapters it had just served normally, and the chapter was lost. So once the
+selectors have matched any chapter in the run, a page without them is tried
+once more. A selector that has never matched still fails at once.
+
 **Locking the progress tally and sink writes.** Python needs neither: its event
 loop is single-threaded, so a coroutine step with no `await` between read and
 write cannot interleave, and the sinks mutate their state in exactly such a

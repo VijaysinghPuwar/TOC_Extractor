@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using TocExtractor.App.Scanning;
 using TocExtractor.Core.Checkpoints;
@@ -49,7 +50,11 @@ public sealed record RangeResult(
     RunResult? Run,
     IReadOnlyList<string> Files,
     IReadOnlyList<int> Missing,
-    bool Stopped = false);
+    bool Stopped = false)
+{
+    /// <summary>Chapters in the range saved with exactly the same text as another, grouped: a page served twice.</summary>
+    public IReadOnlyList<IReadOnlyList<int>> SameText { get; init; } = [];
+}
 
 /// <summary>Writes a finished range as one book, in PDF.</summary>
 public interface IPdfWriter
@@ -70,6 +75,9 @@ public interface IPdfWriter
 /// </remarks>
 public static class RangePipeline
 {
+    /// <summary>How often the progress record is written while chapters are being saved.</summary>
+    internal static readonly TimeSpan SaveEvery = TimeSpan.FromSeconds(2);
+
     public static async Task<RangeResult> RunAsync(
         RangeRequest request,
         IPageSource source,
@@ -146,11 +154,9 @@ public static class RangePipeline
             checkpoint = book.Checkpoint;
         }
 
-        IReadOnlyDictionary<string, PriorChapter> resumed;
         int already;
         lock (book.Gate)
         {
-            resumed = checkpoint.AsPriorChapters();
             already = request.Plan.Direct.Count(link => checkpoint.IsDone(link.Url));
         }
 
@@ -160,17 +166,36 @@ public static class RangePipeline
         }
 
         // Only the chapter files: the book itself is built below, for exactly
-        // the chosen range, so the exporter's own merged file is not wanted.
-        var sink = new ChapterFilesOnly(ExporterRegistry.Build([TextExporter.FormatName], chaptersFolder, request.Fetch.IncludeLinks, resumed));
+        // the chosen range, so the exporter's own merged file is not wanted,
+        // and neither is the copy of every chapter it would keep to build it.
+        var sink = new ChapterFilesOnly(new TextExporter(chaptersFolder, request.Fetch.IncludeLinks, resumed: null, keepForMerge: false));
+
+        // The progress record is written at most every couple of seconds, not
+        // after every chapter: rewriting and flushing the whole record each
+        // time costs more with every chapter saved. A chapter recorded since
+        // the last write that a crash loses is fetched again next time; the
+        // record is always written when the run ends, however it ends.
+        var lastSave = Stopwatch.StartNew();
         void Persist(ChapterRecord record)
         {
+            string? file = null;
             lock (book.Gate)
             {
-                checkpoint.Record(record, sink.OutputsFor(record.Index));
-                checkpoint.Save();
+                var outputs = sink.OutputsFor(record.Index);
+                checkpoint.Record(record, outputs);
+                if (lastSave.Elapsed >= SaveEvery)
+                {
+                    checkpoint.Save();
+                    lastSave.Restart();
+                }
+
+                if (outputs.TryGetValue(TextExporter.FormatName, out var output))
+                {
+                    file = Path.Combine(chaptersFolder, output.Name);
+                }
             }
 
-            observer.Record(record);
+            observer.Record(record with { SavedAs = file });
         }
 
         bool IsDone(string url)
@@ -195,7 +220,9 @@ public static class RangePipeline
         var stopped = false;
         try
         {
-            result = await fetcher.FetchRangeAsync(
+            try
+            {
+                result = await fetcher.FetchRangeAsync(
                 request.Scan.NovelUrl,
                 request.Plan.Direct,
                 request.Plan.Walks,
@@ -205,6 +232,14 @@ public static class RangePipeline
                 // whatever its title says.
                 request.Scan.PositionalNumbers ? null : page => ChapterNumbers.FromTitle(page.Title),
                 cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                lock (book.Gate)
+                {
+                    checkpoint.Save();
+                }
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -217,8 +252,19 @@ public static class RangePipeline
         SortedDictionary<int, SavedChapter> saved;
         lock (book.Gate)
         {
-            checkpoint.Save();
             saved = BookFiles.ReadRange(chaptersFolder, checkpoint, request.From, request.To);
+        }
+
+        // Two chapters with exactly the same text are one page saved twice
+        // (a site serving the same page under two numbers): the book would
+        // repeat it and lack the real chapter, so it is said, not hidden.
+        List<IReadOnlyList<int>> sameText = [.. saved.Values
+            .GroupBy(chapter => chapter.Body, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1 && group.Key.Length > 0)
+            .Select(group => (IReadOnlyList<int>)[.. group.Select(chapter => chapter.Number)])];
+        foreach (var group in sameText)
+        {
+            observer.Log($"Warning: chapters {string.Join(", ", group)} have exactly the same text; the site may have shown one page for both. Open them in the Reader to check.");
         }
 
         foreach (var failure in result?.Failed ?? [])
@@ -302,7 +348,7 @@ public static class RangePipeline
         }
 
         var outcome = stopped || result is null || result.Failed.Count > 0 || missing.Count > 0 ? PipelineOutcome.Failed : PipelineOutcome.Ok;
-        return new RangeResult(outcome, result, files, missing, stopped);
+        return new RangeResult(outcome, result, files, missing, stopped) { SameText = sameText };
     }
 }
 
@@ -410,14 +456,16 @@ public static partial class BookFiles
     {
         ArgumentNullException.ThrowIfNull(saved);
         SortedDictionary<int, SavedChapter> run = [];
+        var last = 0;
         foreach (var (number, chapter) in saved)
         {
-            if (run.Count > 0 && number != run.Keys.Last() + 1)
+            if (run.Count > 0 && number != last + 1)
             {
                 break;
             }
 
             run[number] = chapter;
+            last = number;
         }
 
         return run;

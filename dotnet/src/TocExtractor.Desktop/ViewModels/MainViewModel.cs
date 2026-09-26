@@ -407,6 +407,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     public async Task StartAsync()
     {
         AppLog.Info("start", $"TOC Extractor {Version} started.");
+        AppLog.Info("machine", "This computer: " + TocExtractor.Browser.MachineBudget.Describe() + ".");
         try
         {
             if (await this.browser.IsInstalledAsync(CancellationToken.None).ConfigureAwait(true))
