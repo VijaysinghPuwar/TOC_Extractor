@@ -101,6 +101,63 @@ public sealed class ScanCheckTests
         Assert.Equal(Scanning.NovelScanner.CheckWontPass, scan.Problem);
     }
 
+    [Fact]
+    public async Task Once_a_check_has_failed_no_other_page_asks_the_person_again()
+    {
+        // The novel page reads; every other page is behind a check that
+        // does not pass, as on a site whose pages redirect to a broken one.
+        var waits = 0;
+        var scanner = new Scanning.NovelScanner(
+            new OnlyTheNovelPage(), new Core.Politeness.UrlGuard(resolver: new PublicResolver()),
+            Core.Politeness.RobotsPolicy.Missing("https://e.com"), new Core.Politeness.RateLimiter(TimeSpan.Zero),
+            onHumanCheck: (_, _) =>
+            {
+                waits++;
+                return Task.FromResult(false);
+            });
+
+        var scan = await scanner.ScanAsync("https://e.com/novel", Token);
+
+        Assert.Equal(1, waits);
+        Assert.Equal(Obstacle.HumanCheck, scan.Obstacle);
+        Assert.Equal(Scanning.NovelScanner.CheckWontPass, scan.Problem);
+    }
+
+    [Fact]
+    public async Task A_novel_page_robots_txt_closes_says_so_rather_than_could_not_be_read()
+    {
+        // Only the home page and assets are open to tools.
+        var robots = Core.Politeness.RobotsPolicy.Parse(
+            "User-agent: *\nAllow: /$\nAllow: /css/\nDisallow: /\n", "https://e.com", Core.Politeness.Robots.DefaultUserAgent);
+        var scanner = new Scanning.NovelScanner(
+            new AlwaysChecking(), new Core.Politeness.UrlGuard(resolver: new PublicResolver()),
+            robots, new Core.Politeness.RateLimiter(TimeSpan.Zero));
+
+        var scan = await scanner.ScanAsync("https://e.com/book/a-novel", Token);
+
+        Assert.Equal(Scanning.NovelScanner.RobotsRefused, scan.Problem);
+    }
+
+    private sealed class OnlyTheNovelPage : Core.Pages.IPageProbe
+    {
+        public Task<(string FinalUrl, string Json)> ProbeAsync(string url, string script, TimeSpan settle, CancellationToken cancellationToken = default)
+        {
+            if (url != "https://e.com/novel")
+            {
+                throw new Core.Pages.HumanCheckException();
+            }
+
+            var chapters = string.Join(",", Enumerable.Range(1, 5).Select(n =>
+                $$"""{"url":"https://e.com/novel/chapter-{{n}}","number":{{n}},"title":"Chapter {{n}}","key":"e.com/novel|chapter-"}"""));
+            return Task.FromResult((url, $$"""
+                {"title":"Novel","key":"e.com/novel|chapter-","chapters":[{{chapters}}],
+                 "pages":[{"url":"https://e.com/novel/2","text":"2","pattern":"https://e.com/novel/#"},
+                          {"url":"https://e.com/novel/3","text":"3","pattern":"https://e.com/novel/#"}],
+                 "lists":[],"firsts":[]}
+                """));
+        }
+    }
+
     private sealed class AlwaysChecking : Core.Pages.IPageProbe
     {
         public Task<(string FinalUrl, string Json)> ProbeAsync(string url, string script, TimeSpan settle, CancellationToken cancellationToken = default) =>

@@ -1,4 +1,4 @@
-() => {
+async () => {
   // Finds the chapter list on a novel page, with no selector supplied.
   //
   // Every same-site link is read with its text, its tooltip and its address.
@@ -15,9 +15,16 @@
     if (!text) return null;
     const named = text.match(/(?:chapter|chap|ch\.?|episode|ep\.?|第)\s*[#:.-]?\s*(\d{1,6})/i);
     if (named) return Number(named[1]);
+    // A title that starts with its number: "12. The Gate", "12 - The Gate".
+    const leading = text.match(/^(\d{1,5})\s*[.:)\-–]\s*\S/);
+    if (leading) return Number(leading[1]);
     return null;
   };
+  // "/chapter/4815162/the-gate": the number is the site's id for the chapter,
+  // not its place in the book, and the last part is a free-text name.
+  const idFolder = /\/(?:chapter|chap|ch|episode|ep)s?\/\d+\/[^/]+\/?$/i;
   const numberInUrl = (path) => {
+    if (idFolder.test(path)) return null;
     const named = path.match(/(?:chapter|chap|ch|episode|ep)[-_/]?(\d{1,6})(?!.*(?:chapter|chap|ch|episode|ep)[-_/]?\d)/i);
     if (named) return Number(named[1]);
     const tail = path.match(/[_-](\d{1,6})(?:\.html?)?\/?$/i);
@@ -33,10 +40,11 @@
   const lists = [];
   const pages = [];
   const firsts = [];
-  for (const a of document.querySelectorAll('a[href]')) {
+  const byId = new Map();
+  const consider = (a) => {
     let url;
-    try { url = new URL(a.getAttribute('href'), document.baseURI); } catch (e) { continue; }
-    if (!/^https?:$/.test(url.protocol) || url.hostname !== here.hostname) continue;
+    try { url = new URL(a.getAttribute('href'), document.baseURI); } catch (e) { return; }
+    if (!/^https?:$/.test(url.protocol) || url.hostname !== here.hostname) return;
     url.hash = '';
     const text = clean(a.innerText || a.textContent);
     const tip = clean(a.getAttribute('title'));
@@ -64,10 +72,27 @@
     }
 
     const parts = url.pathname.split('/').filter(Boolean);
-    if (parts.length === 0) continue;
-    const folder = parts.slice(0, -1).join('/');
+    if (parts.length === 0) return;
     const number = numberIn(text) ?? numberIn(tip) ?? numberInUrl(url.pathname);
-    if (number === null) continue;
+    // An id address groups by everything but its id and name; its place in
+    // the book is settled below, from the ids, when its title has no number.
+    // The same chapter can be linked twice ("Start reading", then its row
+    // in the list): one entry, with the number and title from whichever says them.
+    if (idFolder.test(url.pathname)) {
+      const known = byId.get(href);
+      if (known) {
+        if (known.number === null && number !== null) { known.number = number; known.title = text || tip; }
+        return;
+      }
+      const id = Number(parts[parts.length - 2]);
+      const folder = parts.slice(0, -2).join('/');
+      const entry = { url: href, number, id, title: text || tip, keys: [url.hostname + '/' + folder + '/#|*'] };
+      byId.set(href, entry);
+      candidates.push(entry);
+      return;
+    }
+    if (number === null) return;
+    const folder = parts.slice(0, -1).join('/');
     // The part of the last segment before the chapter number, so one book's
     // chapters group together (book-12_1, book-12_2) and another book's
     // "latest chapter" teaser (book-99_890) does not join them. The number
@@ -78,7 +103,36 @@
     const stems = ats.length ? ats.map(m => last.slice(0, m.index)) : [last.replace(/\d+/g, '#')];
     const keys = [...new Set(stems)].map(stem => url.hostname + '/' + folder + '|' + stem);
     candidates.push({ url: href, number, title: text || tip, keys });
+  };
+  for (const a of document.querySelectorAll('a[href]')) consider(a);
+
+  // A list the page pages through by itself (numbered buttons with no
+  // address) shows only some of its chapters; the page as the site sent it
+  // usually holds them all. Read once per page, not on every settle pass.
+  const clientPager = [...document.querySelectorAll('a:not([href]), button, li[data-page], [role=button]')]
+    .filter(el => /^\d{1,4}$/.test(clean(el.innerText || el.textContent))).length >= 2;
+  if (clientPager) {
+    try {
+      if (!window.__tocExtractorServed || window.__tocExtractorServedFor !== location.href) {
+        window.__tocExtractorServedFor = location.href;
+        window.__tocExtractorServed = fetch(location.href, { credentials: 'include' })
+          .then(r => (r.ok ? r.text() : ''))
+          .catch(() => '');
+      }
+      const served = new DOMParser().parseFromString(await window.__tocExtractorServed, 'text/html');
+      for (const a of served.querySelectorAll('a[href]')) consider(a);
+    } catch (e) { /* the rendered page is all there is */ }
   }
+
+  // Id addresses: ids rise with publication, so a title without a number,
+  // or numbers that disagree with the ids, are numbered by their place.
+  const withIds = candidates.filter(c => c.id !== undefined);
+  for (const key of new Set(withIds.map(c => c.keys[0]))) {
+    const members = withIds.filter(c => c.keys[0] === key).sort((x, y) => x.id - y.id);
+    const agree = members.every((c, i) => c.number !== null && (i === 0 || c.number > members[i - 1].number));
+    if (!agree) members.forEach((c, i) => { c.number = i + 1; });
+  }
+  for (let i = candidates.length - 1; i >= 0; i--) if (candidates[i].number === null) candidates.splice(i, 1);
 
   // Each link joins the reading of its address that the most links share.
   const votes = new Map();

@@ -17,6 +17,14 @@ public interface IHumanGate
     /// <summary>Bring a page showing a check to the front, for a person who could not find it. False if none is showing.</summary>
     Task<bool> ShowCheckAsync() => Task.FromResult(false);
 
+    /// <summary>
+    /// As <see cref="WaitForPersonAsync(TimeSpan, CancellationToken)"/>, for one
+    /// site among several open: only that site's check can end the wait early
+    /// by saying it cannot finish.
+    /// </summary>
+    Task<bool> WaitForPersonAsync(string? siteUrl, TimeSpan timeout, CancellationToken cancellationToken = default) =>
+        this.WaitForPersonAsync(timeout, cancellationToken);
+
     /// <summary>As <see cref="WaitForSignInAsync(TimeSpan, CancellationToken)"/>, for one site among several open.</summary>
     Task<bool> WaitForSignInAsync(string? siteUrl, TimeSpan timeout, CancellationToken cancellationToken = default) =>
         this.WaitForSignInAsync(timeout, cancellationToken);

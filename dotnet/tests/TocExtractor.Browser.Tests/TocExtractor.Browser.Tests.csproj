@@ -17,4 +17,9 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- The scanner's page scripts, run here in a real browser. -->
+  <ItemGroup>
+    <None Include="../../src/TocExtractor.App/Scanning/Scripts/*.js" LinkBase="Scripts" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

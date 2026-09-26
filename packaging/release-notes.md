@@ -1,4 +1,4 @@
-Lighter on your computer, and every chapter checked as it is saved.
+Reads more sites correctly, and never leaves you waiting on a check that cannot pass.
 
 ## Download
 
@@ -14,18 +14,11 @@ Lighter on your computer, and every chapter checked as it is saved.
 
 ## What is new
 
-Measured on 40 books saved at once, 50 chapters each, against 2.2.1:
+Tested live on new sites, then on 40 books saved at once, 50 chapters each: 1,970 chapters, every one checked on disk, with none missing, none saved twice, no retries and no errors, in 15.5 minutes (average 1.35 processor cores, 4.4 GB of memory).
 
-| | 2.2.1 | 2.3.0 |
-|---|---|---|
-| Average processor use | 272% | 142% |
-| Average memory | 5.6 GB | 4.8 GB |
-| Peak memory | 8.2 GB | 7.1 GB |
-| Time taken | 11 min | 11 min |
-
-- **Adapts to your computer.** An 8 GB Mac opens at most 8 browser tabs, a 24 GB one 40. On a Mac, no new tab opens while the system says memory is short. Idle tabs close, and each tab is emptied once its chapter is read, so the page's adverts stop running while it waits. Pictures, video and web fonts are skipped while the app reads on its own; pages load in full while you sign in or complete a check.
-- **Nothing skipped or doubled, and you are told if it is.** Every chapter is compared with its page as it is saved. Text left out, text saved twice, or two chapters with the same text is marked **!** on the chapter and named in the status. When everything checks out, the status says that too.
-- **Fixed:** an advert frame that redirected while a chapter loaded was recorded as the chapter's address, and could fail the whole chapter.
-- **Fixed:** a page a site served without its story was never retried; it is now tried once more.
-- **Fixed:** a range past the end of the book showed "Ready to save"; it now says which chapters the book has.
-- **Fixed:** very long books could fail to become a PDF.
+- **Sites with numbered ids in chapter addresses now work.** Where an address carries the site's own id (`/chapter/4815162/the-gate`), that id was read as the chapter number, so a 104-chapter book scanned as "1 to 173,027". Chapters are now numbered by their titles, or by their place in the book, and each is opened directly.
+- **Whole chapter lists on pages that page themselves.** A list with numbered buttons that have no address showed only its first page; the full list is now read.
+- **Fixed:** a "Next" link could be mistaken for a search button with the same look.
+- **Fixed:** a security check that says it cannot finish, for a person either, left the app waiting for good. It now stops within seconds with a clear message, and never ends or takes over another site's check you are still completing.
+- **Fixed:** after a site's check failed, the scan kept opening that site's pages, showing you a new check each time. It now stops.
+- A site whose robots.txt closes the novel page now says so plainly.

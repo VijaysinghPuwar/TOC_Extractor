@@ -32,8 +32,36 @@
     }
     // Not unique: the same button at the top and bottom of a chapter. The
     // fullest class chain still names the right thing, and the first match is
-    // as good as the second.
-    return classes.length ? tag + classes.map(c => '.' + CSS.escape(c)).join('') : null;
+    // as good as the second, but only if that first match is this element:
+    // a search button can share a next button's style classes and come first.
+    const full = classes.length ? tag + classes.map(c => '.' + CSS.escape(c)).join('') : null;
+    if (full && firstIs(full, el)) return full;
+    return pathTo(el) || full;
+  };
+  const firstIs = (selector, el) => {
+    try { return document.querySelector(selector) === el; } catch (e) { return false; }
+  };
+  // Down from the nearest box that names itself, one child step at a time:
+  // "div.nav-buttons > div:nth-of-type(2) > a".
+  const pathTo = (el) => {
+    const steps = [];
+    for (let node = el; node.parentElement && node.parentElement !== document.body; node = node.parentElement) {
+      const parent = node.parentElement;
+      const tag = node.tagName.toLowerCase();
+      const same = [...parent.children].filter(c => c.tagName === node.tagName);
+      steps.unshift(same.length > 1 ? `${tag}:nth-of-type(${same.indexOf(node) + 1})` : tag);
+      const named = parent.id && /^[a-z][\w-]{0,60}$/i.test(parent.id) && !/\d{4,}/.test(parent.id)
+        ? '#' + parent.id
+        : stableClasses(parent).length
+          ? parent.tagName.toLowerCase() + stableClasses(parent).map(c => '.' + CSS.escape(c)).join('')
+          : null;
+      if (named) {
+        const candidate = named + ' > ' + steps.join(' > ');
+        if (firstIs(candidate, el)) return candidate;
+      }
+      if (steps.length >= 6) break;
+    }
+    return null;
   };
 
   // The story: the block with the most paragraph text of its own, less the
