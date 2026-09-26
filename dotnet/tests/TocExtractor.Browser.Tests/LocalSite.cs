@@ -19,6 +19,9 @@ internal sealed class LocalSite : IDisposable
     {
         this.Port = FreePort();
         this.listener.Prefixes.Add($"http://127.0.0.1:{this.Port}/");
+
+        // A second name for the same server, for tests that need two sites.
+        this.listener.Prefixes.Add($"http://localhost:{this.Port}/");
         this.listener.Start();
         _ = Task.Run(this.ServeAsync);
     }

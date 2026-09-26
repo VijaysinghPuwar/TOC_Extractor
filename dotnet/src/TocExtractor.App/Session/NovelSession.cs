@@ -463,10 +463,14 @@ public sealed class NovelSession : INovelService
             this.report?.Invoke(check.NeedsSignIn
                 ? "The site shows only part of the chapter unless you are signed in; waiting for you to sign in in the browser."
                 : "The site asked to check you are a person; waiting for you in the browser.");
+            var waited = System.Diagnostics.Stopwatch.StartNew();
             var passed = check.NeedsSignIn
                 ? await gate.WaitForSignInAsync(this.siteUrl, this.environment.PersonTimeout, cancellationToken).ConfigureAwait(false)
-                : await gate.WaitForPersonAsync(this.environment.PersonTimeout, cancellationToken).ConfigureAwait(false);
-            this.report?.Invoke(passed ? "Done in the browser; carrying on." : "Nobody completed the check in time.");
+                : await gate.WaitForPersonAsync(this.siteUrl, this.environment.PersonTimeout, cancellationToken).ConfigureAwait(false);
+            this.report?.Invoke(passed ? "Done in the browser; carrying on."
+                : waited.Elapsed < this.environment.PersonTimeout
+                    ? "The site's own check reports that it cannot finish, for a person either; stopped waiting. Try again later."
+                    : "Nobody completed the check in time.");
             if (passed && !check.NeedsSignIn)
             {
                 this.SlowDown();

@@ -44,6 +44,10 @@ public sealed partial class NovelScanner(
     /// <summary>Times the person is asked to pass a check before the scan says it will not pass.</summary>
     private const int CheckRounds = 3;
 
+    internal const string RobotsRefused =
+        "This site's robots.txt does not allow tools like this app to read its pages, so this book cannot be saved from here. "
+        + "If you have an account on the site, press Sign in and sign in first: a signed-in reader's pages can be read.";
+
     internal const string CheckWontPass =
         "The site's security check did not let this browser through. Wait a few minutes and scan again. "
         + "If it keeps happening, the site blocks tools like this app.";
@@ -59,6 +63,7 @@ public sealed partial class NovelScanner(
     private readonly Dictionary<string, ChapterLink> links = new(StringComparer.Ordinal);
     private string? locked;
     private bool checkFailed;
+    private bool robotsRefused;
 
     // The site's own count of the book's chapters, when a list page gives it.
     private int? total;
@@ -79,7 +84,9 @@ public sealed partial class NovelScanner(
         {
             return this.checkFailed
                 ? this.Result(novelUrl, "", CheckWontPass, Obstacle.HumanCheck)
-                : this.Result(novelUrl, "", problem: "The novel page could not be read. See the activity log for why.");
+                : this.robotsRefused
+                    ? this.Result(novelUrl, "", RobotsRefused)
+                    : this.Result(novelUrl, "", problem: "The novel page could not be read. See the activity log for why.");
         }
 
         if (first.Probe.Challenge || first.Probe.SignIn)
@@ -132,7 +139,9 @@ public sealed partial class NovelScanner(
 
         var layout = await this.FindLayoutAsync(cancellationToken).ConfigureAwait(false);
         return layout.Layout is null
-            ? this.Result(novelUrl, title, layout.Problem)
+            ? this.checkFailed
+                ? this.Result(novelUrl, title, CheckWontPass, Obstacle.HumanCheck)
+                : this.Result(novelUrl, title, layout.Problem)
             : this.Result(novelUrl, title, problem: null) with { Layout = layout.Layout };
     }
 
@@ -254,6 +263,8 @@ public sealed partial class NovelScanner(
         return int.TryParse(digits, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : int.MaxValue;
     }
 
+    private const string RobotsReason = "robots.txt disallows them";
+
     private bool Permitted(string url, out string reason)
     {
         var verdict = guard.Check(url);
@@ -265,7 +276,7 @@ public sealed partial class NovelScanner(
 
         if (!robots.CanFetch(url) && !sessionAuthenticated)
         {
-            reason = "robots.txt disallows them";
+            reason = RobotsReason;
             return false;
         }
 
@@ -276,8 +287,17 @@ public sealed partial class NovelScanner(
     private async Task<ListPage?> ReadListAsync(string url, CancellationToken cancellationToken)
     {
         this.visited.Add(Normalise(url));
+
+        // A check that did not pass will not pass on the next page either;
+        // asking again only shows the person another one.
+        if (this.checkFailed)
+        {
+            return null;
+        }
+
         if (!this.Permitted(url, out var reason))
         {
+            this.robotsRefused |= reason == RobotsReason;
             log?.Invoke($"scan: skipped {url}: {reason}");
             this.notes.Add($"Did not read {url}: {reason}.");
             return null;
@@ -611,6 +631,11 @@ public sealed partial class NovelScanner(
             return null;
         }
 
+        if (this.checkFailed)
+        {
+            return null;
+        }
+
         try
         {
             await limiter.AcquireAsync(new Uri(url), cancellationToken).ConfigureAwait(false);
@@ -618,6 +643,13 @@ public sealed partial class NovelScanner(
             log?.Invoke($"scan: examined chapter page {url}");
             var found = JsonSerializer.Deserialize<ContentProbe>(json, Json);
             return keepUrl && found is not null ? found with { FinalUrl = finalUrl } : found;
+        }
+        catch (HumanCheckException)
+        {
+            log?.Invoke($"scan: the check on {url} did not pass");
+            this.notes.Add($"The security check on {url} did not pass.");
+            this.checkFailed = true;
+            return null;
         }
         catch (PageException exception)
         {

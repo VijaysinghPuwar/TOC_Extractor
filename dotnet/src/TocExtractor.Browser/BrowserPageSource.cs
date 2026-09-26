@@ -59,6 +59,18 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         }
         """;
 
+    /// <summary>Whether a check page says the check itself cannot finish, so no click will pass it.</summary>
+    /// <remarks>
+    /// Cloudflare shows this when the site behind it is failing: the box is
+    /// there, but verification never completes, for a person either.
+    /// </remarks>
+    internal const string BrokenCheckScript = """
+        () => {
+          const body = document.body ? document.body.innerText.slice(0, 4000) : '';
+          return /unable to connect to the website|preventing the security verification process from completing/i.test(body);
+        }
+        """;
+
     /// <summary>Whether a chapter page shows only part of the chapter until the reader signs in.</summary>
     /// <remarks>
     /// Saving such a page would write half a chapter that looks complete.
@@ -895,7 +907,11 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
     }
 
     /// <inheritdoc />
-    public async Task<bool> WaitForPersonAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
+    public Task<bool> WaitForPersonAsync(TimeSpan timeout, CancellationToken cancellationToken = default) =>
+        this.WaitForPersonAsync(siteUrl: null, timeout, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<bool> WaitForPersonAsync(string? siteUrl, TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         if (this.context is null)
         {
@@ -905,12 +921,19 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         this.PersonArrived();
         try
         {
-            return await this.WaitForPersonCoreAsync(timeout, cancellationToken).ConfigureAwait(false);
+            var host = siteUrl is not null && Uri.TryCreate(siteUrl, UriKind.Absolute, out var site) ? site.Host : null;
+            return await this.WaitForPersonCoreAsync(host, timeout, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             this.PersonLeft();
-            this.ReturnHeld();
+
+            // Another book's check may still be in front of the person; its
+            // tab stays theirs until nobody is waiting.
+            if (Volatile.Read(ref this.people) == 0)
+            {
+                this.ReturnHeld();
+            }
         }
     }
 
@@ -944,7 +967,10 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
     /// <summary>Looks in a row, two seconds apart, that a check must stay gone for.</summary>
     private const int ClearLooks = 3;
 
-    private async Task<bool> WaitForPersonCoreAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    /// <summary>Looks in a row that a check must say it cannot finish before the wait ends.</summary>
+    private const int BrokenLooks = 3;
+
+    private async Task<bool> WaitForPersonCoreAsync(string? host, TimeSpan timeout, CancellationToken cancellationToken)
     {
         if (this.context is not { } context)
         {
@@ -954,14 +980,24 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         var watch = Stopwatch.StartNew();
         var shown = false;
         var clear = 0;
+        var broken = 0;
         while (watch.Elapsed < timeout)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var blocked = false;
+            var failing = false;
             foreach (var page in context.Pages)
             {
                 if (!await IsHumanCheckAsync(page).ConfigureAwait(false))
                 {
+                    continue;
+                }
+
+                // A check that says it cannot finish holds nobody up: no one
+                // can pass it. It ends only the wait of the book on its site.
+                if (await PageSaysAsync(page, BrokenCheckScript).ConfigureAwait(false))
+                {
+                    failing |= host is null || (Uri.TryCreate(page.Url, UriKind.Absolute, out var at) && at.Host == host);
                     continue;
                 }
 
@@ -974,9 +1010,18 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                 }
             }
 
+            // Waiting for a person is pointless when the check says it cannot
+            // finish for anyone: the site is failing, not the reader.
+            broken = failing ? broken + 1 : 0;
+            if (broken >= BrokenLooks)
+            {
+                return false;
+            }
+
             // A check reloads itself after a click, so one clear look can be the
-            // blink between two checks. Only a page that stays clear has passed.
-            clear = blocked ? 0 : clear + 1;
+            // blink between two checks. Only a page that stays clear has passed,
+            // and this book's own failing check is never a pass.
+            clear = blocked || failing ? 0 : clear + 1;
             if (clear >= ClearLooks)
             {
                 return true;
@@ -1035,6 +1080,18 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         finally
         {
             this.PersonLeft();
+        }
+    }
+
+    private static async Task<bool> PageSaysAsync(IPage page, string script)
+    {
+        try
+        {
+            return await page.EvaluateAsync<bool>(script).ConfigureAwait(false);
+        }
+        catch (PlaywrightException)
+        {
+            return false;
         }
     }
 

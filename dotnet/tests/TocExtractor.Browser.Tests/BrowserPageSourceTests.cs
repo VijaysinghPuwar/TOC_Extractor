@@ -213,6 +213,59 @@ public sealed class BrowserPageSourceTests
     }
 
     [Fact]
+    public async Task A_check_that_says_it_cannot_finish_ends_the_wait_early()
+    {
+        using var site = new LocalSite();
+        site.Html("/check", """
+            <html><head><title>Just a moment...</title></head>
+            <body><div class="cf-turnstile"></div>Verify you are human
+            <h2>Unable to connect to the website</h2></body></html>
+            """);
+
+        await using var source = await BrowserPageSource.StartAsync(
+            Guard, new BrowserPageSourceOptions { OperationBudget = TimeSpan.FromSeconds(20) }, Token);
+        await Assert.ThrowsAsync<HumanCheckException>(() => source.LoadChapterAsync(site.Url("/check"), ".t", ".c", Token));
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        Assert.False(await source.WaitForPersonAsync(TimeSpan.FromMinutes(2), Token));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(30), $"waited {watch.Elapsed}");
+    }
+
+    [Fact]
+    public async Task One_sites_broken_check_does_not_end_another_sites_wait_or_take_its_tab()
+    {
+        // One server under two names, so the two checks are on two sites.
+        using var site = new LocalSite();
+        site.Html("/broken", """
+            <html><head><title>Just a moment...</title></head>
+            <body><div class="cf-turnstile"></div>Verify you are human
+            <h2>Unable to connect to the website</h2></body></html>
+            """);
+        site.Html("/check", """
+            <html><head><title>Just a moment...</title></head>
+            <body><div class="cf-turnstile"></div>Verify you are human</body></html>
+            """);
+        var broken = site.Url("/broken");
+        var other = $"http://localhost:{site.Port}/check";
+
+        await using var source = await BrowserPageSource.StartAsync(
+            Guard, new BrowserPageSourceOptions { MaxPages = 1, GrowTo = 4, OperationBudget = TimeSpan.FromSeconds(20) }, Token);
+        await Assert.ThrowsAsync<HumanCheckException>(() => source.LoadChapterAsync(broken, ".t", ".c", Token));
+        await Assert.ThrowsAsync<HumanCheckException>(() => source.LoadChapterAsync(other, ".t", ".c", Token));
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var otherWait = source.WaitForPersonAsync(other, TimeSpan.FromSeconds(12), Token);
+        Assert.False(await source.WaitForPersonAsync(broken, TimeSpan.FromMinutes(2), Token));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(11), $"the broken site's wait took {watch.Elapsed}");
+
+        // The other site's check is still in front of the person, and still waited for.
+        Assert.Contains(source.TabUrls, url => url == other);
+        Assert.False(otherWait.IsCompleted);
+        Assert.False(await otherWait);
+        Assert.True(watch.Elapsed >= TimeSpan.FromSeconds(11), $"the other site's wait ended after {watch.Elapsed}");
+    }
+
+    [Fact]
     public async Task A_page_laid_out_differently_keeps_its_chapter_under_the_pages_own_title()
     {
         using var site = new LocalSite();

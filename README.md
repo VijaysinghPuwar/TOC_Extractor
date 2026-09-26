@@ -61,11 +61,11 @@ repository or by a measured live run.
 |---|---|
 | **Stack** | C# on .NET 10 with Avalonia 12 for the desktop app on macOS and Windows, and Microsoft Playwright driving Chromium. The original Python tool is kept as a reference implementation; both are checked against the same test data for text cleaning, file names and robots.txt. |
 | **Concurrency** | Any number of downloads run at once in one shared browser whose tab pool grows on demand. Downloads of the same book share one progress record behind a lock. Downloads from the same site share one rate limiter, so running ten books never asks more of a site than running one. |
-| **No per-site setup** | Scripts run inside the page to find the chapter list, the story text and the next and previous links. Address patterns such as "id = 3,254,000 + chapter" are inferred and then checked on the live site before they are used. Books that restart their numbering in each arc are numbered by position instead. |
+| **No per-site setup** | Scripts run inside the page to find the chapter list, the story text and the next and previous links. Address patterns such as "id = 3,254,000 + chapter" are inferred and then checked on the live site before they are used. An address that carries the site's own id (`/chapter/4815162/the-gate`) is numbered by its title, or by its place when titles carry no number. A list the page pages through by itself, with buttons that have no address, is read whole from the page as the site sent it. Books that restart their numbering in each arc are numbered by position instead. |
 | **Nothing skipped or doubled** | Removing ads and menus from a chapter is the one step that could drop a paragraph unnoticed, so every chapter is compared, line by line, with the whole story box as the page showed it. A left-out line long enough to be story, a paragraph saved more often than the page shows it, or two chapters with identical text is flagged on that chapter, named in the final status, and logged. A line the site repeats on every page (a standing notice) does not count. |
 | **Adapts to the machine** | The browser's tab ceiling comes from the computer's memory and cores (8 tabs on an 8 GB Mac, 40 on 24 GB, 48 at most), and no new tab opens while macOS reports memory is short. Idle tabs close after 30 seconds; pictures, video and web fonts are not loaded while the app reads on its own. |
 | **Fault tolerance** | A tab that is closed or crashes is replaced, and a closed browser is relaunched, without failing the download. A failure in one download cannot stop another. A book file is named only for the chapters it actually contains. |
-| **Politeness** | Follows robots.txt (RFC 9309) and Crawl-delay. A "verify you are human" check is treated as the site saying the app is going too fast: that site is read at one page every 12 seconds from then on, shared by every book on it, and the person clicks the check themselves. The app never solves or works around a check. |
+| **Politeness** | Follows robots.txt (RFC 9309) and Crawl-delay. A "verify you are human" check is treated as the site saying the app is going too fast: that site is read at one page every 12 seconds from then on, shared by every book on it, and the person clicks the check themselves. The app never solves or works around a check. A check that says it cannot finish, for a person either, ends the wait at once instead of leaving the person waiting. |
 | **Observability** | One CSV log, written as events happen: every page load with its timing, every retry and its cause, every check, and every error with its stack trace, including unhandled exceptions. |
 | **Tests** | The tests pin what would hurt a reader if it broke: a redirect to a private network address is refused mid-chain; robots.txt is decided identically by the C# and Python code on a shared conformance corpus; resuming never refetches or drops a chapter, even with two ranges of one book saving at once; a book file is never named for chapters it lacks; and real Chromium, against a local test server, heals a closed tab and never navigates away from a check the person is clicking. Warnings are errors, and CI runs on Linux, Windows and macOS. Tagging a version builds and self-tests the Mac and Windows packages before publishing them. |
 | **Scale tested** | Live runs of 40 books at once across five sites, 50 chapters each (2,000 chapters), repeated for each change, with every saved chapter audited for gaps, order, duplicates and doubled paragraphs, and 91 of them compared word for word with the live page. Against 2.2.1 on the same 40 books, with the app told it had an 8 GB Mac: average CPU 272% to 142%, average memory 5.6 GB to 4.8 GB, peak 8.2 GB to 7.1 GB, same time taken. |
@@ -521,6 +521,31 @@ nothing is overwritten. The log mentions it.
   address check. Closing that needs control the browser does not offer.
 
 ## Version history
+
+**2.4.0** (2026-09-26)
+
+From live tests on new sites, then 40 books at once, 50 chapters each
+(1,970 chapters, every one checked on disk: none missing, none doubled, no
+retries, no errors, no checks, in 15.5 minutes, averaging 1.35 processor
+cores and 4.4 GB):
+- Fixed: on sites whose chapter addresses carry the site's own id
+  (`/chapter/4815162/the-gate`), the id was taken for the chapter number,
+  so a 104-chapter book was scanned as "1 to 173,027" with 2 chapters
+  found. Chapters are now numbered by their titles, or by their place when
+  titles carry no number, and each is opened directly.
+- Fixed: a chapter list that the page pages through itself, with numbered
+  buttons that have no address, showed only its first page of chapters. The
+  whole list is now read from the page as the site sent it.
+- Fixed: a "Next" link could be mistaken for another button with the same
+  look (a search button), so reading on from a chapter went to the wrong page.
+- Fixed: a security check that says it cannot finish, for a person either,
+  left the app waiting for good. It now stops within seconds and says the
+  site's check will not let the browser through, and it no longer ends or
+  takes over another site's check that you are still completing.
+- Fixed: once a site's check has failed, the scan stops opening more of that
+  site's pages, instead of showing you a new check for each.
+- A site whose robots.txt closes the novel page now says so, instead of
+  "the novel page could not be read".
 
 **2.3.0** (2026-09-25)
 

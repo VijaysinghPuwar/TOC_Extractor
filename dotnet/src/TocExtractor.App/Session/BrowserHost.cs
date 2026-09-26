@@ -237,6 +237,10 @@ public sealed class BrowserHost(NovelEnvironment environment) : IAsyncDisposable
             await this.CurrentAsync(cancellationToken).ConfigureAwait(false) is IHumanGate gate
             && await gate.WaitForPersonAsync(timeout, cancellationToken).ConfigureAwait(false);
 
+        public async Task<bool> WaitForPersonAsync(string? siteUrl, TimeSpan timeout, CancellationToken cancellationToken = default) =>
+            await this.CurrentAsync(cancellationToken).ConfigureAwait(false) is IHumanGate gate
+            && await gate.WaitForPersonAsync(siteUrl, timeout, cancellationToken).ConfigureAwait(false);
+
         public async Task<bool> WaitForSignInAsync(TimeSpan timeout, CancellationToken cancellationToken = default) =>
             await this.CurrentAsync(cancellationToken).ConfigureAwait(false) is IHumanGate gate
             && await gate.WaitForSignInAsync(timeout, cancellationToken).ConfigureAwait(false);
