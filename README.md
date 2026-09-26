@@ -68,7 +68,7 @@ repository or by a measured live run.
 | **Politeness** | Follows robots.txt (RFC 9309) and Crawl-delay. A "verify you are human" check is treated as the site saying the app is going too fast: that site is read at one page every 12 seconds from then on, shared by every book on it, and the person clicks the check themselves. The app never solves or works around a check. |
 | **Observability** | One CSV log, written as events happen: every page load with its timing, every retry and its cause, every check, and every error with its stack trace, including unhandled exceptions. |
 | **Tests** | The tests pin what would hurt a reader if it broke: a redirect to a private network address is refused mid-chain; robots.txt is decided identically by the C# and Python code on a shared conformance corpus; resuming never refetches or drops a chapter, even with two ranges of one book saving at once; a book file is never named for chapters it lacks; and real Chromium, against a local test server, heals a closed tab and never navigates away from a check the person is clicking. Warnings are errors, and CI runs on Linux, Windows and macOS. Tagging a version builds and self-tests the Mac and Windows packages before publishing them. |
-| **Scale tested** | Live runs of up to 20 books at once across five sites, 50 chapters each, with every saved chapter checked for completeness and order. |
+| **Scale tested** | Live runs of 40 books at once across five sites, 50 chapters each (2,000 chapters), repeated for each change, with every saved chapter audited for gaps, order, duplicates and doubled paragraphs, and 91 of them compared word for word with the live page. Against 2.2.1 on the same 40 books, with the app told it had an 8 GB Mac: average CPU 272% to 142%, average memory 5.6 GB to 4.8 GB, peak 8.2 GB to 7.1 GB, same time taken. |
 
 ## Download
 
@@ -521,6 +521,27 @@ nothing is overwritten. The log mentions it.
   address check. Closing that needs control the browser does not offer.
 
 ## Version history
+
+**2.3.0** (2026-09-25)
+
+Measured on 40 books at once, 50 chapters each, against 2.2.1:
+- Uses about half the processor time (average 272% to 142%) and less
+  memory (average 5.6 GB to 4.8 GB, peak 8.2 GB to 7.1 GB), in the same time.
+- Adapts to the computer: an 8 GB Mac opens at most 8 browser tabs, a 24 GB
+  one 40, and none opens new tabs while macOS says memory is short. Idle
+  tabs close, and a tab is emptied once its chapter is read, so the page's
+  adverts stop running while it waits.
+- Pictures, video and web fonts are skipped while the app reads on its own.
+- New: every chapter is checked against its page as it is saved. Text left
+  out, text saved twice, or two chapters with the same text is marked on the
+  chapter and named in the status; when all is well, the status says so.
+- Fixed: an advert frame that redirected while a chapter loaded was recorded
+  as the chapter's address, and could fail the whole chapter.
+- Fixed: a page a site served without its story was never retried; it is
+  now tried once more.
+- Fixed: a range past the end of the book showed "Ready to save"; it now
+  says which chapters the book has.
+- Fixed: very long books could fail to become a PDF after 30 seconds.
 
 How it grew: 1.0.0 (September 2025) was a single Python script. 2.0.0
 (August 2026) rebuilt it as a tested command line tool. The C# desktop app
