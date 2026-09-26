@@ -102,3 +102,49 @@ public sealed class SitePacesTests
         Assert.Empty(new SitePaces(path).All);
     }
 }
+
+public sealed class CarefulEstimateTests
+{
+    private static Scanning.ScanResult Scan(string site) => new()
+    {
+        NovelUrl = site + "/book",
+        BookTitle = "Book",
+        Chapters = [.. Enumerable.Range(1, 60).Select(n => new Scanning.ScannedChapter(n, $"Chapter {n}", $"{site}/book/chapter-{n}"))],
+        Layout = new Scanning.ChapterLayout("h1", "article", "a.next", "a.prev"),
+    };
+
+    private static NovelSession Session(SitePaces paces) => new(new NovelEnvironment
+    {
+        StartSource = (_, _, _) => throw new InvalidOperationException("no browser in this test"),
+        FetchRobots = (_, _) => null,
+        BrowserProfileDirectory = Scratch.Directory(),
+        SitePaces = paces,
+    })
+    {
+        Pace = new SessionSettings { Concurrency = 1, MinDelaySeconds = 1, MaxDelaySeconds = 2 },
+    };
+
+    [Fact]
+    public async Task A_careful_site_says_how_long_it_really_takes()
+    {
+        var paces = new SitePaces(null);
+        paces.RecordCheck("https://careful.example/book", DateTimeOffset.Now);
+        await using var session = Session(paces);
+
+        var preview = session.Preview(Scan("https://careful.example"), 1, 50);
+
+        Assert.Contains("about 10 min", preview.Summary, StringComparison.Ordinal);
+        Assert.Contains("careful pace", preview.Summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Other_sites_keep_the_usual_estimate()
+    {
+        await using var session = Session(new SitePaces(null));
+
+        var preview = session.Preview(Scan("https://fast.example"), 1, 50);
+
+        Assert.Contains("about 1 min", preview.Summary, StringComparison.Ordinal);
+        Assert.DoesNotContain("careful", preview.Summary, StringComparison.Ordinal);
+    }
+}

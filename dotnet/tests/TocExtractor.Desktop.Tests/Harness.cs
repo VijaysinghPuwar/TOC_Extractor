@@ -181,12 +181,12 @@ internal sealed class FakeNovelService : INovelService
         List<string> files = [];
         if (text)
         {
-            files.Add(Path.Combine(outputRoot, "The Lighthouse", $"The Lighthouse {preview.From}-{preview.To}.txt"));
+            files.Add(Path.Combine(outputRoot, this.Book, $"{this.Book} {preview.From}-{preview.To}.txt"));
         }
 
         if (pdf)
         {
-            files.Add(Path.Combine(outputRoot, "The Lighthouse", $"The Lighthouse {preview.From}-{preview.To}.pdf"));
+            files.Add(Path.Combine(outputRoot, this.Book, $"{this.Book} {preview.From}-{preview.To}.pdf"));
         }
 
         return new RangeResult(missing.Count > 0 ? PipelineOutcome.Failed : PipelineOutcome.Ok, null, files, missing);
@@ -212,7 +212,14 @@ internal sealed class FakeNovelService : INovelService
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
-    private static string Title(int n) => $"Chapter {n}: {Titles[(n - 1) % Titles.Length]}";
+    private static readonly string[] OrchardTitles =
+    [
+        "Blossom", "The Old Wall", "Grafting", "First Frost", "Windfall",
+        "The Cider Press", "Ladders", "Wasps", "Harvest Moon", "Bare Branches",
+    ];
+
+    private string Title(int n) =>
+        $"Chapter {n}: {(this.Book == "The Lighthouse" ? Titles : OrchardTitles)[(n - 1) % Titles.Length]}";
 }
 
 /// <summary>A window over fake sessions, with nothing real behind it.</summary>

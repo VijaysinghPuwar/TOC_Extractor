@@ -332,7 +332,7 @@ public sealed class WindowTests
     private static void Save(Window window, string name)
     {
         // A readable folder in the picture, not the test's temporary one.
-        if (window.DataContext is MainViewModel { SelectedJob: { } job } && !job.IsBusy)
+        if (window.DataContext is MainViewModel { SelectedJob: { } job })
         {
             job.OutputDirectory = "~/Downloads/Novels";
         }

@@ -167,9 +167,19 @@ public sealed class NovelSession : INovelService
             return new RangePreview(plan, low, high, plan.Problem, false);
         }
 
-        var seconds = (plan.Requested + plan.ExtraVisits) * (this.Pace.MinDelaySeconds + this.Pace.MaxDelaySeconds) / 2
-            / Math.Max(1, this.Pace.Concurrency);
+        // A site read carefully goes a page at a time, whatever the concurrency.
+        var careful = this.environment.SitePaces.IsCareful(scan.NovelUrl);
+        var seconds = careful
+            ? (plan.Requested + plan.ExtraVisits) * SitePaces.CarefulEvery.TotalSeconds
+            : (plan.Requested + plan.ExtraVisits) * (this.Pace.MinDelaySeconds + this.Pace.MaxDelaySeconds) / 2
+                / Math.Max(1, this.Pace.Concurrency);
         var time = seconds < 90 ? $"about {Math.Max(1, (int)Math.Round(seconds / 60))} min" : $"about {(int)Math.Round(seconds / 60)} min";
+        if (careful)
+        {
+            time += string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $", at this site's careful pace of a page every {SitePaces.CarefulEvery.TotalSeconds:0}s, shared with any other book from it");
+        }
         var how = plan.Walks.Count == 0
             ? "each opened directly"
             : plan.ExtraVisits == 0

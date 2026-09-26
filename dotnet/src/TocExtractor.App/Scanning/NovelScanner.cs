@@ -226,7 +226,12 @@ public sealed partial class NovelScanner(
                 }
 
                 any = true;
-                unproductive = this.links.Count > before ? 0 : unproductive + 1;
+
+                // A page that loaded and added nothing ends paging: the next
+                // would not either, and on a site that counts visits every
+                // wasted page brings its check closer. A page that failed to
+                // load is only one strike.
+                unproductive = this.links.Count > before ? 0 : UnproductiveLimit;
                 foreach (var more in page.Probe.Pages.Where(p => p.Pattern == pattern))
                 {
                     if (!this.visited.Contains(Normalise(more.Url)) && !queue.Contains(more.Url))
