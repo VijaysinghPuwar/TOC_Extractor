@@ -419,7 +419,7 @@ public sealed class NovelSession : INovelService
             this.host.MarkSlowed(this.origin, SitePaces.CarefulEvery);
             this.report?.Invoke(string.Create(
                 System.Globalization.CultureInfo.InvariantCulture,
-                $"The site asked for a check, so from now on it is read at a careful pace: {SitePaces.CarefulBurst} pages at the usual speed, then one every {SitePaces.CarefulEvery.TotalSeconds:0}s. Settings, Sites, can change this."));
+                $"The site asked for a check, so from now on it is read at a careful pace, a page every {SitePaces.CarefulEvery.TotalSeconds:0}s, which keeps further checks away. Settings, Sites, can change this."));
             return;
         }
 

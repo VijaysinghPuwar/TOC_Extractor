@@ -348,7 +348,7 @@
             <StackPanel Spacing="8">
               <TextBlock Classes="label" Text="Sites" />
               <TextBlock Classes="hint" TextWrapping="Wrap"
-                         Text="Every site is read fast. One that asks to check you're a person is then read carefully, now and on later visits: 25 pages at the usual speed, then one every 12 seconds, which in testing kept the checks away. Turn Careful off for a site to go at full speed and click the odd check instead." />
+                         Text="Every site is read fast. One that asks to check you're a person is then read carefully, now and on later visits: a page every 12 seconds, which in testing kept the checks away. Turn Careful off for a site to go at full speed and click the odd check instead." />
               <TextBlock Classes="hint" FontStyle="Italic" Text="No site has asked for a check yet." IsVisible="{Binding !HasSites}" />
               <ItemsControl x:Name="SitesList" ItemsSource="{Binding Sites}">
                 <ItemsControl.ItemTemplate>

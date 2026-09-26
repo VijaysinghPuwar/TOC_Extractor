@@ -17,12 +17,12 @@ public sealed record SitePace(string Site, int Checks, bool Careful, DateTimeOff
 /// </summary>
 /// <remarks>
 /// <para>
-/// Every site starts fast. Measured on a site that checks: a burst of about
-/// 30 fast pages passes, and after that about five pages a minute kept it
-/// from asking at all over 75 pages, where 10 to 30 pages a minute were asked
-/// about every 30 to 50. So the careful pace is a burst of 25 at the usual
-/// speed, then a page every 12 seconds, the allowance filling back up while
-/// the site is left alone.
+/// Every site starts fast. Measured on a site that checks: a steady page
+/// every 12 seconds from the start passed 75 pages with no check, while
+/// every run that crowded about 50 pages into five minutes or less was
+/// asked, whether those pages came as one fast stretch or as a burst of 25
+/// followed by the slow pace. So the careful pace is steady: a page every
+/// 12 seconds, with only the scan's few pages at the usual speed.
 /// </para>
 /// <para>
 /// Learned, not listed: nothing about any particular site is built in. A
@@ -31,8 +31,8 @@ public sealed record SitePace(string Site, int Checks, bool Careful, DateTimeOff
 /// </remarks>
 public sealed class SitePaces(string? path)
 {
-    /// <summary>Pages at the usual speed before the careful pace begins.</summary>
-    public const int CarefulBurst = 25;
+    /// <summary>Pages at the usual speed before the careful pace begins: the scan's few, no more.</summary>
+    public const int CarefulBurst = 5;
 
     /// <summary>One page per this, once the burst is spent.</summary>
     public static readonly TimeSpan CarefulEvery = TimeSpan.FromSeconds(12);

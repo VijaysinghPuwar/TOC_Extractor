@@ -188,9 +188,9 @@ same window; press **Back** to return. Changes are saved as you make them.
   second brought no checks, no errors and no incomplete chapters.
 - **Sites**: sites that have asked to check you're a person. The app learns
   these itself: the first time a site asks, it reads that site carefully from
-  then on (25 pages at the usual speed, then one every 12 seconds, filling
-  back up while the site is left alone), which in testing kept the checks
-  away entirely where a faster pace drew one every 30 to 50 pages. Turn
+  then on, a page every 12 seconds, which in testing kept the checks away
+  entirely (75 pages, no check) where any faster pace drew one about every
+  50 pages. Turn
   Careful off for a site to go at full speed and click the odd check, or
   press Forget to start it fresh.
 - **Text**: keep links in the text, and remove ad markers.
