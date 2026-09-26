@@ -404,8 +404,30 @@ public static partial class BookFiles
     public static string FolderName(string title, string novelUrl)
     {
         var name = Core.Text.FileName.Sanitise(string.IsNullOrWhiteSpace(title) ? HostOf(novelUrl) : FirstLine(title), 80);
+        if (OperatingSystem.IsWindows())
+        {
+            name = WindowsSafe(name);
+        }
+
         return string.IsNullOrWhiteSpace(name) ? "Book" : name;
     }
+
+    /// <summary>A folder name Windows will create and Explorer will open.</summary>
+    /// <remarks>
+    /// Windows silently drops a folder name's trailing dots and spaces, so a
+    /// book called "Wait..." is created as "Wait" and then not found under its
+    /// own name; and CON, NUL, COM1 and the like are devices, not folders.
+    /// Chapter files need neither rule: their number comes first.
+    /// </remarks>
+    internal static string WindowsSafe(string name)
+    {
+        name = name.TrimEnd('.', ' ');
+        var stem = name.Split('.')[0].TrimEnd(' ');
+        return ReservedOnWindows().IsMatch(stem) ? "_" + name : name;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^(CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³])$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex ReservedOnWindows();
 
     public static string RangeName(string title, int from, int to) =>
         FolderName(title, "") + $" {from}-{to}";

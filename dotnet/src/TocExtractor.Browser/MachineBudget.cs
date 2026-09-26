@@ -137,9 +137,22 @@ public static partial class MachineBudget
             return LinuxFreePercent();
         }
 
-        // Windows: not read yet, so memory is never counted as tight there
-        // and tabs are limited by the machine's size alone.
+        if (OperatingSystem.IsWindows())
+        {
+            return WindowsFreePercent();
+        }
+
         return null;
+    }
+
+    private static int? WindowsFreePercent()
+    {
+        // Available physical memory, which like Linux's MemAvailable counts
+        // the standby cache Windows would hand back at once.
+        var status = new MemoryStatusEx { Length = (uint)Marshal.SizeOf<MemoryStatusEx>() };
+        return GlobalMemoryStatusEx(ref status) && status.TotalPhys > 0
+            ? (int)(100 * status.AvailPhys / status.TotalPhys)
+            : null;
     }
 
     private static int? LinuxFreePercent()
@@ -190,4 +203,22 @@ public static partial class MachineBudget
 
     [LibraryImport("libc", EntryPoint = "sysctlbyname", StringMarshalling = StringMarshalling.Utf8)]
     private static partial int Sysctlbyname(string name, ref int value, ref nint size, IntPtr newValue, nint newSize);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "GlobalMemoryStatusEx")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GlobalMemoryStatusEx(ref MemoryStatusEx buffer);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MemoryStatusEx
+    {
+        public uint Length;
+        public uint MemoryLoad;
+        public ulong TotalPhys;
+        public ulong AvailPhys;
+        public ulong TotalPageFile;
+        public ulong AvailPageFile;
+        public ulong TotalVirtual;
+        public ulong AvailVirtual;
+        public ulong AvailExtendedVirtual;
+    }
 }

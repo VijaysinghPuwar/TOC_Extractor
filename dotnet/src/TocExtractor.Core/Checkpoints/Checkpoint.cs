@@ -270,7 +270,7 @@ public sealed class Checkpoint
                 stream.Flush(flushToDisk: true);
             }
 
-            File.Move(temp, this.Path, overwrite: true);
+            MoveOver(temp, this.Path);
         }
         catch
         {
@@ -278,6 +278,33 @@ public sealed class Checkpoint
             // residue of a crash nobody needs to see.
             File.Delete(temp);
             throw;
+        }
+    }
+
+    /// <summary>Replaces <paramref name="target"/> with <paramref name="source"/> in one step.</summary>
+    /// <remarks>
+    /// On Windows a rename over a file fails while anything else has it open,
+    /// and Defender and the search indexer open every new file for a moment,
+    /// so a save a few milliseconds after the last one is refused. Those
+    /// holds are brief: a few short retries outlast them. Elsewhere a rename
+    /// never waits on a reader, so it is tried once.
+    /// </remarks>
+    internal static void MoveOver(string source, string target, int attempts = 6)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.Move(source, target, overwrite: true);
+                return;
+            }
+            catch (Exception exception) when (
+                OperatingSystem.IsWindows()
+                && attempt < attempts
+                && exception is IOException or UnauthorizedAccessException)
+            {
+                Thread.Sleep(25 * attempt);
+            }
         }
     }
 

@@ -359,8 +359,7 @@ public sealed class ExtractionSession(SessionEnvironment environment) : IAsyncDi
         Microsoft.Playwright.PlaywrightException playwright when playwright.Message.Contains(
             "Executable doesn't exist", StringComparison.Ordinal) =>
             "The browser has not been downloaded yet. Restart the app to download it.",
-        Microsoft.Playwright.PlaywrightException playwright when playwright.Message.Contains(
-            "ProcessSingleton", StringComparison.Ordinal) =>
+        Microsoft.Playwright.PlaywrightException playwright when BrowserHost.EarlierBrowserStillOpen(playwright.Message) =>
             "The browser from an earlier run is still open. Close it and try again.",
         _ => $"Could not start the browser: {exception.Message.Split('\n')[0]}",
     };

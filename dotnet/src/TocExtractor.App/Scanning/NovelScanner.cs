@@ -145,13 +145,24 @@ public sealed partial class NovelScanner(
             : this.Result(novelUrl, title, problem: null) with { Layout = layout.Layout };
     }
 
-    /// <summary>Probe a page; if the site asks for a person, wait for them and try once more.</summary>
+    /// <summary>Probe a page, once more if it is slow; if the site asks for a person, wait for them and try once more.</summary>
     private async Task<(string FinalUrl, string Json)> ProbeOnceMoreAfterCheckAsync(
         string url, string script, TimeSpan settle, CancellationToken cancellationToken)
     {
         try
         {
-            return await probe.ProbeAsync(url, script, settle, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await probe.ProbeAsync(url, script, settle, cancellationToken).ConfigureAwait(false);
+            }
+            catch (PageTimeoutException slow)
+            {
+                // A chapter that times out is tried again, and the novel page
+                // deserves the same: in a 25-book run a site took 30 seconds
+                // once, and the whole book was lost to one slow page.
+                log?.Invoke($"scan: {url} was slow ({slow.Message}); trying once more");
+                return await probe.ProbeAsync(url, script, settle, cancellationToken).ConfigureAwait(false);
+            }
         }
         catch (HumanCheckException first) when (onHumanCheck is not null)
         {

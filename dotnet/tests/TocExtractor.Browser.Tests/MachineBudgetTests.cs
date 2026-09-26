@@ -27,7 +27,7 @@ public sealed class MachineBudgetTests
     {
         Assert.True(MachineBudget.Cores >= 1);
         Assert.InRange(MachineBudget.MostTabs, MachineBudget.FewestTabs, MachineBudget.MostTabsAnywhere);
-        if (OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
+        if (OperatingSystem.IsMacOS() || OperatingSystem.IsLinux() || OperatingSystem.IsWindows())
         {
             Assert.True(MachineBudget.MemoryBytes > Gigabyte);
             Assert.InRange(MachineBudget.FreeMemoryPercent() ?? -1, 0, 100);

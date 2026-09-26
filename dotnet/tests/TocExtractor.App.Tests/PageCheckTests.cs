@@ -138,6 +138,49 @@ public sealed class ScanCheckTests
         Assert.Equal(Scanning.NovelScanner.RobotsRefused, scan.Problem);
     }
 
+    [Fact]
+    public async Task A_novel_page_that_is_slow_once_is_read_on_the_second_try()
+    {
+        var probe = new SlowFirst(new OnlyTheNovelPage(), slowTimes: 1);
+        var scanner = new Scanning.NovelScanner(
+            probe, new Core.Politeness.UrlGuard(resolver: new PublicResolver()),
+            Core.Politeness.RobotsPolicy.Missing("https://e.com"), new Core.Politeness.RateLimiter(TimeSpan.Zero));
+
+        var scan = await scanner.ScanAsync("https://e.com/novel", Token);
+
+        Assert.Equal(5, scan.Chapters.Count);
+        Assert.Equal(2, probe.NovelPageTries);
+    }
+
+    [Fact]
+    public async Task A_novel_page_slow_twice_is_given_up_on()
+    {
+        var probe = new SlowFirst(new OnlyTheNovelPage(), slowTimes: 2);
+        var scanner = new Scanning.NovelScanner(
+            probe, new Core.Politeness.UrlGuard(resolver: new PublicResolver()),
+            Core.Politeness.RobotsPolicy.Missing("https://e.com"), new Core.Politeness.RateLimiter(TimeSpan.Zero));
+
+        var scan = await scanner.ScanAsync("https://e.com/novel", Token);
+
+        Assert.Empty(scan.Chapters);
+        Assert.Equal(2, probe.NovelPageTries);
+    }
+
+    private sealed class SlowFirst(Core.Pages.IPageProbe inner, int slowTimes) : Core.Pages.IPageProbe
+    {
+        public int NovelPageTries { get; private set; }
+
+        public Task<(string FinalUrl, string Json)> ProbeAsync(string url, string script, TimeSpan settle, CancellationToken cancellationToken = default)
+        {
+            if (url == "https://e.com/novel" && ++this.NovelPageTries <= slowTimes)
+            {
+                throw new Core.Pages.PageTimeoutException($"{url}: navigation timed out");
+            }
+
+            return inner.ProbeAsync(url, script, settle, cancellationToken);
+        }
+    }
+
     private sealed class OnlyTheNovelPage : Core.Pages.IPageProbe
     {
         public Task<(string FinalUrl, string Json)> ProbeAsync(string url, string script, TimeSpan settle, CancellationToken cancellationToken = default)

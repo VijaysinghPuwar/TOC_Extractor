@@ -75,7 +75,22 @@ public sealed class DesktopShell(TopLevel window) : IShell
 
     public void Notify(string title, string message)
     {
-        // Notification Center on a Mac. Elsewhere the window's own bar says it.
+        // Notification Center on a Mac, the flashing taskbar button on
+        // Windows. Elsewhere the window's own bar says it.
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                WindowsAttention.Flash(window.TryGetPlatformHandle()?.Handle ?? 0);
+            }
+            catch (Exception exception) when (exception is DllNotFoundException or EntryPointNotFoundException or InvalidOperationException)
+            {
+                // A missing flash is not worth interrupting anyone over.
+            }
+
+            return;
+        }
+
         if (!OperatingSystem.IsMacOS())
         {
             return;
