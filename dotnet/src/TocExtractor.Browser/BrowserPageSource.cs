@@ -737,6 +737,39 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         }
     }
 
+    /// <summary>
+    /// Hand a tab back once its page has been read, emptied first, so the
+    /// page's adverts and scripts stop running while it waits for the next.
+    /// </summary>
+    /// <remarks>
+    /// The page was loaded whole and read, adverts included, as a reader
+    /// would see it; this is only moving on. A chapter page on a reading
+    /// site carries a dozen frames from other sites, each in a browser
+    /// process of its own, and a tab left on it kept them all running until
+    /// its next chapter: measured, 45 such processes and 6 GB for 40 books at
+    /// once, whatever the number of tabs. A tab kept for a check, or any tab
+    /// while a person is using the window, is left as it is.
+    /// </remarks>
+    private async Task EmptyThenReleaseAsync(PageSlot slot)
+    {
+        var keep = slot.KeepPage;
+        slot.KeepPage = false;
+        if (this.options.LightPages && !keep && !slot.HeldForPerson && !this.PersonAtWindow && !slot.Page.IsClosed && !slot.Crashed)
+        {
+            try
+            {
+                await slot.Page.GotoAsync("about:blank", new PageGotoOptions { Timeout = 5000 }).ConfigureAwait(false);
+                slot.Emptied = true;
+            }
+            catch (Exception exception) when (exception is PlaywrightException or TimeoutException)
+            {
+                // Left as it is; the next chapter's navigation replaces it anyway.
+            }
+        }
+
+        this.Release(slot);
+    }
+
     /// <summary>Tabs kept for a check go back to work: the check is done, or it is no longer waited for.</summary>
     private void ReturnHeld()
     {
@@ -857,7 +890,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         }
         finally
         {
-            this.Release(slot);
+            await this.EmptyThenReleaseAsync(slot).ConfigureAwait(false);
         }
     }
 
@@ -1149,7 +1182,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         }
         finally
         {
-            this.Release(slot);
+            await this.EmptyThenReleaseAsync(slot).ConfigureAwait(false);
         }
     }
 
@@ -1194,6 +1227,8 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
 
             if (await IsLockedAsync(slot.Page).ConfigureAwait(false))
             {
+                // Left showing, so the person is shown this site to sign in on.
+                slot.KeepPage = true;
                 throw new HumanCheckException(
                     $"{url}: the site shows only part of this chapter unless you are signed in", needsSignIn: true);
             }
@@ -1215,7 +1250,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         }
         finally
         {
-            this.Release(slot);
+            await this.EmptyThenReleaseAsync(slot).ConfigureAwait(false);
         }
     }
 
@@ -1458,6 +1493,9 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
 
         /// <summary>When the tab was last handed back, from <see cref="Environment.TickCount64"/>.</summary>
         internal long IdleSince { get; set; } = Environment.TickCount64;
+
+        /// <summary>The page on this tab is wanted after it is read (a sign-in the person must do there): not emptied.</summary>
+        internal bool KeepPage { get; set; }
 
         /// <summary>The tab shows an empty page, so nothing on it is running.</summary>
         internal bool Emptied { get; set; }

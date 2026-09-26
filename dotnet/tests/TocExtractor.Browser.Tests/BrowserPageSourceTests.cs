@@ -393,6 +393,28 @@ public sealed class BrowserPageSourceTests
     }
 
     [Fact]
+    public async Task A_read_page_is_emptied_but_a_locked_one_stays_for_the_sign_in()
+    {
+        using var site = new LocalSite();
+        site.Html("/ch/1", "<h1 class=\"t\">Chapter 1</h1><article class=\"c\"><p>One.</p></article>");
+        site.Html("/ch/9", """
+            <h1 class="t">Chapter 9</h1><article class="c"><p>The first half.</p>
+            <div class="lock"><p>Log in to continue reading this chapter.</p><a href="/login">Log in</a></div></article>
+            """);
+
+        await using var source = await BrowserPageSource.StartAsync(
+            Guard, new BrowserPageSourceOptions { LightPages = true, OperationBudget = TimeSpan.FromSeconds(20) }, Token);
+
+        var chapter = await source.LoadChapterAsync(site.Url("/ch/1"), ".t", ".c", Token);
+        Assert.Equal("One.", chapter.Body.Trim());
+        Assert.Equal(["about:blank"], source.TabUrls);
+
+        var locked = await Assert.ThrowsAsync<HumanCheckException>(() => source.LoadChapterAsync(site.Url("/ch/9"), ".t", ".c", Token));
+        Assert.True(locked.NeedsSignIn);
+        Assert.Equal([site.Url("/ch/9")], source.TabUrls);
+    }
+
+    [Fact]
     public async Task Idle_tabs_close_down_to_one_and_the_last_is_emptied()
     {
         using var site = new LocalSite();

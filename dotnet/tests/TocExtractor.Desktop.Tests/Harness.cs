@@ -84,6 +84,9 @@ internal sealed class FakeNovelService : INovelService
 
     public HashSet<int> Failing { get; } = [];
 
+    /// <summary>When set, each chapter arrives checked against its page, as a real session's do.</summary>
+    public bool Audited { get; set; }
+
     /// <summary>Held open mid-save so a test can look at the window while the person is needed.</summary>
     public TaskCompletionSource? PauseAt { get; set; }
 
@@ -153,6 +156,7 @@ internal sealed class FakeNovelService : INovelService
         }
 
         List<int> missing = [];
+        List<ChapterRecord> saved = [];
         for (var n = preview.From; n <= preview.To; n++)
         {
             if (n == this.PauseBefore && this.PauseAt is { } pause)
@@ -171,11 +175,16 @@ internal sealed class FakeNovelService : INovelService
             }
 
             observer.Trace(new Core.Fetching.FetchTrace("loaded", n, url, "a page, loaded"));
-            observer.Record(new ChapterRecord(
+            var record = new ChapterRecord(
                 n, url, url, Title(n),
                 "The lamp had burned every night for forty years, and on the forty-first it went out.\n"
                 + "Below her the harbour was a dark bowl with a few lit windows floating in it.",
-                0, DateTimeOffset.Now, 1));
+                0, DateTimeOffset.Now, 1)
+            {
+                Audit = this.Audited ? Core.Text.TextAudit.Clean : null,
+            };
+            saved.Add(record);
+            observer.Record(record);
         }
 
         List<string> files = [];
@@ -189,7 +198,8 @@ internal sealed class FakeNovelService : INovelService
             files.Add(Path.Combine(outputRoot, this.Book, $"{this.Book} {preview.From}-{preview.To}.pdf"));
         }
 
-        return new RangeResult(missing.Count > 0 ? PipelineOutcome.Failed : PipelineOutcome.Ok, null, files, missing);
+        var run = new Core.Models.RunResult(NovelUrl, new Core.Links.LinkTally(saved.Count, [.. saved.Select(record => record.RequestedUrl)]), Completed: saved);
+        return new RangeResult(missing.Count > 0 ? PipelineOutcome.Failed : PipelineOutcome.Ok, run, files, missing);
     }
 
     public Task BeginSignInAsync(string novelUrl, CancellationToken cancellationToken = default) => Task.CompletedTask;

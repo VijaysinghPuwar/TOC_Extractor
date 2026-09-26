@@ -41,6 +41,10 @@ public sealed class Fetcher : IDisposable
     private readonly FetchOptions options;
     private readonly RobotsPolicy? robots;
     private readonly RateLimiter limiter;
+
+    // Set once any page in this run matched the selectors: from then on a
+    // page without them is more likely a bad load than a wrong selector.
+    private int selectorsMatched;
     private readonly Func<DateTimeOffset> now;
     private readonly Random rng;
     private readonly Func<TimeSpan, CancellationToken, ValueTask> sleep;
@@ -474,6 +478,20 @@ public sealed class Fetcher : IDisposable
                     this.RecordFailure(progress, index, url, exception, attempt);
                     return null;
                 }
+                catch (SelectorNotFoundException exception)
+                    when (attempt == 1 && Volatile.Read(ref this.selectorsMatched) == 1)
+                {
+                    // The same selectors found this run's other chapters, so the
+                    // layout is right and this page came without its story: a
+                    // site's busy or error page, measured on a live run. Once
+                    // more, before a chapter is given up on.
+                    var backoff = this.Backoff(attempt);
+                    this.Trace("retry", index, url, string.Create(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        $"the page came without its story ({exception.Message}), though other chapters had it; trying again in {backoff.TotalSeconds:0.0}s"));
+                    await this.sleep(backoff, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
                 catch (Exception exception)
                     when (exception is PageBlockedException or SelectorNotFoundException)
                 {
@@ -497,6 +515,8 @@ public sealed class Fetcher : IDisposable
                     await this.sleep(backoff, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
+
+                Volatile.Write(ref this.selectorsMatched, 1);
 
                 // A walk decides after loading: the page's own title says which
                 // chapter it is, and a page outside the range is only a step.

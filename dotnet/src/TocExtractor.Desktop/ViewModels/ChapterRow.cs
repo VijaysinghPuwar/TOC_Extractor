@@ -41,6 +41,9 @@ public sealed partial class ChapterRow(int number, string url) : ObservableObjec
     /// <summary>Lines long enough to be story that were on the page but are not in the saved text.</summary>
     public IReadOnlyList<string> LeftOutLines { get; set; } = [];
 
+    /// <summary>Compared with its page when it was saved, so its flags (or their absence) mean something.</summary>
+    public bool Checked { get; set; }
+
     /// <summary>Words on the page that were not saved.</summary>
     public int LeftOutWords { get; set; }
 

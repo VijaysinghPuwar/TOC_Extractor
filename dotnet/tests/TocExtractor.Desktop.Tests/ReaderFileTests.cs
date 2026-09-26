@@ -86,6 +86,22 @@ public sealed class ReaderFileTests
         Assert.Contains("saved twice", messages[1].Message, StringComparison.Ordinal);
     }
 
+    [AvaloniaFact]
+    public async Task When_every_chapter_checks_out_the_status_says_so()
+    {
+        var harness = new Harness();
+        harness.Service.Audited = true;
+        await harness.StartAsync();
+        await harness.ScannedAsync();
+        harness.Job.From = 1;
+        harness.Job.To = 3;
+        await harness.Job.SaveCommand.ExecuteAsync(null);
+        Harness.Pump();
+
+        Assert.StartsWith("Done. 3 of 3 saved.", harness.Job.Status, StringComparison.Ordinal);
+        Assert.Contains("All 3 chapters saved this time were checked against the site's pages: nothing left out, nothing saved twice.", harness.Job.Status, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]

@@ -579,11 +579,24 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
 
             // Anything that may have been skipped or doubled is said, by
             // chapter number, where the person reads the result.
-            foreach (var (message, chapters) in this.FlagIntegrity(result.SameText))
+            this.ApplyMissedRecords(result);
+            var flagged = this.FlagIntegrity(result.SameText);
+            foreach (var (message, chapters) in flagged)
             {
                 var which = BookFiles.Ranges(chapters);
                 this.Status += $" {message.Replace("{0}", which, StringComparison.Ordinal)}";
                 this.log?.Warning("check", message.Replace("{0}", which, StringComparison.Ordinal));
+            }
+
+            // Said when all is well too, so no warning is never mistaken for
+            // a check that did not run.
+            var checkedCount = this.Chapters.Count(row => row.State == ChapterState.Saved && row.Checked);
+            if (flagged.Count == 0 && checkedCount > 0)
+            {
+                var all = string.Create(CultureInfo.InvariantCulture,
+                    $"{(checkedCount == 1 ? "The chapter" : $"All {checkedCount} chapters")} saved this time were checked against the site's pages: nothing left out, nothing saved twice.");
+                this.Status += " " + all;
+                this.log?.Info("check", all);
             }
 
             // Nobody reads 500 chapters before pasting them into a voice, so
@@ -932,6 +945,54 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
         return flagged;
     }
 
+    /// <summary>Show a saved chapter in its row. False if the row is not in this range.</summary>
+    private bool ApplyRecord(ChapterRecord record)
+    {
+        if (!this.rowsByNumber.TryGetValue(record.Index, out var row))
+        {
+            return false;
+        }
+
+        row.Title = record.Title;
+
+        // The reader opens the chapter's file when it is shown; only a
+        // chapter with no file is kept in memory.
+        row.TextLength = record.Text.Length;
+        row.File = record.SavedAs;
+        row.Text = record.SavedAs is null ? record.Text : null;
+        row.Words = CountWords(record.Text);
+        if (record.Audit is { } audit)
+        {
+            row.Checked = true;
+            row.LeftOutLines = audit.LeftOutLong;
+            row.LeftOutWords = audit.LeftOutWords;
+            row.Doubled = audit.DoubledText;
+        }
+
+        row.State = ChapterState.Saved;
+        return true;
+    }
+
+    /// <summary>
+    /// Every chapter the run saved, in its row, before anything is judged
+    /// from the rows. Reports travel to the window separately and the last
+    /// can still be on their way when the run returns; judging without them
+    /// would miss the last chapters' flags. A report arriving later only
+    /// refines the row (it names the chapter's file).
+    /// </summary>
+    private void ApplyMissedRecords(RangeResult result)
+    {
+        foreach (var record in result.Run?.Completed ?? [])
+        {
+            if (this.rowsByNumber.TryGetValue(record.Index, out var row) && row.State != ChapterState.Saved)
+            {
+                this.ApplyRecord(record);
+            }
+        }
+
+        this.RefreshProgress();
+    }
+
     /// <summary>Words in a text, counted without splitting it into a copy.</summary>
     internal static int CountWords(string text)
     {
@@ -988,23 +1049,8 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
 
         public void Record(ChapterRecord record) => owner.post(() =>
         {
-            if (owner.rowsByNumber.TryGetValue(record.Index, out var row))
+            if (owner.ApplyRecord(record))
             {
-                row.Title = record.Title;
-
-                // The reader opens the chapter's file when it is shown; only
-                // a chapter with no file is kept in memory.
-                row.TextLength = record.Text.Length;
-                row.File = record.SavedAs;
-                row.Text = record.SavedAs is null ? record.Text : null;
-                row.Words = CountWords(record.Text);
-                if (record.Audit is { } audit)
-                {
-                    row.LeftOutLines = audit.LeftOutLong;
-                    row.LeftOutWords = audit.LeftOutWords;
-                    row.Doubled = audit.DoubledText;
-                }
-                row.State = ChapterState.Saved;
                 owner.RefreshProgress();
 
                 // A report can arrive after the run has ended; the final
