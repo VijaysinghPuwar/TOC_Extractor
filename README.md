@@ -159,8 +159,9 @@ Some sites show a check halfway through a long download. The app pauses
 that site's work (everything else keeps going), keeps the check on its own
 tab so it cannot be navigated away while you click, and tells you: a bar
 across the top of the window with a **Show me** button that brings the
-check to the front, and on a Mac a notification with a sound, repeated
-every five minutes while the site still waits. It waits for as long as it
+check to the front, and on a Mac a notification with a sound, or on Windows
+a flashing taskbar button, repeated every five minutes while the site still
+waits. It waits for as long as it
 takes, so nothing fails while you are away; press Stop to give up instead.
 Once you finish the check, saving carries on by itself. The app also takes
 the check as a sign it was going too fast, and reads that site carefully from
@@ -521,6 +522,32 @@ nothing is overwritten. The log mentions it.
   address check. Closing that needs control the browser does not offer.
 
 ## Version history
+
+**2.5.0** (2026-09-26)
+
+From stress tests on Windows 11 (16 GB, 8 cores), 25 extractions at once. On
+sites without a check, 25 books of 10 chapters took 4.5 minutes, every
+chapter checked on disk, at the same speed and memory as 2.4.0 (average 4
+processor cores, 2.7 GB). Nothing changes on the Mac but the first fix:
+- Fixed: when two sites asked for a check at the same moment, a scan waiting
+  on one could fail with "Collection was modified" as other books opened and
+  closed tabs. It happened in every 25-book run on Windows where sites asked
+  for checks.
+- Windows: the app now reads how much memory is free, as it already did on
+  the Mac, and stops opening tabs and closes idle ones while it is short.
+  Before, with other programs open, 25 books took a 16 GB machine down to 6%
+  free.
+- Windows: Chromium and its profile (about 430 MB) moved from the roaming
+  `%APPDATA%` to `%LOCALAPPDATA%\TOC Extractor`, which work networks do not
+  copy at sign-out. The first launch moves them, keeping sign-ins.
+- Windows: the taskbar button flashes when a site needs you.
+- A novel page that loads too slowly is tried once more before the scan gives
+  up, as a chapter already was; one slow page had cost a whole book.
+- Windows: saving progress retries briefly when antivirus or search indexing
+  holds the file; book folders never end in a dot or take a reserved name
+  such as CON; long paths are enabled; "the browser from an earlier run is
+  still open" is recognised in the words Windows Chromium uses; and the
+  Windows build is precompiled, so it starts faster.
 
 **2.4.0** (2026-09-26)
 

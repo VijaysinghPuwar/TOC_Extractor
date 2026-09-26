@@ -1,4 +1,4 @@
-Reads more sites correctly, and never leaves you waiting on a check that cannot pass.
+Made for Windows as much as for the Mac: many books at once without running the computer out of memory, and no book lost to a busy moment.
 
 ## Download
 
@@ -14,11 +14,31 @@ Reads more sites correctly, and never leaves you waiting on a check that cannot 
 
 ## What is new
 
-Tested live on new sites, then on 40 books saved at once, 50 chapters each: 1,970 chapters, every one checked on disk, with none missing, none saved twice, no retries and no errors, in 15.5 minutes (average 1.35 processor cores, 4.4 GB of memory).
+Stress tested on Windows 11 (16 GB, 8 cores) with 25 extractions at once. On
+sites without a check, 25 books of 10 chapters finished in 4.5 minutes with
+every one checked on disk, the same speed as 2.4.0. The Mac is unchanged.
 
-- **Sites with numbered ids in chapter addresses now work.** Where an address carries the site's own id (`/chapter/4815162/the-gate`), that id was read as the chapter number, so a 104-chapter book scanned as "1 to 173,027". Chapters are now numbered by their titles, or by their place in the book, and each is opened directly.
-- **Whole chapter lists on pages that page themselves.** A list with numbered buttons that have no address showed only its first page; the full list is now read.
-- **Fixed:** a "Next" link could be mistaken for a search button with the same look.
-- **Fixed:** a security check that says it cannot finish, for a person either, left the app waiting for good. It now stops within seconds with a clear message, and never ends or takes over another site's check you are still completing.
-- **Fixed:** after a site's check failed, the scan kept opening that site's pages, showing you a new check each time. It now stops.
-- A site whose robots.txt closes the novel page now says so plainly.
+- **Fixed: with many books at once, one could stop with "Collection was
+  modified".** When two sites asked for a check at the same moment, the scan
+  that was waiting could fail as other books opened and closed tabs. It
+  happened in every 25-book run on Windows where sites asked for checks, and
+  is fixed on every system.
+- **Windows: the app now notices when memory is short.** It used to open
+  browser tabs up to its limit whatever else the computer was doing, and on a
+  16 GB machine with other programs open, memory fell to 6% free. Now, as on
+  the Mac, it stops opening tabs and closes idle ones while memory is short.
+- **Windows: the browser moved to the local app folder.** Chromium and its
+  profile (about 430 MB) now live in `%LOCALAPPDATA%\TOC Extractor`, not the
+  roaming folder that work networks copy at every sign-out. The first launch
+  moves them over, keeping any site you signed in to.
+- **Windows: the taskbar button flashes** when a site needs you, where a Mac
+  shows a notification.
+- **A slow novel page is tried once more** before the scan gives up, as a slow
+  chapter already was. In a 25-book run one site took over 30 seconds once, and
+  that whole book was lost.
+- Windows: saving progress no longer fails when antivirus or search indexing
+  has the file open for a moment.
+- Windows: a book whose title ends in dots, or is a name Windows reserves
+  (CON, NUL, COM1), gets a folder Windows can create; long paths work; the
+  message for a browser left open from an earlier run now appears on Windows
+  too; and the app starts faster.

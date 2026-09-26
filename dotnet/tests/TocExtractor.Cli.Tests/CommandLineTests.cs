@@ -54,6 +54,6 @@ public sealed class CommandLineTests
 
         CommandLine.Build().Parse("--version").Invoke(new InvocationConfiguration { Output = writer });
 
-        Assert.Equal("2.4.0", writer.ToString().Trim());
+        Assert.Equal("2.5.0", writer.ToString().Trim());
     }
 }
