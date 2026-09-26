@@ -77,8 +77,30 @@ and never touches the browser you normally use.
 5. Press **Save**. Each chapter appears in the list as it is saved. Open the
    **Reader** tab to read one, or **Activity** to see every step.
 
-Press **Stop** at any time. Nothing is lost: next time the app skips the
+Press **Stop** at any time. Nothing is lost: the chapters saved so far are
+written as a TXT or PDF straight away, and next time the app skips the
 chapters it already has.
+
+### Several books at once
+
+You never have to wait for one book to finish before starting the next.
+Press **New extraction** at the top left, paste another novel's page, choose
+its chapters and press Save. Every extraction appears in the list on the
+left with its own progress bar, and they all keep going in the background.
+Click one to see its chapters, reader and activity. There is no limit on how
+many you run.
+
+You can even save two parts of the same book at once, say 101 to 150 and 151
+to 200: both go into the same book folder and share its record of what is
+saved, so neither undoes the other. Books from the same site share that
+site's pace, so two extractions from one site never ask more of it than one
+would, which keeps "are you a person" checks rare. Books from different
+sites do not slow each other down. Close a finished extraction with the
+**×** beside it.
+
+If the app's browser tab is closed, or even the whole browser window, the
+app opens a new one and carries on. Before, every chapter after that point
+failed.
 
 ### Long books
 
@@ -95,10 +117,17 @@ tells you first and waits for you to press Save again.
   <img src="docs/images/app-person-needed.png" alt="The app waiting while the person completes a check" width="820">
 </p>
 
-Some sites show a check halfway through a long download. The app pauses,
-brings the check to the front of its browser window, and waits for you. Once
-you finish it, saving carries on by itself, and the app waits a little
-longer between pages so another check is less likely.
+Some sites show a check halfway through a long download. The app pauses
+that site's work (everything else keeps going), keeps the check on its own
+tab so it cannot be navigated away while you click, and tells you: a bar
+across the top of the window with a **Show me** button that brings the
+check to the front, and on a Mac a notification with a sound, repeated
+every five minutes while the site still waits. It waits for as long as it
+takes, so nothing fails while you are away; press Stop to give up instead.
+Once you finish the check, saving carries on by itself, and the app waits a
+little longer between pages on that site so another check is less likely.
+While it does, the window says so ("Going slower on purpose"), so a slower
+download is never mistaken for a stuck one.
 
 The app never tries to solve these checks for you. Some checks, such as
 Cloudflare's "Verify you are human", may refuse any browser that another
@@ -122,13 +151,24 @@ would.
 ```
 Your folder/
   The Lighthouse/
-    012 - Chapter 12.txt                     one file per chapter
-    013 - Chapter 13.txt
-    ...
-    The Lighthouse 12-20.txt                 the whole range, in order
-    The Lighthouse 12-20.pdf                 the same, as a book
-    log 2026-09-25 18-31-40.csv              every step, if the log is on
+    The Lighthouse 12-20.pdf                 the range as a book, if PDF is ticked
+    The Lighthouse 12-20.txt                 the same as one text, if TXT is ticked
+    Chapters/                                the app's working files, one per chapter
+      012 - Chapter 12.txt
+      013 - Chapter 13.txt
+      ...
 ```
+
+The book files are all you need. The Chapters folder is how the app knows
+what it already has, so a later save never downloads a chapter twice; leave
+it be, or delete the whole book folder to start fresh. Books saved by older
+versions are tidied into this layout the next time you save them.
+
+A book file is only ever named for the chapters it really holds. If you ask
+for 1 to 50 and chapter 27 fails, or you press Stop there, you get
+`The Lighthouse 1-26.pdf`, never `1-50`. Chapters saved after the gap are
+kept, and join the book when you press Save again and the gap is filled; the
+full `1-50` file then replaces the shorter one.
 
 Only the chapter heading and the story text are kept. Ads, menus, comments,
 "next chapter" links and hidden text that some sites use to mark copies are
@@ -136,16 +176,49 @@ all left out.
 
 ### Settings
 
-Open **Settings** at the bottom left to change:
+Press **Settings** at the bottom left. It opens a full settings screen in the
+same window; press **Back** to return. Changes are saved as you make them.
 
-- **At once** and **Delay**: how many chapters are fetched at the same
-  time, and how many seconds to wait between pages;
-- **Keep links in text** and **Remove ad markers**: what is kept in the
-  chapter text;
-- **Start over**: fetch every chapter again, even ones already saved;
-- **Keep a log (CSV) of every run.** The log has one row per step, with the
-  time, the chapter, its address, and what happened. When a chapter fails,
-  the reason is in that row. It opens in Excel, Numbers or Google Sheets.
+- **Appearance**: match the computer, or always light, or always dark.
+- **Logs**: keep a detailed log (CSV) of every extraction, and **Open log
+  folder** to see them.
+- **Pace**: how many chapters each extraction fetches at the same time, and
+  how many seconds to wait between pages. The default, one to two seconds,
+  was measured safe: on four sites, 100 chapters each at about a page a
+  second brought no checks, no errors and no incomplete chapters.
+- **Sites**: sites that have asked to check you're a person. The app learns
+  these itself: the first time a site asks, it reads that site carefully from
+  then on, a page every 12 seconds, which in testing kept the checks away
+  entirely (75 pages, no check) where any faster pace drew one about every
+  50 pages. Turn
+  Careful off for a site to go at full speed and click the odd check, or
+  press Forget to start it fresh.
+- **Text**: keep links in the text, and remove ad markers.
+- **For audiobooks (text to speech)**: leave chapter numbers and titles out
+  of the TXT book and **Copy text**, so a voice goes straight into the story
+  (the PDF keeps them); and remove symbols a voice would read aloud, such as
+  lines of `=====` or `-----` and stray `# _ = * ~ |`. Words and punctuation
+  are never changed. Press Save again to rebuild a book with these;
+  nothing is downloaded again.
+
+**Start over**, under Save as, fetches every chapter again, even ones already
+saved.
+
+### Logs
+
+The app keeps one log, `TOC Extractor log.csv`, and every extraction writes
+into it, one row per step, as it happens: the scan, each page opened and how
+long it took, retries and why, checks that needed you, every chapter saved or
+failed with the reason, the files written, and anything that went wrong,
+with its full technical details. The **job** column says which extraction a
+row belongs to, such as `#2 The Lighthouse`, so filter on it to follow one
+book; rows marked `app` are the app starting, stopping, or crashing. If the
+app ever closes unexpectedly, the log shows what it was doing at that
+moment. It opens in Excel, Numbers or Google Sheets. Past 20 MB it is set
+aside as `TOC Extractor log (previous).csv` and a new one begins.
+
+The log folder is `~/Library/Application Support/TOC Extractor/logs` on a
+Mac and `%APPDATA%\TOC Extractor\logs` on Windows.
 
 ## Good manners are built in
 
@@ -369,6 +442,48 @@ nothing is overwritten. The log mentions it.
   address check. Closing that needs control the browser does not offer.
 
 ## Version history
+
+**2.2.0** (2026-09-25)
+- New: run as many extractions at once as you like. Each has its own entry
+  on the left with a progress bar, and they all carry on in the background.
+- New: a Settings screen with light, dark or automatic appearance, the pace,
+  and **Open log folder**.
+- New: one detailed CSV log for the whole app, written as it happens, with
+  every page, retry, check and error of every extraction, and crashes.
+- New: a book file is named for exactly the chapters in it. Asked for 1-50
+  with chapter 27 failed, it is "1-26", never "1-50".
+- New: two parts of the same book can be saved at the same time.
+- New: audiobook options: leave out chapter headings, and remove symbols a
+  text-to-speech voice would read aloud.
+- Changed: the one-file-per-chapter working files now live in a Chapters
+  folder inside the book's folder, so the book files are easy to find.
+- Fixed: after a browser tab was closed or crashed, every later chapter
+  failed with "Target page, context or browser has been closed". The app now
+  opens a fresh tab, or a fresh browser, and carries on.
+- Fixed: stopping part way now still writes the TXT and PDF of the chapters
+  saved so far.
+- Fixed: the chapter boxes were too narrow for four-digit numbers, so 1000
+  looked like 100.
+- Fixed: after Stop, the status could stay on "Stopping..." for good.
+- Fixed: books that restart their chapter numbers in each part ("Arc 9:
+  Chapter 38", "Book 2: Chapter 1") were numbered by those titles, so a
+  range could mix chapters from different parts. They are now numbered by
+  their place in the whole book.
+- Fixed: a book whose chapter 1 address repeats its number
+  (".../chapter-1-number-1") lost its first chapters from the scan.
+- Fixed: on sites that write paragraphs as `<div>`s the story was not found,
+  and a chapter whose title was laid out differently from the rest failed;
+  it is now saved under the page's own title.
+- Fixed: while a site's check waited for a person, other extractions could
+  take over its tab, so the check kept coming back.
+- New: when a site needs you, a bar across the window, a Mac notification
+  and reminders make sure you notice, and the app waits for you instead of
+  giving up after 15 minutes.
+- New: a chapter far shorter than the rest of its book is named when saving
+  finishes, so a page that loaded without its story never slips through.
+- New: faster by default (one to two seconds between pages), and each site
+  that asks for checks is learned and then read at a pace that keeps them
+  away. Settings, Sites, lists them.
 
 **2.1.0** (2026-09-25)
 - New: a desktop app for Mac and Windows, written in C# with .NET. Paste a

@@ -37,6 +37,14 @@ public sealed record ScanResult
     /// <summary>How many pages the scan read.</summary>
     public int PagesRead { get; init; }
 
+    /// <summary>
+    /// Chapter numbers are places in the whole book, not the numbers in the
+    /// titles: the book restarts its numbering in each arc or part ("Arc 9:
+    /// Chapter 38"). Chapters reached by following links are then numbered by
+    /// counting, and addresses are never built from a number.
+    /// </summary>
+    public bool PositionalNumbers { get; init; }
+
     public bool Ready => this.Problem is null && this.Chapters.Count > 0 && this.Layout is not null;
 
     public int FirstNumber => this.Chapters.Count > 0 ? this.Chapters[0].Number : 0;

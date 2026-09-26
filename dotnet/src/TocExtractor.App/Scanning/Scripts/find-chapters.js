@@ -29,6 +29,7 @@
   here.hash = '';
 
   const groups = new Map();
+  const candidates = [];
   const lists = [];
   const pages = [];
   const firsts = [];
@@ -69,16 +70,27 @@
     if (number === null) continue;
     // The part of the last segment before the chapter number, so one book's
     // chapters group together (book-12_1, book-12_2) and another book's
-    // "latest chapter" teaser (book-99_890) does not join them.
+    // "latest chapter" teaser (book-99_890) does not join them. The number
+    // can appear twice ("chapter-1-number-1"), so every reading is kept and
+    // the one most of the book's chapters share is chosen below.
     const last = parts[parts.length - 1];
-    const at = [...last.matchAll(/\d+/g)].filter(m => Number(m[0]) === number).pop();
-    const stem = at ? last.slice(0, at.index) : last.replace(/\d+/g, '#');
-    const key = url.hostname + '/' + folder + '|' + stem;
+    const ats = [...last.matchAll(/\d+/g)].filter(m => Number(m[0]) === number);
+    const stems = ats.length ? ats.map(m => last.slice(0, m.index)) : [last.replace(/\d+/g, '#')];
+    const keys = [...new Set(stems)].map(stem => url.hostname + '/' + folder + '|' + stem);
+    candidates.push({ url: href, number, title: text || tip, keys });
+  }
+
+  // Each link joins the reading of its address that the most links share.
+  const votes = new Map();
+  for (const c of candidates) for (const k of c.keys) votes.set(k, (votes.get(k) || 0) + 1);
+  for (const c of candidates) {
+    const lockedKey = window.__tocExtractorKey || null;
+    const key = lockedKey && c.keys.includes(lockedKey)
+      ? lockedKey
+      : c.keys.reduce((a, b) => (votes.get(b) > votes.get(a) ? b : a));
     if (!groups.has(key)) groups.set(key, new Map());
     const group = groups.get(key);
-    if (!group.has(href)) {
-      group.set(href, { url: href, number, title: text || tip, key });
-    }
+    if (!group.has(c.url)) group.set(c.url, { url: c.url, number: c.number, title: c.title, key });
   }
 
   // The winning group, or the group the scanner already locked onto: once
@@ -106,7 +118,23 @@
     .replace(/\s+(?:raw\s+)?(?:english\s+)?(?:translation|novel|online|free)(?:\s+(?:online|free))?$/i, '')
     .trim() || title;
   const text = document.body ? document.body.innerText.slice(0, 4000) : '';
+
+  // How many chapters the site says the book has, when it says so: its own
+  // data (window.__DATA__.count_all), or "Translated: 334 chapters". Only a
+  // single, unambiguous figure counts.
+  let total = null;
+  try {
+    const data = window.__DATA__;
+    if (data && Number.isFinite(Number(data.count_all)) && Number(data.count_all) > 0) total = Number(data.count_all);
+  } catch (e) { /* no such data */ }
+  if (total === null) {
+    const said = [...text.matchAll(/translated\s*[:：]?\s*(\d[\d,]{0,6})\s*chapters?/gi)]
+      .map(m => Number(m[1].replace(/,/g, '')));
+    if (new Set(said).size === 1) total = said[0];
+  }
+
   return JSON.stringify({
+    total,
     title: bookTitle,
     key: best.length ? best[0].key : null,
     chapters: best,

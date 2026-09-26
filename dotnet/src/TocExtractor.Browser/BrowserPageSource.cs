@@ -125,8 +125,14 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
     private readonly List<PageSlot> slots = [];
     private readonly SemaphoreSlim available;
     private readonly ConcurrentQueueOfSlots pool = new();
+    private readonly SemaphoreSlim growing = new(1, 1);
+
+    // Tabs showing a site's check, kept for the person until it is passed.
+    private readonly List<PageSlot> held = [];
 
     private IPlaywright? playwright;
+    private int people;
+    private volatile bool closed;
 
     // The site being read, for telling its own cookies from ad networks'.
     private string? siteUrl;
@@ -213,24 +219,106 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             }
         };
 
+        // The person can close the browser window; every later call would
+        // then fail, so the owner needs to know to start a new one.
+        this.context.Close += (_, _) => this.closed = true;
+
         var budget = (float)this.options.OperationBudget.TotalMilliseconds;
         this.context.SetDefaultNavigationTimeout(budget);
         this.context.SetDefaultTimeout(budget);
 
         for (var i = 0; i < Math.Max(1, this.options.MaxPages); i++)
         {
-            var page = await this.context.NewPageAsync().ConfigureAwait(false);
-            var slot = new PageSlot(page);
-
-            // Bound to its slot, so redirect state cannot be attributed to a
-            // navigation happening on another page.
-            await page.RouteAsync("**/*", route => this.HandleRouteAsync(slot, route))
-                .ConfigureAwait(false);
-
-            this.slots.Add(slot);
-            this.pool.Add(slot);
-            this.available.Release();
+            await this.AddSlotAsync().ConfigureAwait(false);
         }
+    }
+
+    /// <summary>True once the browser has gone away, closed by the person or crashed.</summary>
+    public bool IsClosed => this.closed || this.context is null;
+
+    private async Task AddSlotAsync()
+    {
+        var slot = await this.NewSlotAsync().ConfigureAwait(false);
+        lock (this.slots)
+        {
+            this.slots.Add(slot);
+        }
+
+        this.pool.Add(slot);
+        this.available.Release();
+    }
+
+    private async Task<PageSlot> NewSlotAsync()
+    {
+        var page = await this.context!.NewPageAsync().ConfigureAwait(false);
+        var slot = new PageSlot(page);
+        page.Crash += (_, _) => slot.Crashed = true;
+
+        // Bound to its slot, so redirect state cannot be attributed to a
+        // navigation happening on another page.
+        await page.RouteAsync("**/*", route => this.HandleRouteAsync(slot, route))
+            .ConfigureAwait(false);
+        return slot;
+    }
+
+    /// <summary>
+    /// A fresh tab in place of one that was closed or crashed.
+    /// </summary>
+    /// <remarks>
+    /// A tab can go away under the app: the person closes it, a site's script
+    /// closes it, or it crashes. Handing the dead tab out again would fail
+    /// every later chapter at once, so it is replaced before it is used.
+    /// </remarks>
+    private async Task<PageSlot> HealAsync(PageSlot slot)
+    {
+        if (!slot.Page.IsClosed && !slot.Crashed)
+        {
+            return slot;
+        }
+
+        if (this.IsClosed)
+        {
+            this.Release(slot);
+            throw new PageException("the browser was closed");
+        }
+
+        PageSlot fresh;
+        try
+        {
+            fresh = await this.NewSlotAsync().ConfigureAwait(false);
+        }
+        catch (PlaywrightException exception)
+        {
+            this.Release(slot);
+            throw new PageException($"the browser tab was closed and a new one could not be opened: {exception.Message}", exception);
+        }
+
+        if (!slot.Page.IsClosed)
+        {
+            try
+            {
+                await slot.Page.CloseAsync().ConfigureAwait(false);
+            }
+            catch (PlaywrightException)
+            {
+                // Crashed tabs can refuse to close; it is out of the pool either way.
+            }
+        }
+
+        lock (this.slots)
+        {
+            var at = this.slots.IndexOf(slot);
+            if (at >= 0)
+            {
+                this.slots[at] = fresh;
+            }
+            else
+            {
+                this.slots.Add(fresh);
+            }
+        }
+
+        return fresh;
     }
 
     public async ValueTask DisposeAsync()
@@ -260,8 +348,13 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         this.playwright = null;
         this.browser = null;
         this.context = null;
-        this.slots.Clear();
+        lock (this.slots)
+        {
+            this.slots.Clear();
+        }
+
         this.available.Dispose();
+        this.growing.Dispose();
     }
 
     // -- routing -------------------------------------------------------------
@@ -387,14 +480,106 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             throw new PageException("page source is not started; call StartAsync first");
         }
 
-        await this.available.WaitAsync(cancellationToken).ConfigureAwait(false);
-        return this.pool.Take();
+        // Every page busy: with room to grow, open another rather than wait,
+        // so one book's work never queues behind another's.
+        if (!await this.available.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        {
+            await this.GrowAsync(cancellationToken).ConfigureAwait(false);
+            await this.available.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        return await this.HealAsync(this.pool.Take()).ConfigureAwait(false);
+    }
+
+    private async Task GrowAsync(CancellationToken cancellationToken)
+    {
+        if (this.options.GrowTo is not { } limit)
+        {
+            return;
+        }
+
+        await this.growing.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            int open;
+            lock (this.slots)
+            {
+                open = this.slots.Count;
+            }
+
+            // At the limit, tabs kept for a check that nobody is waiting on
+            // any more are the ones to put back to work.
+            if (open >= limit)
+            {
+                this.ReturnHeld();
+            }
+
+            // Another caller may have grown the pool while this one waited.
+            if (open < limit && this.available.CurrentCount == 0 && !this.IsClosed)
+            {
+                try
+                {
+                    await this.AddSlotAsync().ConfigureAwait(false);
+                }
+                catch (PlaywrightException exception)
+                {
+                    throw new PageException($"could not open another browser tab: {exception.Message}", exception);
+                }
+            }
+        }
+        finally
+        {
+            this.growing.Release();
+        }
     }
 
     private void Release(PageSlot slot)
     {
+        // A tab showing a check stays where the person can finish it. Handed
+        // back to the pool, another book's work would navigate it away while
+        // they were clicking, the check would seem passed, and the site would
+        // ask again, over and over. Only a pool that can grow can spare it.
+        if (slot.HeldForPerson && this.options.GrowTo is not null)
+        {
+            lock (this.held)
+            {
+                this.held.Add(slot);
+            }
+
+            return;
+        }
+
+        slot.HeldForPerson = false;
         this.pool.Add(slot);
         this.available.Release();
+    }
+
+    /// <summary>Tabs kept for a check go back to work: the check is done, or it is no longer waited for.</summary>
+    private void ReturnHeld()
+    {
+        List<PageSlot> back;
+        lock (this.held)
+        {
+            back = [.. this.held];
+            this.held.Clear();
+        }
+
+        foreach (var slot in back)
+        {
+            slot.HeldForPerson = false;
+            this.pool.Add(slot);
+            this.available.Release();
+        }
+    }
+
+    /// <summary>A check on this tab's page: keep the tab for the person, and say so.</summary>
+    private static async Task ThrowIfHumanCheckAsync(PageSlot slot, string url)
+    {
+        if (await IsHumanCheckAsync(slot.Page).ConfigureAwait(false))
+        {
+            slot.HeldForPerson = true;
+            throw new HumanCheckException($"{url}: the site is asking to check that you are human");
+        }
     }
 
     private async Task<string> GotoAsync(PageSlot slot, string url, TimeSpan remaining)
@@ -458,7 +643,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         try
         {
             var finalUrl = await this.GotoAsync(slot, url, this.Remaining(deadline)).ConfigureAwait(false);
-            await ThrowIfHumanCheckAsync(slot.Page, url).ConfigureAwait(false);
+            await ThrowIfHumanCheckAsync(slot, url).ConfigureAwait(false);
             var watch = Stopwatch.StartNew();
             string? previous = null;
             while (true)
@@ -500,15 +685,43 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             return false;
         }
 
-        this.PersonAtWindow = true;
+        this.PersonArrived();
         try
         {
             return await this.WaitForPersonCoreAsync(timeout, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            this.PersonAtWindow = false;
+            this.PersonLeft();
+            this.ReturnHeld();
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> ShowCheckAsync()
+    {
+        if (this.context is not { } context)
+        {
+            return false;
+        }
+
+        foreach (var page in context.Pages)
+        {
+            if (await IsHumanCheckAsync(page).ConfigureAwait(false))
+            {
+                try
+                {
+                    await page.BringToFrontAsync().ConfigureAwait(false);
+                    return true;
+                }
+                catch (PlaywrightException)
+                {
+                    // Gone as it was found; look at the next.
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Looks in a row, two seconds apart, that a check must stay gone for.</summary>
@@ -571,20 +784,28 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
     }
 
     /// <inheritdoc />
-    public async Task<bool> WaitForSignInAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
+    public Task<bool> WaitForSignInAsync(TimeSpan timeout, CancellationToken cancellationToken = default) =>
+        this.WaitForSignInAsync(this.siteUrl, timeout, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<bool> WaitForSignInAsync(string? siteUrl, TimeSpan timeout, CancellationToken cancellationToken = default)
     {
-        this.PersonAtWindow = true;
+        this.PersonArrived();
         try
         {
             var watch = Stopwatch.StartNew();
             if (this.context is { Pages.Count: > 0 } open)
             {
-                await open.Pages[0].BringToFrontAsync().ConfigureAwait(false);
+                // The tab showing that site, when several sites are open.
+                var host = siteUrl is not null && Uri.TryCreate(siteUrl, UriKind.Absolute, out var site) ? site.Host : null;
+                var page = open.Pages.FirstOrDefault(p => host is not null && Uri.TryCreate(p.Url, UriKind.Absolute, out var at) && at.Host == host)
+                    ?? open.Pages[0];
+                await page.BringToFrontAsync().ConfigureAwait(false);
             }
 
             while (watch.Elapsed < timeout)
             {
-                if (await this.HasSessionCookiesAsync(cancellationToken).ConfigureAwait(false))
+                if (await this.HasSessionCookiesAsync(siteUrl, cancellationToken).ConfigureAwait(false))
                 {
                     return true;
                 }
@@ -596,7 +817,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         }
         finally
         {
-            this.PersonAtWindow = false;
+            this.PersonLeft();
         }
     }
 
@@ -613,40 +834,83 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         }
     }
 
-    private static async Task ThrowIfHumanCheckAsync(IPage page, string url)
-    {
-        if (await IsHumanCheckAsync(page).ConfigureAwait(false))
-        {
-            throw new HumanCheckException($"{url}: the site is asking to check that you are human");
-        }
-    }
 
-    public async Task<bool> HasSessionCookiesAsync(CancellationToken cancellationToken = default)
-    {
-        if (this.context is null)
-        {
-            return false;
-        }
+    public Task<bool> HasSessionCookiesAsync(CancellationToken cancellationToken = default) =>
+        this.HasSessionCookiesAsync(this.siteUrl, cancellationToken);
 
-        if (this.siteUrl is null)
+    /// <inheritdoc />
+    public async Task<bool> HasSessionCookiesAsync(string? siteUrl, CancellationToken cancellationToken = default)
+    {
+        if (this.context is null || siteUrl is null)
         {
             return false;
         }
 
         // Only the site's own cookies: ad networks set user-id cookies on
         // their own domains in the same browser, and those sign no one in.
-        var cookies = await this.context.CookiesAsync([this.siteUrl]).ConfigureAwait(false);
-        return cookies.Any(cookie => IsAccountCookie(cookie.Name));
+        try
+        {
+            var cookies = await this.context.CookiesAsync([siteUrl]).ConfigureAwait(false);
+            return cookies.Any(cookie => IsAccountCookie(cookie.Name));
+        }
+        catch (PlaywrightException)
+        {
+            // The browser was closed.
+            return false;
+        }
     }
 
     /// <summary>
     /// True while a person is using the browser window (signing in, passing a
     /// check). Pop-ups are left alone then; a sign-in can open one.
     /// </summary>
-    public bool PersonAtWindow { get; set; }
+    /// <remarks>
+    /// A count, not a flag: with several books saving at once, two can be
+    /// waiting for the person together, and the first to finish must not
+    /// declare the window free while the other still waits.
+    /// </remarks>
+    public bool PersonAtWindow => Volatile.Read(ref this.people) > 0;
+
+    /// <summary>The person has started using the window.</summary>
+    public void PersonArrived() => Interlocked.Increment(ref this.people);
+
+    /// <summary>The person has finished with the window.</summary>
+    public void PersonLeft()
+    {
+        // Never below zero, whatever order the callers finish in.
+        var seen = Volatile.Read(ref this.people);
+        while (seen > 0)
+        {
+            var was = Interlocked.CompareExchange(ref this.people, seen - 1, seen);
+            if (was == seen)
+            {
+                return;
+            }
+
+            seen = was;
+        }
+    }
 
     /// <summary>How many tabs are open, the app's own included. For tests.</summary>
     internal int OpenTabs => this.context?.Pages.Count ?? 0;
+
+    /// <summary>What every open tab is showing. For tests.</summary>
+    internal IReadOnlyList<string> TabUrls => [.. this.context?.Pages.Select(page => page.Url) ?? []];
+
+    /// <summary>Close every tab the app works in, as a person clicking their close buttons would. For tests.</summary>
+    internal async Task CloseWorkTabsAsync()
+    {
+        List<PageSlot> open;
+        lock (this.slots)
+        {
+            open = [.. this.slots];
+        }
+
+        foreach (var slot in open)
+        {
+            await slot.Page.CloseAsync().ConfigureAwait(false);
+        }
+    }
 
     public async Task<string> OpenPageAsync(string url, CancellationToken cancellationToken = default)
     {
@@ -674,7 +938,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         {
             var finalUrl = await this.GotoAsync(slot, url, this.Remaining(deadline)).ConfigureAwait(false);
             var page = slot.Page;
-            await ThrowIfHumanCheckAsync(page, url).ConfigureAwait(false);
+            await ThrowIfHumanCheckAsync(slot, url).ConfigureAwait(false);
             await WaitForLinksAsync(page, linkSelector, this.Remaining(deadline)).ConfigureAwait(false);
 
             var html = captureHtml ? await page.ContentAsync().ConfigureAwait(false) : null;
@@ -729,9 +993,20 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         try
         {
             var finalUrl = await this.GotoAsync(slot, url, this.Remaining(deadline)).ConfigureAwait(false);
-            await ThrowIfHumanCheckAsync(slot.Page, url).ConfigureAwait(false);
-            var title = await ReadFieldAsync(slot.Page, titleSelector, finalUrl, this.Remaining(deadline))
-                .ConfigureAwait(false);
+            await ThrowIfHumanCheckAsync(slot, url).ConfigureAwait(false);
+            string title;
+            if (this.options.TitleFallback)
+            {
+                // The story first, with the whole budget: a page still filling
+                // in is not a page without a title. Then the title, briefly.
+                await WaitAttachedAsync(slot.Page, contentSelector, finalUrl, this.Remaining(deadline)).ConfigureAwait(false);
+                title = await ReadTitleOrFallbackAsync(slot.Page, titleSelector, finalUrl).ConfigureAwait(false);
+            }
+            else
+            {
+                title = await ReadFieldAsync(slot.Page, titleSelector, finalUrl, this.Remaining(deadline))
+                    .ConfigureAwait(false);
+            }
 
             if (await IsLockedAsync(slot.Page).ConfigureAwait(false))
             {
@@ -786,6 +1061,46 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         {
             // An invalid selector is the person's to fix; the preview says so.
             return null;
+        }
+    }
+
+    private static async Task WaitAttachedAsync(IPage page, string selector, string url, TimeSpan remaining)
+    {
+        try
+        {
+            await page.WaitForSelectorAsync(selector, new PageWaitForSelectorOptions
+            {
+                State = WaitForSelectorState.Attached,
+                Timeout = Milliseconds(remaining),
+            }).ConfigureAwait(false);
+        }
+        catch (TimeoutException exception)
+        {
+            throw new SelectorNotFoundException($"{selector} matched nothing on {url}", exception);
+        }
+        catch (PlaywrightException exception)
+        {
+            throw new PageException($"{url}: {exception.Message}", exception);
+        }
+    }
+
+    /// <summary>The chapter's title, or failing that the page's own title, so one oddly laid out page never costs its chapter.</summary>
+    private static async Task<string> ReadTitleOrFallbackAsync(IPage page, string selector, string url)
+    {
+        try
+        {
+            return await ReadFieldAsync(page, selector, url, TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+        }
+        catch (SelectorNotFoundException)
+        {
+            try
+            {
+                return FirstLine(await page.TitleAsync().ConfigureAwait(false));
+            }
+            catch (PlaywrightException)
+            {
+                return "";
+            }
         }
     }
 
@@ -931,6 +1246,11 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         internal IPage Page { get; } = page;
 
         internal GuardedNavigation? Navigation { get; set; }
+
+        internal bool Crashed { get; set; }
+
+        /// <summary>The page is a site's check, which the person has to finish on this tab.</summary>
+        internal bool HeldForPerson { get; set; }
     }
 
     private sealed class ConcurrentQueueOfSlots

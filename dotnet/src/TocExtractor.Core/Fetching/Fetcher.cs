@@ -18,6 +18,13 @@ public sealed record CollectedLinks(
     public IReadOnlyList<string> Kept => this.Collection.Kept;
 }
 
+/// <summary>One step of fetching a chapter, for a detailed log.</summary>
+/// <param name="Event">What happened: <c>load</c>, <c>loaded</c>, <c>retry</c>, <c>check</c>, <c>step</c>.</param>
+/// <param name="Chapter">The chapter's number when it is known.</param>
+/// <param name="Url">The page.</param>
+/// <param name="Detail">Everything else worth knowing, in words.</param>
+public sealed record FetchTrace(string Event, int? Chapter, string Url, string Detail);
+
 /// <summary>The concurrent, polite, resumable fetch loop.</summary>
 /// <remarks>
 /// Composes the rate limiter with bounded concurrency. Those two have to
@@ -41,6 +48,7 @@ public sealed class Fetcher : IDisposable
     private readonly Action<ChapterRecord>? onRecord;
     private readonly Action<FailedChapter>? onFailure;
     private readonly Func<HumanCheckException, CancellationToken, Task<bool>>? onHumanCheck;
+    private readonly Action<FetchTrace>? onTrace;
 
     // One person, one check at a time: workers that hit it together wait on
     // the first, then find it already passed and simply try again.
@@ -74,7 +82,8 @@ public sealed class Fetcher : IDisposable
         Func<string, bool>? alreadyDone = null,
         Action<ChapterRecord>? onRecord = null,
         Action<FailedChapter>? onFailure = null,
-        Func<HumanCheckException, CancellationToken, Task<bool>>? onHumanCheck = null)
+        Func<HumanCheckException, CancellationToken, Task<bool>>? onHumanCheck = null,
+        Action<FetchTrace>? onTrace = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(guard);
@@ -92,6 +101,7 @@ public sealed class Fetcher : IDisposable
         this.alreadyDone = alreadyDone ?? (static _ => false);
         this.onRecord = onRecord;
         this.onFailure = onFailure;
+        this.onTrace = onTrace;
         this.limiter = limiter ?? new RateLimiter(this.options.MinDelay, sleep: (d, t) => this.sleep(d, t));
     }
 
@@ -425,9 +435,13 @@ public sealed class Fetcher : IDisposable
                 // Inside the slot, so a worker holding one is the one waiting on
                 // the host. Acquiring before would let more workers than the
                 // concurrency limit queue on the limiter.
-                await this.limiter.AcquireAsync(host, cancellationToken).ConfigureAwait(false);
+                var waited = await this.limiter.AcquireAsync(host, cancellationToken).ConfigureAwait(false);
+                this.Trace("load", index, url, string.Create(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    $"attempt {attempt}, waited {waited.TotalSeconds:0.0}s for the site's pace"));
 
                 ChapterPage page;
+                var clock = System.Diagnostics.Stopwatch.StartNew();
                 try
                 {
                     page = await this.LoadAsync(url, selectors, nextSelector, cancellationToken).ConfigureAwait(false);
@@ -447,11 +461,15 @@ public sealed class Fetcher : IDisposable
                 {
                     // Not the chapter's fault, and not an attempt: the site
                     // wants a person. Wait for them, then load it again.
+                    this.Trace("check", index, url, "waiting for the person: " + exception.Message);
                     if (await this.WaitForPersonAsync(exception, cancellationToken).ConfigureAwait(false))
                     {
+                        this.Trace("check", index, url, "passed; loading the page again");
                         attempt--;
                         continue;
                     }
+
+                    this.Trace("check", index, url, "not passed in time");
 
                     this.RecordFailure(progress, index, url, exception, attempt);
                     return null;
@@ -472,13 +490,23 @@ public sealed class Fetcher : IDisposable
                         return null;
                     }
 
-                    await this.sleep(this.Backoff(attempt), cancellationToken).ConfigureAwait(false);
+                    var backoff = this.Backoff(attempt);
+                    this.Trace("retry", index, url, string.Create(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        $"attempt {attempt} failed after {clock.Elapsed.TotalSeconds:0.0}s ({exception.GetType().Name}: {exception.Message}); trying again in {backoff.TotalSeconds:0.0}s"));
+                    await this.sleep(backoff, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
                 // A walk decides after loading: the page's own title says which
                 // chapter it is, and a page outside the range is only a step.
                 var number = decide is null ? index : decide(page);
+                this.Trace(number is null ? "step" : "loaded", number ?? index, url, string.Create(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    $"\"{page.Title}\", {page.Body.Length:N0} characters in {clock.Elapsed.TotalSeconds:0.0}s")
+                    + (page.FinalUrl != url ? " | ended at " + page.FinalUrl : "")
+                    + (number is null ? " | outside the range, visited only to follow its links" : "")
+                    + (page.NextUrl is { } next ? " | next " + next : ""));
                 if (number is { } keep)
                 {
                     await this.RecordSuccessAsync(progress, keep, url, page, decision, attempt, cancellationToken)
@@ -589,6 +617,23 @@ public sealed class Fetcher : IDisposable
         var failure = new FailedChapter(index, url, ReasonFor(exception), exception.Message, attempts);
         progress.RecordFailure(failure);
         this.onFailure?.Invoke(failure);
+    }
+
+    private void Trace(string kind, int? chapter, string url, string detail)
+    {
+        if (this.onTrace is null)
+        {
+            return;
+        }
+
+        try
+        {
+            this.onTrace(new FetchTrace(kind, chapter, url, detail));
+        }
+        catch (Exception exception) when (exception is IOException or ObjectDisposedException)
+        {
+            // A log that cannot be written must never stop a download.
+        }
     }
 
     private static string ReasonFor(PageException exception) => exception switch

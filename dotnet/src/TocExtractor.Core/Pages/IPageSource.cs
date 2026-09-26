@@ -61,6 +61,14 @@ public interface IPageSource : IAsyncDisposable
     /// </remarks>
     Task<bool> HasSessionCookiesAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Whether the browser carries an account cookie for <paramref name="siteUrl"/>'s site.</summary>
+    /// <remarks>
+    /// For a source that serves several sites at once. A source that only
+    /// ever serves one answers for that one.
+    /// </remarks>
+    Task<bool> HasSessionCookiesAsync(string? siteUrl, CancellationToken cancellationToken = default) =>
+        this.HasSessionCookiesAsync(cancellationToken);
+
     Task<TocPage> LoadTocAsync(
         string url,
         string linkSelector,

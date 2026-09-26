@@ -44,6 +44,10 @@ internal sealed class FakeShell : IShell
         return Task.CompletedTask;
     }
 
+    public List<string> Notified { get; } = [];
+
+    public void Notify(string title, string message) => this.Notified.Add(message);
+
     public Task CopyTextAsync(string text)
     {
         this.Copied = text;
@@ -63,6 +67,13 @@ internal sealed class FakeNovelService : INovelService
     ];
 
     public event EventHandler<string?>? PersonNeeded;
+
+    public event EventHandler<string?>? PaceNote;
+
+    public string? CurrentPaceNote { get; set; }
+
+    /// <summary>Say the site was slowed, as a real session does after a check.</summary>
+    public void Slow(string note) => this.PaceNote?.Invoke(this, note);
 
     public int Chapters { get; set; } = 40;
 
@@ -94,7 +105,7 @@ internal sealed class FakeNovelService : INovelService
         var scan = new ScanResult
         {
             NovelUrl = novelUrl,
-            BookTitle = "The Lighthouse",
+            BookTitle = this.Book,
             Chapters = chapters,
             Layout = new ChapterLayout("h1", "article", "a[rel=next]", "a[rel=prev]"),
             Notes = ["Read the chapter list at https://novel.example/book/the-lighthouse/chapters."],
@@ -108,6 +119,12 @@ internal sealed class FakeNovelService : INovelService
     public bool SlowPlans { get; set; }
 
     public int Saves { get; private set; }
+
+    /// <summary>When set, saving throws something no one planned for.</summary>
+    public bool CrashOnSave { get; set; }
+
+    /// <summary>The book's title, so two fakes can be two books.</summary>
+    public string Book { get; set; } = "The Lighthouse";
 
     public RangePreview Preview(ScanResult scan, int first, int last)
     {
@@ -125,12 +142,16 @@ internal sealed class FakeNovelService : INovelService
         string outputRoot,
         bool text,
         bool pdf,
-        bool csvLog,
         bool force,
         IPipelineObserver observer,
         CancellationToken cancellationToken = default)
     {
         this.Saves++;
+        if (this.CrashOnSave)
+        {
+            throw new InvalidOperationException("the fake session broke");
+        }
+
         List<int> missing = [];
         for (var n = preview.From; n <= preview.To; n++)
         {
@@ -149,6 +170,7 @@ internal sealed class FakeNovelService : INovelService
                 continue;
             }
 
+            observer.Trace(new Core.Fetching.FetchTrace("loaded", n, url, "a page, loaded"));
             observer.Record(new ChapterRecord(
                 n, url, url, Title(n),
                 "The lamp had burned every night for forty years, and on the forty-first it went out.\n"
@@ -178,6 +200,14 @@ internal sealed class FakeNovelService : INovelService
         return Task.FromResult(this.SignedIn);
     }
 
+    public int ShownChecks { get; private set; }
+
+    public Task<bool> ShowCheckAsync()
+    {
+        this.ShownChecks++;
+        return Task.FromResult(true);
+    }
+
     public Task CloseAsync() => Task.CompletedTask;
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -185,22 +215,56 @@ internal sealed class FakeNovelService : INovelService
     private static string Title(int n) => $"Chapter {n}: {Titles[(n - 1) % Titles.Length]}";
 }
 
-/// <summary>A window over the fake session, with nothing real behind it.</summary>
+/// <summary>A window over fake sessions, with nothing real behind it.</summary>
 internal sealed class Harness
 {
     public Harness(bool browserReady = true)
     {
         this.ViewModel = new MainViewModel(
-            this.Service,
+            () =>
+            {
+                var service = this.Services.Count == 0 ? this.Service : new FakeNovelService();
+                this.Services.Add(service);
+                return service;
+            },
             this.Shell,
             browserReady ? BrowserSetup.Present : new BrowserSetup(_ => Task.FromResult(false), (_, token) => Task.Delay(Timeout.Infinite, token)),
             new SettingsStore(Path.Combine(Scratch(), "settings.json")),
-            action => Dispatcher.UIThread.Post(action));
-        this.ViewModel.OutputDirectory = Scratch();
+            action => Dispatcher.UIThread.Post(action),
+            log: this.Log,
+            applyTheme: theme => this.Themes.Add(theme));
+        this.Output = Scratch();
+        this.Job.OutputDirectory = this.Output;
         this.Window = new MainWindow { DataContext = this.ViewModel };
     }
 
+    /// <summary>The first extraction's session.</summary>
     public FakeNovelService Service { get; } = new();
+
+    /// <summary>Every session made, one per extraction, in order.</summary>
+    public List<FakeNovelService> Services { get; } = [];
+
+    public string LogFolder { get; } = Scratch();
+
+    /// <summary>The one log, as the app opens it.</summary>
+    public CsvLog Log => this.log ??= new CsvLog(Path.Combine(this.LogFolder, "TOC Extractor log.csv"), "app", append: true);
+
+    private CsvLog? log;
+
+    /// <summary>The log's rows, read the way a spreadsheet would while the app still has it open.</summary>
+    public string[] LogRows()
+    {
+        using var stream = new FileStream(this.Log.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+    }
+
+    public string Output { get; }
+
+    public List<AppTheme> Themes { get; } = [];
+
+    /// <summary>The extraction showing on the right.</summary>
+    public JobViewModel Job => this.ViewModel.SelectedJob!;
 
     public FakeShell Shell { get; } = new();
 
@@ -217,10 +281,19 @@ internal sealed class Harness
 
     public async Task ScannedAsync()
     {
-        this.ViewModel.NovelUrl = FakeNovelService.NovelUrl;
+        this.Job.NovelUrl = FakeNovelService.NovelUrl;
         Pump();
-        await this.ViewModel.ScanCommand.ExecuteAsync(null);
+        await this.Job.ScanCommand.ExecuteAsync(null);
         Pump();
+    }
+
+    /// <summary>Start another extraction, as the New extraction button does, and show it.</summary>
+    public JobViewModel NewJob()
+    {
+        this.ViewModel.NewJobCommand.Execute(null);
+        this.Job.OutputDirectory = this.Output;
+        Pump();
+        return this.Job;
     }
 
     /// <summary>Run everything the dispatcher has queued, as the real loop would between frames.</summary>

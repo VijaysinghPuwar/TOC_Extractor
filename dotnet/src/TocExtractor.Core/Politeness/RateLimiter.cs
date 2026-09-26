@@ -30,6 +30,7 @@ public sealed class RateLimiter
     private readonly ConcurrentDictionary<string, SemaphoreSlim> locks = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TimeSpan> last = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, TimeSpan> overrides = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Allowance> allowances = new(StringComparer.Ordinal);
     private readonly TimeSpan minInterval;
     private readonly Func<TimeSpan> clock;
     private readonly Sleeper sleep;
@@ -64,6 +65,26 @@ public sealed class RateLimiter
             (_, existing) => interval > existing ? interval : existing);
     }
 
+    /// <summary>
+    /// Give one host an allowance on top of its interval: up to
+    /// <paramref name="burst"/> pages at the usual pace, then one page per
+    /// <paramref name="refillEvery"/>, the allowance filling back up while
+    /// the host is left alone. For a site that tolerates a burst but checks
+    /// visitors who keep up a fast pace.
+    /// </summary>
+    /// <param name="url">The host.</param>
+    /// <param name="burst">Pages at the usual pace before the refill rate applies.</param>
+    /// <param name="refillEvery">One page per this, once the burst is spent.</param>
+    /// <param name="empty">Start with the burst already spent: the site has just shown its allowance is used up.</param>
+    public void SetHostAllowance(Uri url, int burst, TimeSpan refillEvery, bool empty = false)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(burst, 1);
+        this.allowances[HostKey(url)] = new Allowance(burst, refillEvery, empty ? 0 : burst, empty ? this.clock() : null);
+    }
+
+    /// <summary>Take a host's allowance away: back to its interval alone.</summary>
+    public void ClearHostAllowance(Uri url) => this.allowances.TryRemove(HostKey(url), out _);
+
     public TimeSpan IntervalFor(Uri url)
     {
         var configured = this.overrides.TryGetValue(HostKey(url), out var found)
@@ -85,14 +106,49 @@ public sealed class RateLimiter
             var interval = this.IntervalFor(url);
             var waited = TimeSpan.Zero;
 
+            var remaining = TimeSpan.Zero;
             if (this.last.TryGetValue(key, out var previous))
             {
-                var remaining = interval - (this.clock() - previous);
-                if (remaining > TimeSpan.Zero)
+                remaining = interval - (this.clock() - previous);
+            }
+
+            // The allowance: wait for a page's worth to refill when it is spent.
+            if (this.allowances.TryGetValue(key, out var allowance))
+            {
+                var now = this.clock();
+                var tokens = allowance.Tokens;
+                if (allowance.At is { } at && allowance.RefillEvery > TimeSpan.Zero)
                 {
-                    await this.sleep(remaining, cancellationToken).ConfigureAwait(false);
-                    waited = remaining;
+                    tokens = Math.Min(allowance.Burst, tokens + ((now - at) / allowance.RefillEvery));
                 }
+
+                if (tokens < 1 && allowance.RefillEvery > TimeSpan.Zero)
+                {
+                    var refill = allowance.RefillEvery * (1 - tokens);
+                    if (refill > remaining)
+                    {
+                        remaining = refill;
+                    }
+                }
+
+                allowance = allowance with { Tokens = tokens, At = now };
+                this.allowances[key] = allowance;
+            }
+
+            if (remaining > TimeSpan.Zero)
+            {
+                await this.sleep(remaining, cancellationToken).ConfigureAwait(false);
+                waited = remaining;
+            }
+
+            if (this.allowances.TryGetValue(key, out var spend))
+            {
+                // What refilled during the wait, less this page.
+                var now = this.clock();
+                var tokens = spend.At is { } at && spend.RefillEvery > TimeSpan.Zero
+                    ? Math.Min(spend.Burst, spend.Tokens + ((now - at) / spend.RefillEvery))
+                    : spend.Tokens;
+                this.allowances[key] = spend with { Tokens = Math.Max(0, tokens - 1), At = now };
             }
 
             this.last[key] = this.clock();
@@ -103,6 +159,8 @@ public sealed class RateLimiter
             gate.Release();
         }
     }
+
+    private sealed record Allowance(int Burst, TimeSpan RefillEvery, double Tokens, TimeSpan? At);
 
     private static Func<TimeSpan> DefaultClock()
     {

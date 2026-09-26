@@ -14,11 +14,11 @@ public sealed class WindowTests
 {
     public static TheoryData<int, int, string> Sizes() => new()
     {
+        { 1280, 820, "Light" },
+        { 1280, 820, "Dark" },
         { 1120, 760, "Light" },
-        { 1120, 760, "Dark" },
-        { 900, 640, "Light" },
-        { 760, 560, "Light" },
-        { 760, 560, "Dark" },
+        { 940, 600, "Light" },
+        { 940, 600, "Dark" },
     };
 
     [AvaloniaTheory]
@@ -31,14 +31,14 @@ public sealed class WindowTests
         harness.Window.Height = height;
         await harness.StartAsync();
         await harness.ScannedAsync();
-        harness.ViewModel.From = 12;
-        harness.ViewModel.To = 20;
-        await harness.ViewModel.SaveCommand.ExecuteAsync(null);
+        harness.Job.From = 12;
+        harness.Job.To = 20;
+        await harness.Job.SaveCommand.ExecuteAsync(null);
         Harness.Pump();
 
         Save(harness.Window, $"size-{width}x{height}-{theme.ToLowerInvariant()}");
 
-        foreach (var name in new[] { "NovelUrlBox", "ScanButton", "FromBox", "ToBox", "SaveButton", "StatusText", "ProgressLine", "BookTitleText" })
+        foreach (var name in new[] { "NovelUrlBox", "ScanButton", "FromBox", "ToBox", "SaveButton", "StatusText", "ProgressLine", "BookTitleText", "NewJobButton", "SettingsButton", "JobList" })
         {
             var control = harness.Window.FindControl<Control>(name);
             Assert.NotNull(control);
@@ -60,7 +60,7 @@ public sealed class WindowTests
         Assert.True(Visible(harness, "NovelUrlBox"));
         Assert.False(Visible(harness, "FromBox"));
         Assert.False(Visible(harness, "SaveButton"));
-        Assert.False(harness.ViewModel.ScanCommand.CanExecute(null));
+        Assert.False(harness.Job.ScanCommand.CanExecute(null));
         Save(harness.Window, "start");
     }
 
@@ -74,10 +74,10 @@ public sealed class WindowTests
 
         Assert.Equal("The Lighthouse", Text(harness, "BookTitleText"));
         Assert.Equal("Chapters 1 to 40.", Text(harness, "ScanSummaryText"));
-        Assert.Equal(1, harness.ViewModel.From);
-        Assert.Equal(40, harness.ViewModel.To);
+        Assert.Equal(1, harness.Job.From);
+        Assert.Equal(40, harness.Job.To);
         Assert.True(Visible(harness, "PlanText"));
-        Assert.Equal(2, harness.ViewModel.Step);
+        Assert.Equal(2, harness.Job.Step);
     }
 
     [AvaloniaFact]
@@ -87,25 +87,25 @@ public sealed class WindowTests
         var harness = new Harness();
         await harness.StartAsync();
         await harness.ScannedAsync();
-        harness.ViewModel.From = 12;
-        harness.ViewModel.To = 20;
-        harness.ViewModel.Pdf = true;
+        harness.Job.From = 12;
+        harness.Job.To = 20;
+        harness.Job.Pdf = true;
 
-        await harness.ViewModel.SaveCommand.ExecuteAsync(null);
+        await harness.Job.SaveCommand.ExecuteAsync(null);
         Harness.Pump();
 
-        Assert.Equal([12, 13, 14, 15, 16, 17, 18, 19, 20], harness.ViewModel.Chapters.Select(r => r.Number));
-        Assert.All(harness.ViewModel.Chapters, row => Assert.Equal(ChapterState.Saved, row.State));
+        Assert.Equal([12, 13, 14, 15, 16, 17, 18, 19, 20], harness.Job.Chapters.Select(r => r.Number));
+        Assert.All(harness.Job.Chapters, row => Assert.Equal(ChapterState.Saved, row.State));
         Assert.Equal("9 of 9 saved", Text(harness, "ProgressLine"));
-        Assert.Equal(["The Lighthouse 12-20.txt", "The Lighthouse 12-20.pdf"], harness.ViewModel.Files);
-        Assert.Equal("Done. 9 of 9 saved.", harness.ViewModel.Status);
-        Assert.True(harness.ViewModel.HasOutput);
-        Assert.Equal(3, harness.ViewModel.Step);
+        Assert.Equal(["The Lighthouse 12-20.txt", "The Lighthouse 12-20.pdf"], harness.Job.Files);
+        Assert.Equal("Done. 9 of 9 saved.", harness.Job.Status);
+        Assert.True(harness.Job.HasOutput);
+        Assert.Equal(3, harness.Job.Step);
         Save(harness.Window, "saved");
 
-        harness.ViewModel.SelectedChapter = harness.ViewModel.Chapters[2];
+        harness.Job.SelectedChapter = harness.Job.Chapters[2];
         Harness.Pump();
-        Assert.Equal(Tab.Reader, harness.ViewModel.CurrentTab);
+        Assert.Equal(Tab.Reader, harness.Job.CurrentTab);
         Assert.Equal("Chapter 14: The Storm Road", Text(harness, "ReaderTitle"));
         Save(harness.Window, "reader");
     }
@@ -131,12 +131,12 @@ public sealed class WindowTests
         await harness.StartAsync();
         await harness.ScannedAsync();
 
-        harness.ViewModel.Text = false;
-        harness.ViewModel.Pdf = false;
+        harness.Job.Text = false;
+        harness.Job.Pdf = false;
 
-        Assert.False(harness.ViewModel.SaveCommand.CanExecute(null));
-        harness.ViewModel.Pdf = true;
-        Assert.True(harness.ViewModel.SaveCommand.CanExecute(null));
+        Assert.False(harness.Job.SaveCommand.CanExecute(null));
+        harness.Job.Pdf = true;
+        Assert.True(harness.Job.SaveCommand.CanExecute(null));
     }
 
     [AvaloniaFact]
@@ -154,14 +154,14 @@ public sealed class WindowTests
         Assert.False(Visible(harness, "SaveButton"));
         Save(harness.Window, "sign-in-needed");
 
-        await harness.ViewModel.SignInCommand.ExecuteAsync(null);
+        await harness.Job.SignInCommand.ExecuteAsync(null);
         Harness.Pump();
         Assert.True(Visible(harness, "DoneButton"));
 
-        await harness.ViewModel.FinishSignInCommand.ExecuteAsync(null);
+        await harness.Job.FinishSignInCommand.ExecuteAsync(null);
         await harness.ScannedAsync();
 
-        Assert.True(harness.ViewModel.ScanReady);
+        Assert.True(harness.Job.ScanReady);
         Assert.EndsWith("Signed in.", Text(harness, "ScanSummaryText"), StringComparison.Ordinal);
     }
 
@@ -174,8 +174,8 @@ public sealed class WindowTests
         await harness.StartAsync();
         await harness.ScannedAsync();
 
-        await harness.ViewModel.SignInCommand.ExecuteAsync(null);
-        await harness.ViewModel.FinishSignInCommand.ExecuteAsync(null);
+        await harness.Job.SignInCommand.ExecuteAsync(null);
+        await harness.Job.FinishSignInCommand.ExecuteAsync(null);
         Harness.Pump();
 
         Assert.Contains("email and password", Text(harness, "ProblemText"), StringComparison.Ordinal);
@@ -190,17 +190,17 @@ public sealed class WindowTests
         harness.Service.PauseAt = new TaskCompletionSource();
         await harness.StartAsync();
         await harness.ScannedAsync();
-        harness.ViewModel.From = 12;
-        harness.ViewModel.To = 20;
+        harness.Job.From = 12;
+        harness.Job.To = 20;
 
-        var saving = harness.ViewModel.SaveCommand.ExecuteAsync(null);
+        var saving = harness.Job.SaveCommand.ExecuteAsync(null);
         Harness.Pump();
 
         Assert.True(Visible(harness, "PersonNotice"));
         Assert.Contains("check you're a person", Text(harness, "PersonText"), StringComparison.Ordinal);
-        Assert.True(harness.ViewModel.StopCommand.CanExecute(null));
-        Assert.False(harness.ViewModel.ScanCommand.CanExecute(null));
-        Assert.Equal(3, harness.ViewModel.SavedCount);
+        Assert.True(harness.Job.StopCommand.CanExecute(null));
+        Assert.False(harness.Job.ScanCommand.CanExecute(null));
+        Assert.Equal(3, harness.Job.SavedCount);
         Save(harness.Window, "person-needed");
 
         harness.Service.PauseAt.SetResult();
@@ -208,7 +208,7 @@ public sealed class WindowTests
         Harness.Pump();
 
         Assert.False(Visible(harness, "PersonNotice"));
-        Assert.Equal(9, harness.ViewModel.SavedCount);
+        Assert.Equal(9, harness.Job.SavedCount);
     }
 
     [AvaloniaFact]
@@ -218,16 +218,16 @@ public sealed class WindowTests
         harness.Service.SlowPlans = true;
         await harness.StartAsync();
         await harness.ScannedAsync();
-        harness.ViewModel.From = 30;
-        harness.ViewModel.To = 35;
+        harness.Job.From = 30;
+        harness.Job.To = 35;
 
-        await harness.ViewModel.SaveCommand.ExecuteAsync(null);
+        await harness.Job.SaveCommand.ExecuteAsync(null);
         Harness.Pump();
 
         Assert.Equal(0, harness.Service.Saves);
         Assert.Contains("Press Save again", Text(harness, "ProblemText"), StringComparison.Ordinal);
 
-        await harness.ViewModel.SaveCommand.ExecuteAsync(null);
+        await harness.Job.SaveCommand.ExecuteAsync(null);
         Harness.Pump();
         Assert.Equal(1, harness.Service.Saves);
     }
@@ -239,16 +239,16 @@ public sealed class WindowTests
         harness.Service.Failing.UnionWith([13, 17]);
         await harness.StartAsync();
         await harness.ScannedAsync();
-        harness.ViewModel.From = 12;
-        harness.ViewModel.To = 20;
+        harness.Job.From = 12;
+        harness.Job.To = 20;
 
-        await harness.ViewModel.SaveCommand.ExecuteAsync(null);
+        await harness.Job.SaveCommand.ExecuteAsync(null);
         Harness.Pump();
 
         Assert.Equal("7 of 9 saved, 2 failed", Text(harness, "ProgressLine"));
-        Assert.Equal("7 of 9 saved, 2 not. Press Save again to retry the rest.", harness.ViewModel.Status);
-        Assert.Equal(ChapterState.Failed, harness.ViewModel.Chapters.Single(r => r.Number == 13).State);
-        Assert.Contains("Save again", harness.ViewModel.Status, StringComparison.Ordinal);
+        Assert.Equal("7 of 9 saved, 2 not. Press Save again to retry the rest.", harness.Job.Status);
+        Assert.Equal(ChapterState.Failed, harness.Job.Chapters.Single(r => r.Number == 13).State);
+        Assert.Contains("Save again", harness.Job.Status, StringComparison.Ordinal);
     }
 
     [AvaloniaFact]
@@ -257,10 +257,10 @@ public sealed class WindowTests
         var harness = new Harness();
         await harness.StartAsync();
         await harness.ScannedAsync();
-        await harness.ViewModel.SaveCommand.ExecuteAsync(null);
-        Directory.CreateDirectory(Path.Combine(harness.ViewModel.OutputDirectory, "The Lighthouse"));
+        await harness.Job.SaveCommand.ExecuteAsync(null);
+        Directory.CreateDirectory(Path.Combine(harness.Job.OutputDirectory, "The Lighthouse"));
 
-        await harness.ViewModel.OpenFolderCommand.ExecuteAsync(null);
+        await harness.Job.OpenFolderCommand.ExecuteAsync(null);
 
         Assert.EndsWith("The Lighthouse", Assert.Single(harness.Shell.Opened), StringComparison.Ordinal);
     }
@@ -273,10 +273,10 @@ public sealed class WindowTests
         harness.Window.Show();
         _ = harness.ViewModel.StartAsync();
         Harness.Pump();
-        harness.ViewModel.NovelUrl = FakeNovelService.NovelUrl;
+        harness.Job.NovelUrl = FakeNovelService.NovelUrl;
 
         Assert.False(harness.ViewModel.BrowserReady);
-        Assert.False(harness.ViewModel.ScanCommand.CanExecute(null));
+        Assert.False(harness.Job.ScanCommand.CanExecute(null));
         Assert.True(harness.ViewModel.Installing);
         Save(harness.Window, "first-run");
         await Task.CompletedTask;
@@ -286,7 +286,7 @@ public sealed class WindowTests
     public void The_form_is_remembered_between_launches()
     {
         var store = new SettingsStore(Path.Combine(Harness.Scratch(), "settings.json"));
-        store.Save(new DesktopSettings { NovelUrl = FakeNovelService.NovelUrl, Pdf = true, KeepLog = false, AtOnce = 2 });
+        store.Save(new DesktopSettings { NovelUrl = FakeNovelService.NovelUrl, Pdf = true, KeepLog = false, AtOnce = 2, Theme = "Dark" });
 
         var loaded = store.Load();
 
@@ -294,6 +294,7 @@ public sealed class WindowTests
         Assert.True(loaded.Pdf);
         Assert.False(loaded.KeepLog);
         Assert.Equal(2, loaded.AtOnce);
+        Assert.Equal("Dark", loaded.Theme);
     }
 
     [AvaloniaFact]
@@ -331,9 +332,9 @@ public sealed class WindowTests
     private static void Save(Window window, string name)
     {
         // A readable folder in the picture, not the test's temporary one.
-        if (window.DataContext is MainViewModel model)
+        if (window.DataContext is MainViewModel { SelectedJob: { } job } && !job.IsBusy)
         {
-            model.OutputDirectory = "~/Downloads/Novels";
+            job.OutputDirectory = "~/Downloads/Novels";
         }
 
         Harness.Pump();
