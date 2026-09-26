@@ -20,14 +20,23 @@ public sealed record NovelEnvironment
 
     public IPdfWriter? Pdf { get; init; }
 
-    /// <summary>How long to wait for a person to pass a site's check before giving up on it.</summary>
-    public TimeSpan PersonTimeout { get; init; } = TimeSpan.FromMinutes(15);
+    /// <summary>What has been learned about sites that ask for checks. A throwaway one when not given.</summary>
+    public SitePaces SitePaces { get; init; } = new(null);
+
+    /// <summary>
+    /// How long to wait for a person to pass a site's check. By default, for
+    /// as long as it takes: someone running twenty books may not look for an
+    /// hour, and giving up would fail chapters they would gladly have waited
+    /// for. Stop ends the wait at any time.
+    /// </summary>
+    public TimeSpan PersonTimeout { get; init; } = TimeSpan.MaxValue;
 
     public static NovelEnvironment Default(Action<string> warn) => new()
     {
         StartSource = static async (guard, options, token) =>
             await BrowserPageSource.StartAsync(guard, options, token).ConfigureAwait(false),
         FetchRobots = (url, agent) => RobotsHttp.Fetch(url, agent, warn),
+        SitePaces = new SitePaces(AppPaths.SitePaces),
         BrowserProfileDirectory = AppPaths.BrowserProfile,
         Pdf = new ChromiumPdfWriter(),
     };
@@ -85,6 +94,25 @@ public sealed class NovelSession : INovelService
         this.host = host ?? throw new ArgumentNullException(nameof(host));
         this.ownsHost = ownsHost;
         this.environment = host.Environment;
+        this.host.Slowed += this.OnSiteSlowed;
+    }
+
+    /// <summary>Raised with a plain-words note when this extraction's site is slowed on purpose after a check.</summary>
+    public event EventHandler<string?>? PaceNote;
+
+    /// <summary>The note for this extraction's site as it stands, or null when it runs at the normal pace.</summary>
+    public string? CurrentPaceNote => this.siteUrl is { } url && this.host.SlowedFor(url) is { } interval ? SlowNote(interval) : null;
+
+    internal static string SlowNote(TimeSpan interval) => string.Create(
+        System.Globalization.CultureInfo.InvariantCulture,
+        $"Going slower on purpose: {interval.TotalSeconds:0.#}s between pages, because this site asked to check you're a person. This makes another check less likely.");
+
+    private void OnSiteSlowed(object? sender, (string Site, TimeSpan Interval) e)
+    {
+        if (this.origin is { } mine && string.Equals(Robots.OriginOf(mine), e.Site, StringComparison.OrdinalIgnoreCase))
+        {
+            this.PaceNote?.Invoke(this, SlowNote(e.Interval));
+        }
     }
 
     /// <summary>
@@ -250,8 +278,13 @@ public sealed class NovelSession : INovelService
     /// Let go of the browser. The shared browser stays open for the other
     /// extractions; a session that owns its browser closes it.
     /// </summary>
+    /// <summary>Bring a tab showing a site's check to the front of the browser. False if none is showing.</summary>
+    public async Task<bool> ShowCheckAsync() =>
+        this.source is IHumanGate gate && await gate.ShowCheckAsync().ConfigureAwait(false);
+
     public async Task CloseAsync()
     {
+        this.host.Slowed -= this.OnSiteSlowed;
         this.EndSignIn();
         this.source = null;
         this.origin = null;
@@ -377,11 +410,25 @@ public sealed class NovelSession : INovelService
             return;
         }
 
+        // The first check from a site puts it on the careful pace, now and
+        // on every later visit. Only a site that asks again even then is
+        // slowed further.
+        if (this.environment.SitePaces.RecordCheck(this.origin, DateTimeOffset.Now))
+        {
+            this.environment.SitePaces.Apply(this.robots.Limiter, this.origin, justChecked: true);
+            this.host.MarkSlowed(this.origin, SitePaces.CarefulEvery);
+            this.report?.Invoke(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"The site asked for a check, so from now on it is read at a careful pace: {SitePaces.CarefulBurst} pages at the usual speed, then one every {SitePaces.CarefulEvery.TotalSeconds:0}s. Settings, Sites, can change this."));
+            return;
+        }
+
         var host = new Uri(this.origin);
         var now = this.robots.Limiter.IntervalFor(host);
         var slower = TimeSpan.FromSeconds(Math.Min(SlowestPace.TotalSeconds, Math.Max(now.TotalSeconds, this.Pace.MinDelaySeconds) * 1.5));
         this.robots.Limiter.SetHostInterval(host, slower);
         this.CurrentInterval = slower;
+        this.host.MarkSlowed(this.origin, slower);
         this.report?.Invoke(string.Create(
             System.Globalization.CultureInfo.InvariantCulture,
             $"The site asked for a check, so the app now waits {slower.TotalSeconds:0.#}s between pages to make another less likely."));

@@ -127,6 +127,9 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
     private readonly ConcurrentQueueOfSlots pool = new();
     private readonly SemaphoreSlim growing = new(1, 1);
 
+    // Tabs showing a site's check, kept for the person until it is passed.
+    private readonly List<PageSlot> held = [];
+
     private IPlaywright? playwright;
     private int people;
     private volatile bool closed;
@@ -504,6 +507,13 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                 open = this.slots.Count;
             }
 
+            // At the limit, tabs kept for a check that nobody is waiting on
+            // any more are the ones to put back to work.
+            if (open >= limit)
+            {
+                this.ReturnHeld();
+            }
+
             // Another caller may have grown the pool while this one waited.
             if (open < limit && this.available.CurrentCount == 0 && !this.IsClosed)
             {
@@ -525,8 +535,51 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
 
     private void Release(PageSlot slot)
     {
+        // A tab showing a check stays where the person can finish it. Handed
+        // back to the pool, another book's work would navigate it away while
+        // they were clicking, the check would seem passed, and the site would
+        // ask again, over and over. Only a pool that can grow can spare it.
+        if (slot.HeldForPerson && this.options.GrowTo is not null)
+        {
+            lock (this.held)
+            {
+                this.held.Add(slot);
+            }
+
+            return;
+        }
+
+        slot.HeldForPerson = false;
         this.pool.Add(slot);
         this.available.Release();
+    }
+
+    /// <summary>Tabs kept for a check go back to work: the check is done, or it is no longer waited for.</summary>
+    private void ReturnHeld()
+    {
+        List<PageSlot> back;
+        lock (this.held)
+        {
+            back = [.. this.held];
+            this.held.Clear();
+        }
+
+        foreach (var slot in back)
+        {
+            slot.HeldForPerson = false;
+            this.pool.Add(slot);
+            this.available.Release();
+        }
+    }
+
+    /// <summary>A check on this tab's page: keep the tab for the person, and say so.</summary>
+    private static async Task ThrowIfHumanCheckAsync(PageSlot slot, string url)
+    {
+        if (await IsHumanCheckAsync(slot.Page).ConfigureAwait(false))
+        {
+            slot.HeldForPerson = true;
+            throw new HumanCheckException($"{url}: the site is asking to check that you are human");
+        }
     }
 
     private async Task<string> GotoAsync(PageSlot slot, string url, TimeSpan remaining)
@@ -590,7 +643,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         try
         {
             var finalUrl = await this.GotoAsync(slot, url, this.Remaining(deadline)).ConfigureAwait(false);
-            await ThrowIfHumanCheckAsync(slot.Page, url).ConfigureAwait(false);
+            await ThrowIfHumanCheckAsync(slot, url).ConfigureAwait(false);
             var watch = Stopwatch.StartNew();
             string? previous = null;
             while (true)
@@ -640,7 +693,35 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         finally
         {
             this.PersonLeft();
+            this.ReturnHeld();
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> ShowCheckAsync()
+    {
+        if (this.context is not { } context)
+        {
+            return false;
+        }
+
+        foreach (var page in context.Pages)
+        {
+            if (await IsHumanCheckAsync(page).ConfigureAwait(false))
+            {
+                try
+                {
+                    await page.BringToFrontAsync().ConfigureAwait(false);
+                    return true;
+                }
+                catch (PlaywrightException)
+                {
+                    // Gone as it was found; look at the next.
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Looks in a row, two seconds apart, that a check must stay gone for.</summary>
@@ -753,13 +834,6 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         }
     }
 
-    private static async Task ThrowIfHumanCheckAsync(IPage page, string url)
-    {
-        if (await IsHumanCheckAsync(page).ConfigureAwait(false))
-        {
-            throw new HumanCheckException($"{url}: the site is asking to check that you are human");
-        }
-    }
 
     public Task<bool> HasSessionCookiesAsync(CancellationToken cancellationToken = default) =>
         this.HasSessionCookiesAsync(this.siteUrl, cancellationToken);
@@ -820,6 +894,9 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
     /// <summary>How many tabs are open, the app's own included. For tests.</summary>
     internal int OpenTabs => this.context?.Pages.Count ?? 0;
 
+    /// <summary>What every open tab is showing. For tests.</summary>
+    internal IReadOnlyList<string> TabUrls => [.. this.context?.Pages.Select(page => page.Url) ?? []];
+
     /// <summary>Close every tab the app works in, as a person clicking their close buttons would. For tests.</summary>
     internal async Task CloseWorkTabsAsync()
     {
@@ -861,7 +938,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         {
             var finalUrl = await this.GotoAsync(slot, url, this.Remaining(deadline)).ConfigureAwait(false);
             var page = slot.Page;
-            await ThrowIfHumanCheckAsync(page, url).ConfigureAwait(false);
+            await ThrowIfHumanCheckAsync(slot, url).ConfigureAwait(false);
             await WaitForLinksAsync(page, linkSelector, this.Remaining(deadline)).ConfigureAwait(false);
 
             var html = captureHtml ? await page.ContentAsync().ConfigureAwait(false) : null;
@@ -916,9 +993,20 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         try
         {
             var finalUrl = await this.GotoAsync(slot, url, this.Remaining(deadline)).ConfigureAwait(false);
-            await ThrowIfHumanCheckAsync(slot.Page, url).ConfigureAwait(false);
-            var title = await ReadFieldAsync(slot.Page, titleSelector, finalUrl, this.Remaining(deadline))
-                .ConfigureAwait(false);
+            await ThrowIfHumanCheckAsync(slot, url).ConfigureAwait(false);
+            string title;
+            if (this.options.TitleFallback)
+            {
+                // The story first, with the whole budget: a page still filling
+                // in is not a page without a title. Then the title, briefly.
+                await WaitAttachedAsync(slot.Page, contentSelector, finalUrl, this.Remaining(deadline)).ConfigureAwait(false);
+                title = await ReadTitleOrFallbackAsync(slot.Page, titleSelector, finalUrl).ConfigureAwait(false);
+            }
+            else
+            {
+                title = await ReadFieldAsync(slot.Page, titleSelector, finalUrl, this.Remaining(deadline))
+                    .ConfigureAwait(false);
+            }
 
             if (await IsLockedAsync(slot.Page).ConfigureAwait(false))
             {
@@ -973,6 +1061,46 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         {
             // An invalid selector is the person's to fix; the preview says so.
             return null;
+        }
+    }
+
+    private static async Task WaitAttachedAsync(IPage page, string selector, string url, TimeSpan remaining)
+    {
+        try
+        {
+            await page.WaitForSelectorAsync(selector, new PageWaitForSelectorOptions
+            {
+                State = WaitForSelectorState.Attached,
+                Timeout = Milliseconds(remaining),
+            }).ConfigureAwait(false);
+        }
+        catch (TimeoutException exception)
+        {
+            throw new SelectorNotFoundException($"{selector} matched nothing on {url}", exception);
+        }
+        catch (PlaywrightException exception)
+        {
+            throw new PageException($"{url}: {exception.Message}", exception);
+        }
+    }
+
+    /// <summary>The chapter's title, or failing that the page's own title, so one oddly laid out page never costs its chapter.</summary>
+    private static async Task<string> ReadTitleOrFallbackAsync(IPage page, string selector, string url)
+    {
+        try
+        {
+            return await ReadFieldAsync(page, selector, url, TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+        }
+        catch (SelectorNotFoundException)
+        {
+            try
+            {
+                return FirstLine(await page.TitleAsync().ConfigureAwait(false));
+            }
+            catch (PlaywrightException)
+            {
+                return "";
+            }
         }
     }
 
@@ -1120,6 +1248,9 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         internal GuardedNavigation? Navigation { get; set; }
 
         internal bool Crashed { get; set; }
+
+        /// <summary>The page is a site's check, which the person has to finish on this tab.</summary>
+        internal bool HeldForPerson { get; set; }
     }
 
     private sealed class ConcurrentQueueOfSlots

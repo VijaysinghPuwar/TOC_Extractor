@@ -38,6 +38,11 @@ public sealed partial class ChapterRow(int number, string url) : ObservableObjec
     [NotifyPropertyChangedFor(nameof(StatusText))]
     public partial int Words { get; set; }
 
+    /// <summary>Saved, but far shorter than the book's other chapters: worth a look.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
+    public partial bool Short { get; set; }
+
     /// <summary>The cleaned chapter text, held for the reader once it is saved.</summary>
     [ObservableProperty]
     public partial string? Text { get; set; }
@@ -61,6 +66,7 @@ public sealed partial class ChapterRow(int number, string url) : ObservableObjec
 
     public string StatusText => this.State switch
     {
+        ChapterState.Saved when this.Short => string.Create(CultureInfo.InvariantCulture, $"Saved, only {this.Words:N0} words: check it"),
         ChapterState.Saved => string.Create(CultureInfo.InvariantCulture, $"Saved, {this.Words:N0} words"),
         ChapterState.AlreadySaved => "Saved in an earlier run",
         ChapterState.Failed => "Failed: " + (this.Detail ?? "unknown error"),

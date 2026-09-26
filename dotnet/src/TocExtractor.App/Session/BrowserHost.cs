@@ -86,6 +86,7 @@ public sealed class BrowserHost(NovelEnvironment environment) : IAsyncDisposable
                 OperationBudget = pageBudget,
                 MaxPages = 1,
                 GrowTo = MostTabs,
+                TitleFallback = true,
             };
 
             try
@@ -109,6 +110,25 @@ public sealed class BrowserHost(NovelEnvironment environment) : IAsyncDisposable
         }
     }
 
+    /// <summary>Raised when a site's pace is slowed after a check, with the site and the new wait between pages.</summary>
+    public event EventHandler<(string Site, TimeSpan Interval)>? Slowed;
+
+    private readonly ConcurrentDictionary<string, TimeSpan> slowed = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The wait between pages a site has been slowed to after a check, or null if it has not been.</summary>
+    public TimeSpan? SlowedFor(string url) =>
+        this.slowed.TryGetValue(Robots.OriginOf(url), out var interval)
+            ? interval
+            : this.Environment.SitePaces.IsCareful(url) ? SitePaces.CarefulEvery : null;
+
+    /// <summary>Record that a site's pace was slowed, and tell every extraction reading it.</summary>
+    public void MarkSlowed(string url, TimeSpan interval)
+    {
+        var site = Robots.OriginOf(url);
+        this.slowed[site] = interval;
+        this.Slowed?.Invoke(this, (site, interval));
+    }
+
     /// <summary>
     /// The pace for one site, shared by every extraction reading it. A slower
     /// minimum asked for later raises it; a faster one never lowers it.
@@ -117,6 +137,10 @@ public sealed class BrowserHost(NovelEnvironment environment) : IAsyncDisposable
     {
         var site = new Uri(url);
         var limiter = this.limiters.GetOrAdd(Robots.OriginOf(url), _ => new RateLimiter(minDelay));
+
+        // A site known to ask for checks starts careful; one the person set
+        // back to fast does not.
+        this.Environment.SitePaces.Apply(limiter, url);
         if (minDelay > limiter.IntervalFor(site))
         {
             limiter.SetHostInterval(site, minDelay);
@@ -214,6 +238,10 @@ public sealed class BrowserHost(NovelEnvironment environment) : IAsyncDisposable
         public async Task<bool> WaitForSignInAsync(string? siteUrl, TimeSpan timeout, CancellationToken cancellationToken = default) =>
             await this.CurrentAsync(cancellationToken).ConfigureAwait(false) is IHumanGate gate
             && await gate.WaitForSignInAsync(siteUrl, timeout, cancellationToken).ConfigureAwait(false);
+
+        public async Task<bool> ShowCheckAsync() =>
+            await this.CurrentAsync(CancellationToken.None).ConfigureAwait(false) is IHumanGate gate
+            && await gate.ShowCheckAsync().ConfigureAwait(false);
 
         /// <summary>Nothing to release: the host owns the browser.</summary>
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

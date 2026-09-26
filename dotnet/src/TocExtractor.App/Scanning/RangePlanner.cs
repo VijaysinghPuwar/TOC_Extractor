@@ -54,13 +54,29 @@ public static class RangePlanner
             return new RangePlan([], [], 0, $"Choose chapters between {scan.FirstNumber} and {scan.LastNumber}.");
         }
 
+        // A book numbered by place: its listed chapters are placed by the
+        // site's own count, which can be a chapter out (a hidden or removed
+        // entry). A range starting before them is counted from chapter 1
+        // alone, so one book never mixes the two ways of numbering.
+        if (scan.PositionalNumbers && scan.Layout.NextSelector is { } next
+            && scan.Chapters.FirstOrDefault(c => c.Number == 1) is { } one)
+        {
+            var listedFrom = scan.Chapters.Where(c => c.Number > 1).Select(c => c.Number).DefaultIfEmpty(int.MaxValue).Min();
+            if (from < listedFrom)
+            {
+                var walk = new WalkSpec(one.Url, 1, next, +1, from, to, to + 1);
+                return new RangePlan([], [walk], from - 1, null);
+            }
+        }
+
         var known = scan.Chapters.ToDictionary(c => c.Number);
         var direct = known.Values.Where(c => c.Number >= from && c.Number <= to)
             .Select(c => new NumberedLink(c.Number, c.Url)).ToList();
 
         // Chapters no page lists, when their addresses can be built instead.
+        // Never from a place in the book: addresses follow the site's numbers.
         List<NumberedLink> predicted = [];
-        if (predict && AddressPattern.Find(scan.Chapters) is { } pattern)
+        if (predict && !scan.PositionalNumbers && AddressPattern.Find(scan.Chapters) is { } pattern)
         {
             foreach (var (start, end) in Gaps(from, to, known.Keys))
             {

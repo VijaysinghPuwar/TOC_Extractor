@@ -199,7 +199,9 @@ public static class RangePipeline
                 request.Plan.Walks,
                 selectors,
                 IsDone,
-                page => ChapterNumbers.FromTitle(page.Title),
+                // A book numbered by place: a walked page is the next place,
+                // whatever its title says.
+                request.Scan.PositionalNumbers ? null : page => ChapterNumbers.FromTitle(page.Title),
                 cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

@@ -44,6 +44,10 @@ internal sealed class FakeShell : IShell
         return Task.CompletedTask;
     }
 
+    public List<string> Notified { get; } = [];
+
+    public void Notify(string title, string message) => this.Notified.Add(message);
+
     public Task CopyTextAsync(string text)
     {
         this.Copied = text;
@@ -63,6 +67,13 @@ internal sealed class FakeNovelService : INovelService
     ];
 
     public event EventHandler<string?>? PersonNeeded;
+
+    public event EventHandler<string?>? PaceNote;
+
+    public string? CurrentPaceNote { get; set; }
+
+    /// <summary>Say the site was slowed, as a real session does after a check.</summary>
+    public void Slow(string note) => this.PaceNote?.Invoke(this, note);
 
     public int Chapters { get; set; } = 40;
 
@@ -187,6 +198,14 @@ internal sealed class FakeNovelService : INovelService
     {
         this.SignedIn = this.SignInSucceeds;
         return Task.FromResult(this.SignedIn);
+    }
+
+    public int ShownChecks { get; private set; }
+
+    public Task<bool> ShowCheckAsync()
+    {
+        this.ShownChecks++;
+        return Task.FromResult(true);
     }
 
     public Task CloseAsync() => Task.CompletedTask;

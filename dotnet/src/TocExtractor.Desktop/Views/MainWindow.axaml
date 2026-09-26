@@ -63,8 +63,18 @@
         </Grid>
       </Border>
 
-      <!-- The extraction chosen on the left -->
-      <Border Grid.Column="1" x:Name="JobPane" DataContext="{Binding SelectedJob}">
+      <!-- The extraction chosen on the left, under a bar for when a site needs the person -->
+      <Grid Grid.Column="1" RowDefinitions="Auto,*">
+      <Border x:Name="AttentionBar" Background="{DynamicResource Ink}" Padding="24,12" IsVisible="{Binding NeedsAttention}">
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock x:Name="AttentionText" Text="{Binding Attention}" TextWrapping="Wrap" FontWeight="SemiBold"
+                     Foreground="{DynamicResource Paper}" VerticalAlignment="Center" />
+          <Button Grid.Column="1" x:Name="ShowCheckButton" Content="Show me" Command="{Binding ShowCheckCommand}"
+                  Margin="16,0,0,0" Background="{DynamicResource Paper}" Foreground="{DynamicResource Ink}"
+                  ToolTip.Tip="Bring the check to the front of the browser window" />
+        </Grid>
+      </Border>
+      <Border Grid.Row="1" x:Name="JobPane" DataContext="{Binding SelectedJob}">
         <Grid x:DataType="vm:JobViewModel">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="0.38*" MinWidth="280" MaxWidth="400" />
@@ -227,7 +237,11 @@
               <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*" IsVisible="{Binding ShowChapters}" Margin="0,16,0,0">
                 <TextBlock x:Name="ProgressLine" Text="{Binding ProgressLine}" FontWeight="SemiBold"
                            Foreground="{DynamicResource Ink}" />
-                <ProgressBar Grid.Row="1" Value="{Binding ProgressPercent}" Maximum="100" Margin="0,8,0,16" />
+                <StackPanel Grid.Row="1" Spacing="6" Margin="0,8,0,16">
+                  <ProgressBar Value="{Binding ProgressPercent}" Maximum="100" />
+                  <TextBlock x:Name="PaceNoteText" Classes="hint" Text="{Binding PaceNote}" TextWrapping="Wrap"
+                             IsVisible="{Binding HasPaceNote}" />
+                </StackPanel>
                 <ListBox Grid.Row="2" Classes="chapters" ItemsSource="{Binding Chapters}"
                          SelectedItem="{Binding SelectedChapter}" Background="Transparent">
                   <ListBox.ItemTemplate>
@@ -272,9 +286,9 @@
           </Grid>
         </Grid>
       </Border>
+      </Grid>
     </Grid>
 
-    <!-- Settings -->
     <!-- Settings: a whole screen of its own, inside the window -->
     <Border x:Name="SettingsPanel" Background="{DynamicResource Paper}" IsVisible="{Binding IsSettingsOpen}">
       <ScrollViewer>
@@ -329,6 +343,28 @@
               </Grid>
               <TextBlock Classes="hint" TextWrapping="Wrap"
                          Text="For each chapter in every extraction. Extractions from the same site share one pace, so running two never asks more of that site than one would." />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+              <TextBlock Classes="label" Text="Sites" />
+              <TextBlock Classes="hint" TextWrapping="Wrap"
+                         Text="Every site is read fast. One that asks to check you're a person is then read carefully, now and on later visits: 25 pages at the usual speed, then one every 12 seconds, which in testing kept the checks away. Turn Careful off for a site to go at full speed and click the odd check instead." />
+              <TextBlock Classes="hint" FontStyle="Italic" Text="No site has asked for a check yet." IsVisible="{Binding !HasSites}" />
+              <ItemsControl x:Name="SitesList" ItemsSource="{Binding Sites}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:SitePaceRow">
+                    <Grid ColumnDefinitions="*,Auto,8,Auto" Margin="0,4">
+                      <StackPanel VerticalAlignment="Center">
+                        <TextBlock Classes="label" Text="{Binding Host}" />
+                        <TextBlock Classes="hint" Text="{Binding Detail}" />
+                      </StackPanel>
+                      <CheckBox Grid.Column="1" Content="Careful" IsChecked="{Binding Careful}" VerticalAlignment="Center" />
+                      <Button Grid.Column="3" Classes="quiet small" Content="Forget" Command="{Binding ForgetCommand}"
+                              ToolTip.Tip="Start this site fast again" VerticalAlignment="Center" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
             </StackPanel>
 
             <StackPanel Spacing="4">

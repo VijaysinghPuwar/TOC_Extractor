@@ -14,6 +14,9 @@ public interface IHumanGate
     /// <returns>True once the browser carries an account cookie; false if <paramref name="timeout"/> passed first.</returns>
     Task<bool> WaitForSignInAsync(TimeSpan timeout, CancellationToken cancellationToken = default);
 
+    /// <summary>Bring a page showing a check to the front, for a person who could not find it. False if none is showing.</summary>
+    Task<bool> ShowCheckAsync() => Task.FromResult(false);
+
     /// <summary>As <see cref="WaitForSignInAsync(TimeSpan, CancellationToken)"/>, for one site among several open.</summary>
     Task<bool> WaitForSignInAsync(string? siteUrl, TimeSpan timeout, CancellationToken cancellationToken = default) =>
         this.WaitForSignInAsync(timeout, cancellationToken);

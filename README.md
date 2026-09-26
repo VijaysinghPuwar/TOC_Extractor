@@ -117,10 +117,17 @@ tells you first and waits for you to press Save again.
   <img src="docs/images/app-person-needed.png" alt="The app waiting while the person completes a check" width="820">
 </p>
 
-Some sites show a check halfway through a long download. The app pauses,
-brings the check to the front of its browser window, and waits for you. Once
-you finish it, saving carries on by itself, and the app waits a little
-longer between pages so another check is less likely.
+Some sites show a check halfway through a long download. The app pauses
+that site's work (everything else keeps going), keeps the check on its own
+tab so it cannot be navigated away while you click, and tells you: a bar
+across the top of the window with a **Show me** button that brings the
+check to the front, and on a Mac a notification with a sound, repeated
+every five minutes while the site still waits. It waits for as long as it
+takes, so nothing fails while you are away; press Stop to give up instead.
+Once you finish the check, saving carries on by itself, and the app waits a
+little longer between pages on that site so another check is less likely.
+While it does, the window says so ("Going slower on purpose"), so a slower
+download is never mistaken for a stuck one.
 
 The app never tries to solve these checks for you. Some checks, such as
 Cloudflare's "Verify you are human", may refuse any browser that another
@@ -176,7 +183,16 @@ same window; press **Back** to return. Changes are saved as you make them.
 - **Logs**: keep a detailed log (CSV) of every extraction, and **Open log
   folder** to see them.
 - **Pace**: how many chapters each extraction fetches at the same time, and
-  how many seconds to wait between pages.
+  how many seconds to wait between pages. The default, one to two seconds,
+  was measured safe: on four sites, 100 chapters each at about a page a
+  second brought no checks, no errors and no incomplete chapters.
+- **Sites**: sites that have asked to check you're a person. The app learns
+  these itself: the first time a site asks, it reads that site carefully from
+  then on (25 pages at the usual speed, then one every 12 seconds, filling
+  back up while the site is left alone), which in testing kept the checks
+  away entirely where a faster pace drew one every 30 to 50 pages. Turn
+  Careful off for a site to go at full speed and click the odd check, or
+  press Forget to start it fresh.
 - **Text**: keep links in the text, and remove ad markers.
 - **For audiobooks (text to speech)**: leave chapter numbers and titles out
   of the TXT book and **Copy text**, so a voice goes straight into the story
@@ -449,6 +465,25 @@ nothing is overwritten. The log mentions it.
 - Fixed: the chapter boxes were too narrow for four-digit numbers, so 1000
   looked like 100.
 - Fixed: after Stop, the status could stay on "Stopping..." for good.
+- Fixed: books that restart their chapter numbers in each part ("Arc 9:
+  Chapter 38", "Book 2: Chapter 1") were numbered by those titles, so a
+  range could mix chapters from different parts. They are now numbered by
+  their place in the whole book.
+- Fixed: a book whose chapter 1 address repeats its number
+  (".../chapter-1-number-1") lost its first chapters from the scan.
+- Fixed: on sites that write paragraphs as `<div>`s the story was not found,
+  and a chapter whose title was laid out differently from the rest failed;
+  it is now saved under the page's own title.
+- Fixed: while a site's check waited for a person, other extractions could
+  take over its tab, so the check kept coming back.
+- New: when a site needs you, a bar across the window, a Mac notification
+  and reminders make sure you notice, and the app waits for you instead of
+  giving up after 15 minutes.
+- New: a chapter far shorter than the rest of its book is named when saving
+  finishes, so a page that loaded without its story never slips through.
+- New: faster by default (one to two seconds between pages), and each site
+  that asks for checks is learned and then read at a pace that keeps them
+  away. Settings, Sites, lists them.
 
 **2.1.0** (2026-09-25)
 - New: a desktop app for Mac and Windows, written in C# with .NET. Paste a

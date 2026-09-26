@@ -27,6 +27,9 @@ public static class AppPaths
     /// <summary>The detailed CSV logs: one per extraction, plus the app's own.</summary>
     public static string Logs => Path.Combine(DataDirectory, "logs");
 
+    /// <summary>What the app has learned about sites that ask for checks.</summary>
+    public static string SitePaces => Path.Combine(DataDirectory, "site-paces.json");
+
     /// <summary>The window's last-used settings.</summary>
     public static string LastSession => Path.Combine(DataDirectory, "last-session.json");
 

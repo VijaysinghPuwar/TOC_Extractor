@@ -46,7 +46,7 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
     private static readonly HashSet<string> RailInputs =
     [
         nameof(Stage), nameof(Status), nameof(Problem), nameof(PersonMessage), nameof(Scan), nameof(NovelUrl),
-        nameof(ProgressPercent), nameof(ProgressLine), nameof(SavedCount), nameof(HasOutput),
+        nameof(ProgressPercent), nameof(ProgressLine), nameof(SavedCount), nameof(HasOutput), nameof(PaceNote),
     ];
 
     private readonly INovelService session;
@@ -66,7 +66,24 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
         this.owner = owner;
         this.post = post;
         this.session.PersonNeeded += this.OnPersonNeeded;
+        this.session.PaceNote += this.OnPaceNote;
     }
+
+    /// <summary>
+    /// Why this extraction is going slower than usual, while it saves, so a
+    /// long gap between chapters is never mistaken for the app hanging.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasPaceNote))]
+    public partial string? PaceNote { get; set; }
+
+    public bool HasPaceNote => this.PaceNote is not null && this.Stage == Stage.Saving;
+
+    private void OnPaceNote(object? sender, string? note) => this.post(() =>
+    {
+        this.PaceNote = note;
+        this.OnPropertyChanged(nameof(this.HasPaceNote));
+    });
 
     /// <summary>This extraction's number in the list, from 1, never reused while the app is open.</summary>
     public int Number { get; }
@@ -151,6 +168,7 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
         Stage.SigningIn => "Signing in",
         Stage.Stopping => "Stopping...",
         Stage.Saving when this.PersonNeeded => "Needs you in the browser",
+        Stage.Saving when this.PaceNote is not null => string.Create(CultureInfo.InvariantCulture, $"Saving, {this.SavedCount} of {this.Chapters.Count}, slower on purpose"),
         Stage.Saving => string.Create(CultureInfo.InvariantCulture, $"Saving, {this.SavedCount} of {this.Chapters.Count}"),
         _ when this.Problem is not null => "Needs attention",
         _ when this.Status.StartsWith("Done.", StringComparison.Ordinal) => string.Create(
@@ -276,6 +294,7 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
         this.closed = true;
         this.running?.Cancel();
         this.session.PersonNeeded -= this.OnPersonNeeded;
+        this.session.PaceNote -= this.OnPaceNote;
         this.log?.Info("closed", "The extraction was closed.");
         await this.session.DisposeAsync().ConfigureAwait(true);
     }
@@ -506,6 +525,7 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
         this.owner.Remember(this);
         this.session.Pace = this.owner.Pace();
         this.StartLog();
+        this.PaceNote = this.session.CurrentPaceNote;
         this.log?.Info("save", $"Save pressed: chapters {plan.From}-{plan.To}. {plan.Summary}", url: scan.NovelUrl);
         using var cancel = this.Begin();
         try
@@ -542,6 +562,16 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
             if (result.Outcome == PipelineOutcome.Refused)
             {
                 this.Problem = this.Status;
+            }
+
+            // Nobody reads 500 chapters before pasting them into a voice, so
+            // a chapter that came out far shorter than the rest is named.
+            var shortOnes = this.FlagShortChapters();
+            if (shortOnes.Count > 0)
+            {
+                var which = BookFiles.Ranges(shortOnes);
+                this.Status += $" Chapter(s) {which} came out much shorter than the rest; open them in the Reader to check.";
+                this.log?.Warning("short", $"Chapter(s) {which} are much shorter than the book's other chapters.");
             }
 
             var finished = result.Outcome == PipelineOutcome.Ok ? "info" : "warning";
@@ -590,6 +620,9 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
 
     [RelayCommand(CanExecute = nameof(CanClose))]
     private Task CloseAsync() => this.owner.CloseJobAsync(this);
+
+    /// <summary>Bring this extraction's check to the front of the browser.</summary>
+    internal Task<bool> ShowCheckAsync() => this.session.ShowCheckAsync();
 
     // -- files ----------------------------------------------------------------------
 
@@ -650,6 +683,7 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
 
     partial void OnStageChanged(Stage value)
     {
+        this.OnPropertyChanged(nameof(this.HasPaceNote));
         this.RefreshCommands();
         this.CloseCommand.NotifyCanExecuteChanged();
     }
@@ -768,6 +802,39 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
         {
             this.Activity.RemoveAt(0);
         }
+    }
+
+    /// <summary>
+    /// Mark saved chapters far shorter than this book's usual length: a
+    /// quarter of the typical chapter, in a book whose chapters are long
+    /// enough for that to mean something. Returns their numbers.
+    /// </summary>
+    internal List<int> FlagShortChapters()
+    {
+        var saved = this.Chapters.Where(row => row.State == ChapterState.Saved && row.Words > 0).ToList();
+        if (saved.Count < 4)
+        {
+            return [];
+        }
+
+        var typical = saved.Select(row => row.Words).Order().ElementAt(saved.Count / 2);
+        if (typical < 400)
+        {
+            return [];
+        }
+
+        var threshold = typical / 4;
+        List<int> flagged = [];
+        foreach (var row in saved)
+        {
+            row.Short = row.Words < threshold;
+            if (row.Short)
+            {
+                flagged.Add(row.Number);
+            }
+        }
+
+        return flagged;
     }
 
     private void RefreshProgress()

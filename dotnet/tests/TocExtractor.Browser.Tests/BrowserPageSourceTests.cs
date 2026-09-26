@@ -181,6 +181,65 @@ public sealed class BrowserPageSourceTests
     }
 
     [Fact]
+    public async Task A_check_stays_on_its_tab_for_the_person_while_other_work_goes_on()
+    {
+        using var site = new LocalSite();
+        site.Html("/check", """
+            <html><head><title>Just a moment...</title></head>
+            <body><div class="cf-turnstile"></div>Verify you are human</body></html>
+            """);
+        site.Html("/ch/1", "<h1 class=\"t\">Chapter 1</h1><article class=\"c\"><p>One.</p></article>");
+
+        await using var source = await BrowserPageSource.StartAsync(
+            Guard,
+            new BrowserPageSourceOptions { MaxPages = 1, GrowTo = 4, OperationBudget = TimeSpan.FromSeconds(20) },
+            Token);
+        await Assert.ThrowsAsync<HumanCheckException>(() => source.LoadChapterAsync(site.Url("/check"), ".t", ".c", Token));
+
+        // Other books keep working, on other tabs.
+        for (var i = 0; i < 3; i++)
+        {
+            var chapter = await source.LoadChapterAsync(site.Url("/ch/1"), ".t", ".c", Token);
+            Assert.Equal("One.", chapter.Body.Trim());
+        }
+
+        // The check was never navigated away from under the person.
+        Assert.Contains(source.TabUrls, url => url.EndsWith("/check", StringComparison.Ordinal));
+
+        // Once the wait ends, the tab goes back to work.
+        Assert.False(await source.WaitForPersonAsync(TimeSpan.FromMilliseconds(100), Token));
+        Assert.Equal(2, source.OpenTabs);
+    }
+
+    [Fact]
+    public async Task A_page_laid_out_differently_keeps_its_chapter_under_the_pages_own_title()
+    {
+        using var site = new LocalSite();
+        site.Html("/ch/48", "<html><head><title>Chapter 48: Odd One</title></head><body><article class=\"c\"><p>Story.</p></article></body></html>");
+
+        await using var source = await BrowserPageSource.StartAsync(
+            Guard,
+            new BrowserPageSourceOptions { TitleFallback = true, OperationBudget = TimeSpan.FromSeconds(20) },
+            Token);
+        var chapter = await source.LoadChapterAsync(site.Url("/ch/48"), "#content > h4", ".c", Token);
+
+        Assert.Equal("Chapter 48: Odd One", chapter.Title);
+        Assert.Equal("Story.", chapter.Body.Trim());
+    }
+
+    [Fact]
+    public async Task Without_the_fallback_a_missing_title_still_fails()
+    {
+        using var site = new LocalSite();
+        site.Html("/ch/48", "<html><head><title>Chapter 48</title></head><body><article class=\"c\"><p>Story.</p></article></body></html>");
+
+        await using var source = await BrowserPageSource.StartAsync(
+            Guard, new BrowserPageSourceOptions { OperationBudget = TimeSpan.FromSeconds(3) }, Token);
+
+        await Assert.ThrowsAsync<SelectorNotFoundException>(() => source.LoadChapterAsync(site.Url("/ch/48"), "#content > h4", ".c", Token));
+    }
+
+    [Fact]
     public async Task With_room_to_grow_busy_tabs_open_another_rather_than_wait()
     {
         using var site = new LocalSite();

@@ -27,7 +27,8 @@ public sealed partial class App : Application
                 store: new SettingsStore(AppPaths.LastSession),
                 post: action => Dispatcher.UIThread.Post(action),
                 log: AppLog.Root,
-                applyTheme: UseTheme);
+                applyTheme: UseTheme,
+                sitePaces: new TocExtractor.App.Session.SitePaces(AppPaths.SitePaces));
             UseTheme(viewModel.Theme);
             window.DataContext = viewModel;
             desktop.MainWindow = window;

@@ -17,6 +17,9 @@ public interface IShell
     Task OpenFolderAsync(string path);
 
     Task CopyTextAsync(string text);
+
+    /// <summary>A notification from the operating system, with a sound, for when the person is needed and may be looking elsewhere.</summary>
+    void Notify(string title, string message);
 }
 
 /// <summary>The real dialogs and launcher, through Avalonia's storage and launcher services.</summary>
@@ -68,6 +71,32 @@ public sealed class DesktopShell(TopLevel window) : IShell
     {
         Directory.CreateDirectory(path);
         await window.Launcher.LaunchDirectoryInfoAsync(new DirectoryInfo(path)).ConfigureAwait(true);
+    }
+
+    public void Notify(string title, string message)
+    {
+        // Notification Center on a Mac. Elsewhere the window's own bar says it.
+        if (!OperatingSystem.IsMacOS())
+        {
+            return;
+        }
+
+        try
+        {
+            var script = $"display notification {Quote(message)} with title {Quote(title)} sound name \"Glass\"";
+            using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("/usr/bin/osascript")
+            {
+                ArgumentList = { "-e", script },
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            });
+        }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            // A missing notification is not worth interrupting anyone over.
+        }
+
+        static string Quote(string text) => "\"" + text.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
     }
 
     public async Task CopyTextAsync(string text)

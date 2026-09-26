@@ -31,4 +31,12 @@ public sealed record BrowserPageSourceOptions
     /// app, where several books share one browser.
     /// </summary>
     public int? GrowTo { get; init; }
+
+    /// <summary>
+    /// When the title selector matches nothing on a page whose story is
+    /// there, use the page's own title rather than fail the chapter. For the
+    /// desktop app, whose selectors come from its own scan of one sample
+    /// chapter; a selector a person typed should still fail loudly.
+    /// </summary>
+    public bool TitleFallback { get; init; }
 }

@@ -9,6 +9,12 @@ public interface INovelService : IAsyncDisposable
     /// <summary>Raised with what the person must do in the browser, then with null when it is done.</summary>
     event EventHandler<string?>? PersonNeeded;
 
+    /// <summary>Raised with a plain-words note when this extraction's site is slowed on purpose after a check.</summary>
+    event EventHandler<string?>? PaceNote;
+
+    /// <summary>The note for this extraction's site as it stands, or null at the normal pace.</summary>
+    string? CurrentPaceNote { get; }
+
     bool SignedIn { get; }
 
     SessionSettings Pace { get; set; }
@@ -30,6 +36,9 @@ public interface INovelService : IAsyncDisposable
     Task BeginSignInAsync(string novelUrl, CancellationToken cancellationToken = default);
 
     Task<bool> FinishSignInAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Bring a tab showing a site's check to the front of the browser. False if none is showing.</summary>
+    Task<bool> ShowCheckAsync();
 
     Task CloseAsync();
 }

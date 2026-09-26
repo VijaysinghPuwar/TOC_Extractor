@@ -26,7 +26,7 @@ namespace TocExtractor.App.Scanning;
 /// those chapters another way (walking next or previous links).
 /// </para>
 /// </remarks>
-public sealed class NovelScanner(
+public sealed partial class NovelScanner(
     IPageProbe probe,
     UrlGuard guard,
     RobotsPolicy robots,
@@ -59,6 +59,15 @@ public sealed class NovelScanner(
     private readonly Dictionary<string, ChapterLink> links = new(StringComparer.Ordinal);
     private string? locked;
     private bool checkFailed;
+
+    // The site's own count of the book's chapters, when a list page gives it.
+    private int? total;
+
+    // Where the book's first chapter is, when known.
+    private string? firstUrl;
+
+    // Chapter numbers are places in the whole book (see ScanResult.PositionalNumbers).
+    private bool positional;
     private List<ScannedChapter> chapters = [];
 
     public async Task<ScanResult> ScanAsync(string novelUrl, CancellationToken cancellationToken = default)
@@ -302,6 +311,11 @@ public sealed class NovelScanner(
     /// <summary>Add a page's chapter links that follow this book's pattern. Returns how many were new.</summary>
     private int Merge(ListProbe found)
     {
+        if (found.Total is { } said and > 0 and < 1_000_000)
+        {
+            this.total = Math.Max(this.total ?? 0, said);
+        }
+
         var added = 0;
         foreach (var chapter in found.Chapters)
         {
@@ -322,8 +336,10 @@ public sealed class NovelScanner(
     /// </summary>
     private async Task ReadFirstChapterAsync(List<ListPage> read, CancellationToken cancellationToken)
     {
-        if (this.links.Values.Any(link => link.Number == 1))
+        if (HasTrueChapterOne(this.links.Values))
         {
+            this.firstUrl = this.links.Values.Where(link => link.Number == 1)
+                .OrderBy(link => TrailingId(link.Url) ?? long.MaxValue).First().Url;
             return;
         }
 
@@ -340,8 +356,38 @@ public sealed class NovelScanner(
         if (landed is { } url && (ChapterNumbers.FromTitle(found!.TitleText) ?? 1) == 1)
         {
             this.links.TryAdd(url, new ChapterLink(url, 1, found.TitleText ?? "Chapter 1", this.locked));
+            this.firstUrl = url;
             this.notes.Add("Found chapter 1 through the site's first-chapter link.");
         }
+    }
+
+    /// <summary>
+    /// Whether the chapters found include the book's real first chapter.
+    /// </summary>
+    /// <remarks>
+    /// A chapter labelled 1 is not enough: a book in several parts has a
+    /// "Book 2: Chapter 1" that a newest-first list shows while the real
+    /// first chapter is pages back. When the addresses carry ids, the one
+    /// labelled 1 must also come first; otherwise the site's first-chapter
+    /// link is followed.
+    /// </remarks>
+    internal static bool HasTrueChapterOne(IEnumerable<ChapterLink> found)
+    {
+        var all = found.ToList();
+        var ones = all.Where(link => link.Number == 1).ToList();
+        if (ones.Count == 0)
+        {
+            return false;
+        }
+
+        var ids = all.Select(link => TrailingId(link.Url)).ToList();
+        if (ids.Any(id => id is null))
+        {
+            return true;
+        }
+
+        var earliest = ids.Min();
+        return ones.Any(one => TrailingId(one.Url) == earliest);
     }
 
     /// <summary>
@@ -358,6 +404,11 @@ public sealed class NovelScanner(
     private List<ScannedChapter> Order()
     {
         var all = this.links.Values.ToList();
+        if (this.ByPlace(all) is { } placed)
+        {
+            return placed;
+        }
+
         var ids = all.Select(link => TrailingId(link.Url)).ToList();
         if (all.Count >= 3 && ids.All(id => id is not null) && ids.Distinct().Count() == ids.Count)
         {
@@ -391,6 +442,83 @@ public sealed class NovelScanner(
 
         return [.. all.GroupBy(link => link.Number).Select(group => group.First()).OrderBy(link => link.Number)
             .Select(link => new ScannedChapter(link.Number, link.Title, link.Url))];
+    }
+
+    /// <summary>A title numbered within a part: "Arc 9: Chapter 38", "Book 2: Chapter 1", "1.2: Red Rain".</summary>
+    [System.Text.RegularExpressions.GeneratedRegex(
+        @"\b(?:arc|book|volume|vol\.?|part|season|act|saga)\s*[#:.\-]?\s*\d+\b.*?\b(?:chapter|chap|ch\.?|episode|ep\.?)\s*[#:.\-]?\s*\d+|^\s*\d+\.\d+\s*[:\-–]",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex PartScopedTitle();
+
+    /// <summary>
+    /// Whether a book restarts its chapter numbers in each part, so the
+    /// numbers in its titles are not places in the book.
+    /// </summary>
+    /// <remarks>
+    /// Two things together, so a book merely labelled "Volume 1 Chapter 5"
+    /// with numbers running through the whole book is left alone: most titles
+    /// name a part and a chapter, and the site says the book has more
+    /// chapters than any title's number reaches.
+    /// </remarks>
+    internal static bool RestartsNumbering(IReadOnlyCollection<ChapterLink> found, int? total)
+    {
+        if (total is not { } count || found.Count < 3)
+        {
+            return false;
+        }
+
+        var scoped = found.Count(link => PartScopedTitle().IsMatch(link.Title));
+        return scoped >= 0.5 * found.Count && count > found.Max(link => link.Number);
+    }
+
+    /// <summary>
+    /// Number the chapters by their place in the whole book, for a book that
+    /// restarts its numbering in each part. Chapter 1 is where the site's
+    /// first-chapter link leads; the newest listed chapter is the site's own
+    /// total, and the others count down from it in address order. Null when
+    /// that does not apply.
+    /// </summary>
+    private List<ScannedChapter>? ByPlace(List<ChapterLink> all)
+    {
+        if (!RestartsNumbering(all, this.total) || this.total is not { } count)
+        {
+            return null;
+        }
+
+        var listed = all.Where(link => link.Url != this.firstUrl).ToList();
+        var ids = listed.Select(link => TrailingId(link.Url)).ToList();
+        if (ids.Any(id => id is null) || ids.Distinct().Count() != ids.Count)
+        {
+            this.notes.Add("This book restarts its chapter numbers in each part, and its chapter addresses do not show their order, so only chapter 1 can be placed for sure.");
+            this.positional = true;
+            return this.firstUrl is { } only ? [new ScannedChapter(1, all.First(link => link.Url == only).Title, only)] : [];
+        }
+
+        // Newest first: the highest address is the site's last chapter.
+        var newestFirst = listed.Zip(ids, (link, id) => (link, id: id!.Value)).OrderByDescending(pair => pair.id).ToList();
+        List<ScannedChapter> ordered = [];
+        for (var i = 0; i < newestFirst.Count; i++)
+        {
+            var place = count - i;
+            if (place <= 1)
+            {
+                break;
+            }
+
+            ordered.Add(new ScannedChapter(place, newestFirst[i].link.Title, newestFirst[i].link.Url));
+        }
+
+        if (this.firstUrl is { } first)
+        {
+            ordered.Add(new ScannedChapter(1, all.First(link => link.Url == first).Title, first));
+        }
+
+        ordered.Reverse();
+        this.positional = true;
+        this.notes.Add(string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"This book restarts its chapter numbers in each part (\"{Short(newestFirst[0].link.Title)}\"), so chapters are numbered by their place in the whole book instead: the site counts {count:N0} chapters, and the newest is chapter {count:N0}."));
+        return ordered;
     }
 
     private static string Short(string title) => title.Length <= 50 ? title : title[..50] + "...";
@@ -502,6 +630,7 @@ public sealed class NovelScanner(
         Problem = problem,
         Obstacle = obstacle,
         PagesRead = this.visited.Count,
+        PositionalNumbers = this.positional,
     };
 
     private sealed record ListPage(string Url, ListProbe Probe);
@@ -519,6 +648,9 @@ public sealed class NovelScanner(
         public List<Link> Firsts { get; init; } = [];
 
         public string? Key { get; init; }
+
+        /// <summary>How many chapters the site says the book has, when a page says so.</summary>
+        public int? Total { get; init; }
 
         public bool Challenge { get; init; }
 

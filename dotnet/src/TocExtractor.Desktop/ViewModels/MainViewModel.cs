@@ -56,8 +56,11 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         SettingsStore store,
         Action<Action> post,
         CsvLog? log = null,
-        Action<AppTheme>? applyTheme = null)
+        Action<AppTheme>? applyTheme = null,
+        SitePaces? sitePaces = null)
     {
+        this.SitePaces = sitePaces ?? new SitePaces(null);
+        this.SitePaces.Changed += (_, _) => post(this.RefreshSites);
         this.Shell = shell;
         this.browser = browser;
         this.store = store;
@@ -67,7 +70,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         this.LogFolder = log is null ? null : Path.GetDirectoryName(log.Path);
         if (sessions is null)
         {
-            this.host = new BrowserHost(NovelEnvironment.Default(this.Warn));
+            this.host = new BrowserHost(NovelEnvironment.Default(this.Warn) with { SitePaces = this.SitePaces });
             var shared = this.host;
             this.newSession = () => new NovelSession(shared);
         }
@@ -76,6 +79,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
             this.newSession = sessions;
         }
 
+        this.RefreshSites();
         var remembered = store.Load();
         this.Apply(remembered);
         var first = this.AddJob();
@@ -173,6 +177,77 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         this.OnPropertyChanged(nameof(this.RunningText));
         this.OnPropertyChanged(nameof(this.OtherNeedsPerson));
         this.OnPropertyChanged(nameof(this.HasOtherNeedsPerson));
+        this.OnPropertyChanged(nameof(this.Attention));
+        this.OnPropertyChanged(nameof(this.NeedsAttention));
+
+        // The moment a site first needs the person, say so where they will
+        // notice, even in another app, and keep reminding while it waits.
+        var waiting = this.Jobs.Any(j => j.PersonNeeded);
+        if (waiting && !this.wasWaiting)
+        {
+            this.NotifyPerson();
+            _ = this.RemindAsync();
+        }
+
+        this.wasWaiting = waiting;
+    }
+
+    private bool wasWaiting;
+
+    /// <summary>How often to remind the person while a site still waits for them.</summary>
+    internal TimeSpan ReminderEvery { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>What the bar across the top says while any extraction waits for the person; null otherwise.</summary>
+    public string? Attention
+    {
+        get
+        {
+            var waiting = this.Jobs.Where(job => job.PersonNeeded).ToList();
+            return waiting.Count switch
+            {
+                0 => null,
+                1 => $"\"{waiting[0].Caption}\" needs you: the site is asking to check you're a person. Complete it in the browser window; everything else keeps going.",
+                var n => string.Create(CultureInfo.InvariantCulture, $"{n} extractions need you: their sites are asking to check you're a person. Complete the checks in the browser window; everything else keeps going."),
+            };
+        }
+    }
+
+    public bool NeedsAttention => this.Attention is not null;
+
+    /// <summary>Bring a check to the front of the browser, for a person who cannot find it.</summary>
+    [RelayCommand]
+    private async Task ShowCheckAsync()
+    {
+        foreach (var job in this.Jobs.Where(job => job.PersonNeeded))
+        {
+            if (await job.ShowCheckAsync().ConfigureAwait(true))
+            {
+                return;
+            }
+        }
+    }
+
+    private void NotifyPerson()
+    {
+        var first = this.Jobs.FirstOrDefault(job => job.PersonNeeded);
+        this.Shell.Notify("TOC Extractor needs you", first is null
+            ? "A site is asking to check you're a person."
+            : $"\"{first.Caption}\": the site is asking to check you're a person. Complete it in the browser window.");
+        AppLog.Info("person", "Notified the person that a site is waiting for them.");
+    }
+
+    private async Task RemindAsync()
+    {
+        while (true)
+        {
+            await Task.Delay(this.ReminderEvery).ConfigureAwait(true);
+            if (!this.Jobs.Any(job => job.PersonNeeded))
+            {
+                return;
+            }
+
+            this.NotifyPerson();
+        }
     }
 
     partial void OnSelectedJobChanged(JobViewModel? value)
@@ -220,10 +295,10 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     public partial decimal? AtOnce { get; set; } = 1;
 
     [ObservableProperty]
-    public partial decimal? MinDelay { get; set; } = 2;
+    public partial decimal? MinDelay { get; set; } = 1;
 
     [ObservableProperty]
-    public partial decimal? MaxDelay { get; set; } = 4;
+    public partial decimal? MaxDelay { get; set; } = 2;
 
     [ObservableProperty]
     public partial bool IncludeLinks { get; set; }
@@ -272,6 +347,25 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         {
             await this.Shell.OpenFolderAsync(folder).ConfigureAwait(true);
         }
+    }
+
+    /// <summary>What the app has learned about sites that ask for checks.</summary>
+    internal SitePaces SitePaces { get; }
+
+    /// <summary>The sites that have asked for checks, for Settings.</summary>
+    public ObservableCollection<SitePaceRow> Sites { get; } = [];
+
+    public bool HasSites => this.Sites.Count > 0;
+
+    private void RefreshSites()
+    {
+        this.Sites.Clear();
+        foreach (var site in this.SitePaces.All)
+        {
+            this.Sites.Add(new SitePaceRow(site, this.SitePaces));
+        }
+
+        this.OnPropertyChanged(nameof(this.HasSites));
     }
 
     // -- first run ----------------------------------------------------------------
@@ -427,8 +521,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
     internal SessionSettings Pace() => new()
     {
         Concurrency = Math.Clamp((int)(this.AtOnce ?? 1), 1, 8),
-        MinDelaySeconds = (double)Math.Max(0, this.MinDelay ?? 2),
-        MaxDelaySeconds = (double)Math.Max(this.MaxDelay ?? 4, Math.Max(0, this.MinDelay ?? 2)),
+        MinDelaySeconds = (double)Math.Max(0, this.MinDelay ?? 1),
+        MaxDelaySeconds = (double)Math.Max(this.MaxDelay ?? 2, Math.Max(0, this.MinDelay ?? 1)),
         IncludeLinks = this.IncludeLinks,
         StripAds = this.StripAds,
         BookHeadings = !this.LeaveOutHeadings,
@@ -455,8 +549,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable
         Pdf = this.lastPdf,
         KeepLog = this.KeepLog,
         AtOnce = (int)(this.AtOnce ?? 1),
-        MinDelay = (double)(this.MinDelay ?? 2),
-        MaxDelay = (double)(this.MaxDelay ?? 4),
+        MinDelay = (double)(this.MinDelay ?? 1),
+        MaxDelay = (double)(this.MaxDelay ?? 2),
         IncludeLinks = this.IncludeLinks,
         StripAds = this.StripAds,
         LeaveOutHeadings = this.LeaveOutHeadings,

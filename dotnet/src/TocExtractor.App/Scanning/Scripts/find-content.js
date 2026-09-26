@@ -5,7 +5,8 @@
   // book's other chapter pages (ids and stable class names, not positions).
   // Zero-width characters sit between words on some sites ("Chapter\u200c 2310").
   const clean = (s) => (s || '').replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').replace(/\s+/g, ' ').trim();
-  const chapterWord = /(?:chapter|chap|ch\.?|episode|ep\.?|page|part|第)\s*[#:.-]?\s*\d/i;
+  // A number, or a Roman one ("Part XI").
+  const chapterWord = /(?:chapter|chap|ch\.?|episode|ep\.?|page|part|第)\s*[#:.-]?\s*(?:\d|[IVXLC]+\b)/i;
 
   const unique = (selector) => {
     try { return document.querySelectorAll(selector).length === 1; } catch (e) { return false; }
@@ -36,13 +37,16 @@
   };
 
   // The story: the block with the most paragraph text of its own, less the
-  // text of any links inside it. Paragraph text counts from <p> children and
-  // from bare text between <br> tags, which is how many reading sites lay out.
+  // text of any links inside it. Paragraph text counts from <p> children,
+  // from <div> children that hold only text (some sites write each paragraph
+  // as a div), and from bare text between <br> tags.
+  const textOnly = (el) => el.tagName === 'DIV'
+    && !el.querySelector('div, p, section, article, ul, ol, table, h1, h2, h3, h4, h5, h6, img, iframe, form, nav, button');
   let content = null, best = 0;
   for (const el of document.querySelectorAll('article, main, section, div, td')) {
     let own = 0;
     for (const child of el.children) {
-      if (child.tagName === 'P') own += (child.innerText || '').length;
+      if (child.tagName === 'P' || textOnly(child)) own += (child.innerText || '').length;
     }
     for (const node of el.childNodes) {
       if (node.nodeType === 3) own += node.textContent.trim().length;
@@ -66,7 +70,9 @@
   const naming = headings.filter(h => chapterWord.test(clean(h.innerText)))
     .sort((x, y) => clean(x.innerText).length - clean(y.innerText).length);
   const level = (h) => /^H[1-6]$/.test(h.tagName) ? Number(h.tagName[1]) : 7;
-  const titled = naming[0] || [...headings].sort((x, y) => level(x) - level(y))[0] || null;
+  // A part the site itself calls the chapter's title, when no heading names a chapter.
+  const labelled = headings.find(h => /chapter[-_ ]?(?:title|name)/i.test(h.getAttribute('class') || ''));
+  const titled = naming[0] || labelled || [...headings].sort((x, y) => level(x) - level(y))[0] || null;
 
   // Next and previous: rel first, then ids, classes and words that say so.
   const link = (words, rel) => {

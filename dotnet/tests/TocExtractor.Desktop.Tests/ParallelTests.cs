@@ -377,6 +377,91 @@ public sealed class ParallelTests
         Assert.StartsWith("The lamp", harness.Shell.Copied, StringComparison.Ordinal);
     }
 
+    [AvaloniaFact]
+    public async Task A_site_needing_the_person_is_hard_to_miss_and_they_are_reminded()
+    {
+        var harness = new Harness();
+        harness.ViewModel.ReminderEvery = TimeSpan.FromMilliseconds(50);
+        harness.Service.PauseBefore = 3;
+        harness.Service.PauseAt = new TaskCompletionSource();
+        await harness.StartAsync();
+        await harness.ScannedAsync();
+        var saving = harness.Job.SaveCommand.ExecuteAsync(null);
+        Harness.Pump();
+
+        // Looking at another extraction entirely.
+        harness.NewJob();
+        Assert.True(Visible(harness, "AttentionBar"));
+        Assert.Contains("needs you", harness.ViewModel.Attention, StringComparison.Ordinal);
+        Assert.Single(harness.Shell.Notified);
+
+        await harness.ViewModel.ShowCheckCommand.ExecuteAsync(null);
+        Assert.Equal(1, harness.Service.ShownChecks);
+
+        await Task.Delay(200, TestContext.Current.CancellationToken);
+        Harness.Pump();
+        Assert.True(harness.Shell.Notified.Count > 1, "reminded while still waiting");
+
+        harness.Service.PauseAt.SetResult();
+        await saving;
+        Harness.Pump();
+        Assert.False(harness.ViewModel.NeedsAttention);
+        var after = harness.Shell.Notified.Count;
+        await Task.Delay(200, TestContext.Current.CancellationToken);
+        Harness.Pump();
+        Assert.Equal(after, harness.Shell.Notified.Count);
+    }
+
+    [AvaloniaFact]
+    public async Task A_chapter_far_shorter_than_the_rest_is_named_so_it_gets_a_look()
+    {
+        var harness = new Harness();
+        await harness.StartAsync();
+        await harness.ScannedAsync();
+        harness.Job.From = 1;
+        harness.Job.To = 5;
+        await harness.Job.SaveCommand.ExecuteAsync(null);
+        Harness.Pump();
+        var rows = harness.Job.Chapters;
+        foreach (var row in rows)
+        {
+            row.Words = 2000;
+        }
+
+        rows[2].Words = 90;
+
+        Assert.Equal([3], harness.Job.FlagShortChapters());
+        Assert.Equal("Saved, only 90 words: check it", rows[2].StatusText);
+        Assert.Equal("Saved, 2,000 words", rows[0].StatusText);
+    }
+
+    [AvaloniaFact]
+    public async Task Going_slower_on_purpose_is_said_so_it_never_looks_stuck()
+    {
+        var harness = new Harness();
+        harness.Service.PauseBefore = 3;
+        harness.Service.PauseAt = new TaskCompletionSource();
+        await harness.StartAsync();
+        await harness.ScannedAsync();
+        var saving = harness.Job.SaveCommand.ExecuteAsync(null);
+        Harness.Pump();
+
+        harness.Service.Slow("Going slower on purpose: 6s between pages, because this site asked to check you're a person.");
+        Harness.Pump();
+
+        Assert.True(Visible(harness, "PaceNoteText"));
+
+        // A person being needed says so first; once not, the list says why it is slow.
+        Assert.Equal("Needs you in the browser", harness.Job.RailStatus);
+        harness.Job.PersonMessage = null;
+        Assert.EndsWith("slower on purpose", harness.Job.RailStatus, StringComparison.Ordinal);
+
+        harness.Service.PauseAt.SetResult();
+        await saving;
+        Harness.Pump();
+        Assert.False(Visible(harness, "PaceNoteText"));
+    }
+
     private static bool Visible(Harness harness, string name) =>
         harness.Window.FindControl<Control>(name) is { } control
         && control.IsVisible

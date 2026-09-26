@@ -20,9 +20,9 @@ public sealed record DesktopSettings
     /// <summary>Chapters fetched at once. One is kindest to a site and least likely to trip its checks.</summary>
     public int AtOnce { get; init; } = 1;
 
-    public double MinDelay { get; init; } = 2;
+    public double MinDelay { get; init; } = 1;
 
-    public double MaxDelay { get; init; } = 4;
+    public double MaxDelay { get; init; } = 2;
 
     public bool IncludeLinks { get; init; }
 
