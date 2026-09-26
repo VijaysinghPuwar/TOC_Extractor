@@ -39,4 +39,26 @@ public sealed record BrowserPageSourceOptions
     /// chapter; a selector a person typed should still fail loudly.
     /// </summary>
     public bool TitleFallback { get; init; }
+
+    /// <summary>
+    /// Skip pictures, video, audio and web fonts while the app reads on its
+    /// own. Only the text is saved, and on ad-heavy sites those are most of
+    /// the page's weight. Style sheets still load, because what counts as
+    /// visible text depends on them. Never while a person is using the
+    /// window or a tab is showing a check.
+    /// </summary>
+    public bool LightPages { get; init; }
+
+    /// <summary>
+    /// When set, a tab nobody has used for this long is closed, down to one,
+    /// and the one left is emptied so a page's ads stop running while it
+    /// waits. Only with <see cref="GrowTo"/>, where tabs are opened on demand.
+    /// </summary>
+    public TimeSpan? IdleTabsCloseAfter { get; init; }
+
+    /// <summary>
+    /// Whether memory is short right now, asked before opening another tab.
+    /// While it is, work waits for a tab to come free instead. Null never waits.
+    /// </summary>
+    public Func<bool>? MemoryTight { get; init; }
 }

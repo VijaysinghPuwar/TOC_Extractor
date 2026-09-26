@@ -23,8 +23,11 @@ namespace TocExtractor.App.Session;
 /// </remarks>
 public sealed class BrowserHost(NovelEnvironment environment) : IAsyncDisposable
 {
-    /// <summary>The most tabs open at once, across every extraction.</summary>
-    public const int MostTabs = 48;
+    /// <summary>The most tabs open at once, across every extraction: as many as this machine can carry.</summary>
+    public static int MostTabs => MachineBudget.MostTabs;
+
+    /// <summary>How long a tab can sit unused before it is closed.</summary>
+    public static readonly TimeSpan IdleTabsCloseAfter = TimeSpan.FromSeconds(30);
 
     private readonly SemaphoreSlim starting = new(1, 1);
     private readonly ConcurrentDictionary<string, RateLimiter> limiters = new(StringComparer.OrdinalIgnoreCase);
@@ -87,6 +90,9 @@ public sealed class BrowserHost(NovelEnvironment environment) : IAsyncDisposable
                 MaxPages = 1,
                 GrowTo = MostTabs,
                 TitleFallback = true,
+                LightPages = true,
+                IdleTabsCloseAfter = IdleTabsCloseAfter,
+                MemoryTight = MachineBudget.MemoryTight,
             };
 
             try

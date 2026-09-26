@@ -242,6 +242,13 @@ public sealed class CsvLog : IDisposable
             : flat;
     }
 
+    /// <summary>The first words of a line, enough to tell an advert from a paragraph.</summary>
+    private static string Opening(string line)
+    {
+        var words = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return words.Length <= 8 ? line : string.Join(' ', words[..8]) + " ...";
+    }
+
     private sealed class Tee(CsvLog log, IPipelineObserver inner) : IPipelineObserver
     {
         public void Log(string line)
@@ -276,6 +283,27 @@ public sealed class CsvLog : IDisposable
                 string.Create(CultureInfo.InvariantCulture, $"{record.Title} | {record.ByteCount} bytes | attempt {record.Attempts}")
                     + (record.Redirected ? " | redirected to " + record.FinalUrl : "")
                     + (record.Robots is { AuthenticatedOverride: true } ? " | robots.txt override (signed in)" : ""));
+            if (record.Audit is { LeftOutStory: true } leftOut)
+            {
+                log.Write(
+                    "warning",
+                    "left-out",
+                    record.Index,
+                    record.RequestedUrl,
+                    string.Create(CultureInfo.InvariantCulture, $"{leftOut.LeftOutWords} of the page's {leftOut.PageWords} words were not saved, including {leftOut.LeftOutLong.Count} line(s) long enough to be story: ")
+                        + string.Join(" / ", leftOut.LeftOutLong.Select(Opening)));
+            }
+
+            if (record.Audit is { DoubledText: true } doubled)
+            {
+                log.Write(
+                    "warning",
+                    "doubled",
+                    record.Index,
+                    record.RequestedUrl,
+                    string.Create(CultureInfo.InvariantCulture, $"{doubled.Doubled} paragraph(s) appear more often in the saved text than on the page"));
+            }
+
             inner.Record(record);
         }
 

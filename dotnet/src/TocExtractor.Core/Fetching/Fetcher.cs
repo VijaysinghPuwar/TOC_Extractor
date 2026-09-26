@@ -597,7 +597,16 @@ public sealed class Fetcher : IDisposable
             this.now(),
             attempts,
             decision,
-            page.NextUrl);
+            page.NextUrl)
+        {
+            // The whole story box, cleaned the same way, against what is
+            // saved: so a paragraph left out, or saved twice, is caught.
+            Audit = page.PageText is { } whole
+                ? TextAudit.Compare(
+                    TextCleaner.Clean(whole, removeLinks: !this.options.IncludeLinks, stripAds: this.options.StripAds).Text,
+                    cleaned.Text)
+                : null,
+        };
 
         await this.writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try

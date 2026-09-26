@@ -1,6 +1,7 @@
 using TocExtractor.Core.Links;
 using TocExtractor.Core.Pages;
 using TocExtractor.Core.Politeness;
+using TocExtractor.Core.Text;
 
 namespace TocExtractor.Browser.Tests;
 
@@ -259,6 +260,195 @@ public sealed class BrowserPageSourceTests
 
         Assert.All(answers, answer => Assert.Equal("Late.", answer.Json.Trim()));
         Assert.Equal(3, source.OpenTabs);
+    }
+
+    /// <summary>A made-up paragraph, distinct for each number, as long as a story's.</summary>
+    private static string Paragraph(int n) =>
+        $"Paragraph {n} begins, and the keeper climbs the stair while the tide turns below the rocks and the lamp burns on.";
+
+    [Fact]
+    public async Task Every_paragraph_of_a_cluttered_chapter_is_saved_once_in_order()
+    {
+        var html = new System.Text.StringBuilder("<h1 class=\"t\">Chapter 5</h1><div class=\"c\">");
+        html.Append("<div class=\"chapter-nav\"><a href=\"/4\">Prev</a> <a href=\"/6\">Next chapter</a></div>");
+        for (var n = 1; n <= 60; n++)
+        {
+            var text = Paragraph(n);
+            html.Append(n switch
+            {
+                _ when n % 10 == 0 => $"<div class=\"ads\"><ins>Advertisement</ins><script>void 0;</script></div><p>{text}</p>",
+                _ when n % 7 == 0 => $"<p>{text[..20]}<em>{text[20..40]}</em><a href=\"/x\">{text[40..50]}</a>{text[50..]}</p>",
+                _ when n % 9 == 0 => $"<p>{text[..30]}\u200B{text[30..]}</p>",
+                _ when n % 11 == 0 => $"<div><span>{text[..45]}</span><span>{text[45..]}</span></div>",
+                _ => $"<p>{text}</p>",
+            });
+        }
+
+        html.Append("<div style=\"display:none\">Hidden from readers.</div>");
+        html.Append("<div class=\"share-buttons\">Share to your friends</div></div>");
+        using var site = new LocalSite();
+        site.Html("/ch/5", html.ToString());
+
+        await using var source = await StartAsync();
+        var chapter = await source.LoadChapterAsync(site.Url("/ch/5"), ".t", ".c", Token);
+
+        // Every paragraph, exactly once, in order.
+        var at = -1;
+        for (var n = 1; n <= 60; n++)
+        {
+            var found = chapter.Body.IndexOf(Paragraph(n), StringComparison.Ordinal);
+            Assert.True(found > at, $"paragraph {n} missing or out of order");
+            Assert.Equal(found, chapter.Body.LastIndexOf(Paragraph(n), StringComparison.Ordinal));
+            at = found;
+        }
+
+        Assert.DoesNotContain("Advertisement", chapter.Body, StringComparison.Ordinal);
+        Assert.DoesNotContain("Next chapter", chapter.Body, StringComparison.Ordinal);
+
+        // And the chapter's own check agrees: nothing left out, nothing twice.
+        Assert.NotNull(chapter.PageText);
+        var audit = TextAudit.Compare(chapter.PageText, chapter.Body);
+        Assert.False(audit.LeftOutStory);
+        Assert.False(audit.DoubledText);
+    }
+
+    [Fact]
+    public async Task A_story_paragraph_the_cleanup_removes_by_mistake_is_caught()
+    {
+        // A site that happens to style a story paragraph with a class the ad
+        // and menu cleanup matches ("notice"). The cleanup removes it; the
+        // check must say so, so the person is told rather than never knowing.
+        using var site = new LocalSite();
+        site.Html("/ch/6", $"""
+            <h1 class="t">Chapter 6</h1><div class="c">
+            <p>{Paragraph(1)}</p><div class="notice">{Paragraph(2)}</div><p>{Paragraph(3)}</p></div>
+            """);
+
+        await using var source = await StartAsync();
+        var chapter = await source.LoadChapterAsync(site.Url("/ch/6"), ".t", ".c", Token);
+
+        Assert.DoesNotContain(Paragraph(2), chapter.Body, StringComparison.Ordinal);
+        var audit = TextAudit.Compare(chapter.PageText!, chapter.Body);
+        Assert.True(audit.LeftOutStory);
+        Assert.Equal([Paragraph(2)], audit.LeftOutLong);
+    }
+
+    [Fact]
+    public async Task An_ad_frame_that_redirects_does_not_become_the_chapters_address()
+    {
+        using var site = new LocalSite();
+        site.Redirect("/ad", "/ad/landing");
+        site.Html("/ad/landing", "<p>an advert</p>");
+        site.Html("/ch/3", """
+            <html><body><iframe src="/ad"></iframe>
+            <h1 class="t">Chapter 3</h1><article class="c"><p>Three.</p></article>
+            <script>const until = Date.now() + 1500; while (Date.now() < until) {}</script>
+            </body></html>
+            """);
+
+        await using var source = await StartAsync();
+        var chapter = await source.LoadChapterAsync(site.Url("/ch/3"), ".t", ".c", Token);
+
+        Assert.Equal("Three.", chapter.Body.Trim());
+        Assert.Equal(site.Url("/ch/3"), chapter.FinalUrl);
+        lock (site.Requested)
+        {
+            // The frames were still loaded, and screened hop by hop.
+            Assert.Contains("/ad/landing", site.Requested);
+        }
+    }
+
+    [Fact]
+    public async Task Light_pages_skip_pictures_and_fonts_but_keep_style_sheets()
+    {
+        using var site = new LocalSite();
+        site.Html("/ch/1", """
+            <html><head><link rel="stylesheet" href="/look.css"></head><body>
+            <h1 class="t">Chapter 1</h1><img src="/picture.png">
+            <article class="c"><p>One.</p></article></body></html>
+            """);
+        site.Html("/look.css", "p { color: black; }");
+
+        await using var light = await BrowserPageSource.StartAsync(
+            Guard, new BrowserPageSourceOptions { LightPages = true, OperationBudget = TimeSpan.FromSeconds(20) }, Token);
+        var chapter = await light.LoadChapterAsync(site.Url("/ch/1"), ".t", ".c", Token);
+
+        Assert.Equal("One.", chapter.Body.Trim());
+        await Task.Delay(300, Token);
+        lock (site.Requested)
+        {
+            Assert.Contains("/look.css", site.Requested);
+            Assert.DoesNotContain("/picture.png", site.Requested);
+        }
+
+        // While the person uses the window, pages load whole.
+        light.PersonArrived();
+        await light.OpenPageAsync(site.Url("/ch/1"), Token);
+        await Task.Delay(300, Token);
+        light.PersonLeft();
+        lock (site.Requested)
+        {
+            Assert.Contains("/picture.png", site.Requested);
+        }
+    }
+
+    [Fact]
+    public async Task Idle_tabs_close_down_to_one_and_the_last_is_emptied()
+    {
+        using var site = new LocalSite();
+        site.Html("/slow", """
+            <h1 class="t">Slow</h1><article class="c"></article>
+            <script>setTimeout(() => document.querySelector('.c').innerHTML = '<p>Late.</p>', 800);</script>
+            """);
+
+        await using var source = await BrowserPageSource.StartAsync(
+            Guard,
+            new BrowserPageSourceOptions { MaxPages = 1, GrowTo = 3, OperationBudget = TimeSpan.FromSeconds(20) },
+            Token);
+        await Task.WhenAll(Enumerable.Range(0, 3)
+            .Select(_ => source.ProbeAsync(site.Url("/slow"), "() => document.querySelector('.c').innerText", TimeSpan.FromSeconds(3), Token)));
+        Assert.Equal(3, source.WorkTabs);
+
+        await source.TidyAsync(TimeSpan.Zero, Token);
+        Assert.Equal(1, source.WorkTabs);
+        Assert.Equal(1, source.OpenTabs);
+
+        // Left waiting, the one tab's page is emptied, so nothing on it runs.
+        await Task.Delay(TimeSpan.FromSeconds(3.2), Token);
+        await source.TidyAsync(TimeSpan.FromHours(1), Token);
+        Assert.Equal(["about:blank"], source.TabUrls);
+
+        // And it still works, as does growing again.
+        var again = await Task.WhenAll(Enumerable.Range(0, 2)
+            .Select(_ => source.ProbeAsync(site.Url("/slow"), "() => document.querySelector('.c').innerText", TimeSpan.FromSeconds(3), Token)));
+        Assert.All(again, answer => Assert.Equal("Late.", answer.Json.Trim()));
+        Assert.Equal(2, source.WorkTabs);
+    }
+
+    [Fact]
+    public async Task Short_of_memory_work_waits_for_an_open_tab_instead_of_opening_more()
+    {
+        using var site = new LocalSite();
+        site.Html("/slow", """
+            <h1 class="t">Slow</h1><article class="c"></article>
+            <script>setTimeout(() => document.querySelector('.c').innerHTML = '<p>Late.</p>', 800);</script>
+            """);
+
+        await using var source = await BrowserPageSource.StartAsync(
+            Guard,
+            new BrowserPageSourceOptions
+            {
+                MaxPages = 1,
+                GrowTo = 4,
+                MemoryTight = () => true,
+                OperationBudget = TimeSpan.FromSeconds(20),
+            },
+            Token);
+        var answers = await Task.WhenAll(Enumerable.Range(0, 3)
+            .Select(_ => source.ProbeAsync(site.Url("/slow"), "() => document.querySelector('.c').innerText", TimeSpan.FromSeconds(3), Token)));
+
+        Assert.All(answers, answer => Assert.Equal("Late.", answer.Json.Trim()));
+        Assert.Equal(1, source.WorkTabs);
     }
 
     [Fact]

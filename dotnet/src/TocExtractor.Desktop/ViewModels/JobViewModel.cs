@@ -47,6 +47,7 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
     [
         nameof(Stage), nameof(Status), nameof(Problem), nameof(PersonMessage), nameof(Scan), nameof(NovelUrl),
         nameof(ProgressPercent), nameof(ProgressLine), nameof(SavedCount), nameof(HasOutput), nameof(PaceNote),
+        nameof(PlanSummary),
     ];
 
     private readonly INovelService session;
@@ -176,9 +177,18 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
             CultureInfo.InvariantCulture, $"Done, {this.SavedCount} of {this.Chapters.Count}"),
         _ when this.Status.StartsWith("Stopped.", StringComparison.Ordinal) => "Stopped",
         _ when this.Chapters.Count > 0 => this.ProgressLine,
+
+        // Not "Ready to save" when Save cannot be pressed: a range outside
+        // the book said so here, and the extraction looked stuck.
+        _ when this.ScanReady && this.preview?.Plan.Problem is { } problem => this.OutOfBook
+            ? string.Create(CultureInfo.InvariantCulture, $"Only chapters {this.FirstChapter:0} to {this.LastChapter:0}")
+            : problem,
         _ when this.ScanReady => "Ready to save",
         _ => "Not started",
     };
+
+    /// <summary>The chosen chapters reach past the book's first or last one.</summary>
+    private bool OutOfBook => this.From < this.FirstChapter || this.To > this.LastChapter;
 
     /// <summary>Whether the list shows a progress bar for this extraction.</summary>
     public bool HasProgress => this.Chapters.Count > 0;
@@ -258,7 +268,7 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
 
     public string ReaderTitle => this.SelectedChapter?.Heading ?? "";
 
-    public string ReaderText => Paragraphs(this.SelectedChapter?.Text);
+    public string ReaderText => Paragraphs(this.SelectedChapter?.ReadText());
 
     public int SavedCount => this.Chapters.Count(row => row.State is ChapterState.Saved or ChapterState.AlreadySaved);
 
@@ -484,6 +494,7 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
         this.PlanSummary = this.preview.Summary;
         this.PlanIsSlow = this.preview.Slow;
         this.SaveCommand.NotifyCanExecuteChanged();
+        this.OnPropertyChanged(nameof(this.RailStatus));
     }
 
     // -- 3. save --------------------------------------------------------------------
@@ -503,7 +514,7 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
     [RelayCommand(CanExecute = nameof(CanSave))]
     private async Task SaveAsync()
     {
-        if (this.Scan is not { } scan || this.preview is not { } plan)
+        if (this.Scan is not { } scan || this.preview is not { } plan || plan.Plan.Problem is not null)
         {
             return;
         }
@@ -564,6 +575,15 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
             if (result.Outcome == PipelineOutcome.Refused)
             {
                 this.Problem = this.Status;
+            }
+
+            // Anything that may have been skipped or doubled is said, by
+            // chapter number, where the person reads the result.
+            foreach (var (message, chapters) in this.FlagIntegrity(result.SameText))
+            {
+                var which = BookFiles.Ranges(chapters);
+                this.Status += $" {message.Replace("{0}", which, StringComparison.Ordinal)}";
+                this.log?.Warning("check", message.Replace("{0}", which, StringComparison.Ordinal));
             }
 
             // Nobody reads 500 chapters before pasting them into a voice, so
@@ -649,7 +669,7 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
     [RelayCommand]
     private async Task CopyChapterAsync()
     {
-        if (this.SelectedChapter is { Text: { } text } chapter)
+        if (this.SelectedChapter is { } chapter && chapter.ReadText() is { } text)
         {
             // As the TXT book has it: with or without the heading, and ready
             // for a voice if that is asked for in Settings.
@@ -808,6 +828,77 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
         }
     }
 
+    /// <summary>A removed line seen in this many chapters of one book is the site's own furniture, not story.</summary>
+    private const int FurnitureAfter = 3;
+
+    /// <summary>
+    /// Mark saved chapters where text on the page may have been left out,
+    /// text appears twice, or two chapters have the same text. Returns what
+    /// to tell the person, each with its chapters.
+    /// </summary>
+    /// <remarks>
+    /// A long line left out of many chapters of one book is a notice the
+    /// site repeats on every page ("If you find any errors, report them"),
+    /// which is exactly what should be left out, so it does not count.
+    /// </remarks>
+    internal List<(string Message, List<int> Chapters)> FlagIntegrity(IReadOnlyList<IReadOnlyList<int>> sameText)
+    {
+        var saved = this.Chapters.Where(row => row.State == ChapterState.Saved).ToList();
+        var seen = saved.SelectMany(row => row.LeftOutLines.Distinct(StringComparer.Ordinal))
+            .GroupBy(line => line, StringComparer.Ordinal)
+            .Where(group => group.Count() >= FurnitureAfter)
+            .Select(group => group.Key)
+            .ToHashSet(StringComparer.Ordinal);
+
+        List<int> leftOut = [];
+        List<int> doubled = [];
+        foreach (var row in saved)
+        {
+            row.LeftOut = row.LeftOutLines.Any(line => !seen.Contains(line));
+            if (row.LeftOut)
+            {
+                leftOut.Add(row.Number);
+            }
+
+            if (row.Doubled)
+            {
+                doubled.Add(row.Number);
+            }
+        }
+
+        List<int> same = [];
+        foreach (var group in sameText)
+        {
+            foreach (var number in group)
+            {
+                if (this.rowsByNumber.TryGetValue(number, out var row))
+                {
+                    row.SameTextAs = group.First(other => other != number);
+                }
+
+                same.Add(number);
+            }
+        }
+
+        List<(string, List<int>)> messages = [];
+        if (leftOut.Count > 0)
+        {
+            messages.Add(("Chapter(s) {0}: some text on the site's page was not saved; open them in the Reader to check.", leftOut));
+        }
+
+        if (doubled.Count > 0)
+        {
+            messages.Add(("Chapter(s) {0}: some text was saved twice; open them in the Reader to check.", doubled));
+        }
+
+        if (same.Count > 0)
+        {
+            messages.Add(("Chapter(s) {0}: saved with the same text as another chapter; the site may have shown one page for both.", same));
+        }
+
+        return messages;
+    }
+
     /// <summary>
     /// Mark saved chapters far shorter than this book's usual length: a
     /// quarter of the typical chapter, in a book whose chapters are long
@@ -839,6 +930,25 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
         }
 
         return flagged;
+    }
+
+    /// <summary>Words in a text, counted without splitting it into a copy.</summary>
+    internal static int CountWords(string text)
+    {
+        var words = 0;
+        var inWord = false;
+        foreach (var c in text)
+        {
+            var space = char.IsWhiteSpace(c);
+            if (!space && !inWord)
+            {
+                words++;
+            }
+
+            inWord = !space;
+        }
+
+        return words;
     }
 
     private void RefreshProgress()
@@ -881,8 +991,19 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
             if (owner.rowsByNumber.TryGetValue(record.Index, out var row))
             {
                 row.Title = record.Title;
-                row.Text = record.Text;
-                row.Words = record.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
+
+                // The reader opens the chapter's file when it is shown; only
+                // a chapter with no file is kept in memory.
+                row.TextLength = record.Text.Length;
+                row.File = record.SavedAs;
+                row.Text = record.SavedAs is null ? record.Text : null;
+                row.Words = CountWords(record.Text);
+                if (record.Audit is { } audit)
+                {
+                    row.LeftOutLines = audit.LeftOutLong;
+                    row.LeftOutWords = audit.LeftOutWords;
+                    row.Doubled = audit.DoubledText;
+                }
                 row.State = ChapterState.Saved;
                 owner.RefreshProgress();
 

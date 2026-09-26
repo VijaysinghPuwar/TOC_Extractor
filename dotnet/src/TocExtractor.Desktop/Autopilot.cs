@@ -95,6 +95,7 @@ internal static class Autopilot
             await Shoot(window, plan.Shot, "saved").ConfigureAwait(true);
 
             code = started.All(s => s.Job.Status.StartsWith("Done.", StringComparison.Ordinal)) ? 0 : 2;
+            Console.WriteLine($"autopilot: finished at {DateTime.Now:HH:mm:ss}, {started.Count(s => s.Job.Status.StartsWith("Done.", StringComparison.Ordinal))} of {started.Count} done");
             foreach (var (job, _) in started)
             {
                 Console.WriteLine($"autopilot: #{job.Number} {job.Caption}: {job.Status} | {job.Problem} | log {job.LogPath}");
@@ -103,6 +104,11 @@ internal static class Autopilot
                     Console.WriteLine($"activity #{job.Number}: {line}");
                 }
             }
+        }
+        catch (Exception exception)
+        {
+            // Discarded by the caller otherwise, which left only an exit code.
+            Console.WriteLine("autopilot: failed: " + exception);
         }
         finally
         {

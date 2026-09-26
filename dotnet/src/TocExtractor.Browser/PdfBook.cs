@@ -16,9 +16,23 @@ namespace TocExtractor.Browser;
 /// Plain black on white. A title page, then each chapter on a new page with
 /// its heading, and page numbers in the footer.
 /// </para>
+/// <para>
+/// Each PDF starts a browser of its own for as long as it is being printed,
+/// which is a few hundred MB. When many books finish together, only as many
+/// print at once as the machine has room for (one on a small Mac); the rest
+/// wait their turn.
+/// </para>
 /// </remarks>
 public sealed class PdfBook
 {
+    /// <summary>The longest a book may take to lay out. A book of thousands of chapters can take minutes.</summary>
+    private static readonly TimeSpan LayoutBudget = TimeSpan.FromMinutes(10);
+
+    private static readonly SemaphoreSlim Printing = new(AtOnce(MachineBudget.MostTabs));
+
+    /// <summary>How many PDFs print at once: one per 16 tabs the machine can carry, at least one.</summary>
+    internal static int AtOnce(int mostTabs) => Math.Max(1, mostTabs / 16);
+
     public static async Task WriteAsync(
         string title,
         IReadOnlyList<(string Heading, string Body)> chapters,
@@ -27,6 +41,23 @@ public sealed class PdfBook
     {
         ArgumentNullException.ThrowIfNull(chapters);
 
+        await Printing.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await PrintAsync(title, chapters, path, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            Printing.Release();
+        }
+    }
+
+    private static async Task PrintAsync(
+        string title,
+        IReadOnlyList<(string Heading, string Body)> chapters,
+        string path,
+        CancellationToken cancellationToken)
+    {
         using var playwright = await Playwright.CreateAsync().ConfigureAwait(false);
 
         // The full Chromium in its new headless mode: the app downloads that
@@ -37,7 +68,11 @@ public sealed class PdfBook
 
         // Offline: a chapter's text is data, and nothing in it may reach out.
         await page.RouteAsync("**/*", route => route.AbortAsync()).ConfigureAwait(false);
-        await page.SetContentAsync(Html(title, chapters)).ConfigureAwait(false);
+        // Playwright's default of 30 seconds is too short to lay out a very
+        // long book, which then failed on every try.
+        await page.SetContentAsync(
+            Html(title, chapters),
+            new PageSetContentOptions { Timeout = (float)LayoutBudget.TotalMilliseconds }).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
         var directory = Path.GetDirectoryName(Path.GetFullPath(path));

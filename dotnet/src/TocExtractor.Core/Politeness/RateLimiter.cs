@@ -28,7 +28,9 @@ public delegate ValueTask Sleeper(TimeSpan duration, CancellationToken cancellat
 public sealed class RateLimiter
 {
     private readonly ConcurrentDictionary<string, SemaphoreSlim> locks = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, TimeSpan> last = new(StringComparer.Ordinal);
+    // Concurrent: each host's entry is written under that host's gate, but two
+    // hosts sharing one limiter write the dictionary at the same time.
+    private readonly ConcurrentDictionary<string, TimeSpan> last = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, TimeSpan> overrides = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Allowance> allowances = new(StringComparer.Ordinal);
     private readonly TimeSpan minInterval;

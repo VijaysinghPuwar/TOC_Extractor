@@ -44,8 +44,9 @@ by itself.
 
 And while one book saves, you can start the next: run as many at once as you
 like, each with its own progress bar. There are options for audiobooks, a
-detailed log of everything the app does, and it learns which sites need a
-gentler pace so their "are you a person" checks stay rare.
+detailed log of everything the app does, and when a site asks the app to
+prove it is a person, the app takes that as a sign to slow down and reads
+that site gently from then on.
 
 <p align="center">
   <img src="docs/images/app-saved.png" alt="The app after saving chapters 12 to 20 of a book" width="820">
@@ -61,10 +62,12 @@ repository or by a measured live run.
 | **Stack** | C# on .NET 10 with Avalonia 12 for the desktop app on macOS and Windows, and Microsoft Playwright driving Chromium. The original Python tool is kept as a reference implementation; both are checked against the same test data for text cleaning, file names and robots.txt. |
 | **Concurrency** | Any number of downloads run at once in one shared browser whose tab pool grows on demand. Downloads of the same book share one progress record behind a lock. Downloads from the same site share one rate limiter, so running ten books never asks more of a site than running one. |
 | **No per-site setup** | Scripts run inside the page to find the chapter list, the story text and the next and previous links. Address patterns such as "id = 3,254,000 + chapter" are inferred and then checked on the live site before they are used. Books that restart their numbering in each arc are numbered by position instead. |
+| **Nothing skipped or doubled** | Removing ads and menus from a chapter is the one step that could drop a paragraph unnoticed, so every chapter is compared, line by line, with the whole story box as the page showed it. A left-out line long enough to be story, a paragraph saved more often than the page shows it, or two chapters with identical text is flagged on that chapter, named in the final status, and logged. A line the site repeats on every page (a standing notice) does not count. |
+| **Adapts to the machine** | The browser's tab ceiling comes from the computer's memory and cores (8 tabs on an 8 GB Mac, 40 on 24 GB, 48 at most), and no new tab opens while macOS reports memory is short. Idle tabs close after 30 seconds; pictures, video and web fonts are not loaded while the app reads on its own. |
 | **Fault tolerance** | A tab that is closed or crashes is replaced, and a closed browser is relaunched, without failing the download. A failure in one download cannot stop another. A book file is named only for the chapters it actually contains. |
-| **Measured politeness** | Follows robots.txt (RFC 9309) and Crawl-delay. One site's "are you human" checks were measured over about 15 occurrences: one after about every 50 pages at 9 to 54 pages a minute, none in 75 pages at 5 a minute. The app now learns such sites and paces them to match. It never solves or works around a check. |
+| **Politeness** | Follows robots.txt (RFC 9309) and Crawl-delay. A "verify you are human" check is treated as the site saying the app is going too fast: that site is read at one page every 12 seconds from then on, shared by every book on it, and the person clicks the check themselves. The app never solves or works around a check. |
 | **Observability** | One CSV log, written as events happen: every page load with its timing, every retry and its cause, every check, and every error with its stack trace, including unhandled exceptions. |
-| **Quality gates** | 3,423 automated tests (2,811 in C# with xUnit, including headless UI render tests; 612 in Python with pytest), warnings treated as errors, mypy strict and ruff on the Python side, and CI on Linux, Windows and macOS. Tagging a version builds the Mac (Apple silicon and Intel) and Windows packages, self-tests each one, and publishes them. |
+| **Tests** | The tests pin what would hurt a reader if it broke: a redirect to a private network address is refused mid-chain; robots.txt is decided identically by the C# and Python code on a shared conformance corpus; resuming never refetches or drops a chapter, even with two ranges of one book saving at once; a book file is never named for chapters it lacks; and real Chromium, against a local test server, heals a closed tab and never navigates away from a check the person is clicking. Warnings are errors, and CI runs on Linux, Windows and macOS. Tagging a version builds and self-tests the Mac and Windows packages before publishing them. |
 | **Scale tested** | Live runs of up to 20 books at once across five sites, 50 chapters each, with every saved chapter checked for completeness and order. |
 
 ## Download
@@ -159,9 +162,9 @@ across the top of the window with a **Show me** button that brings the
 check to the front, and on a Mac a notification with a sound, repeated
 every five minutes while the site still waits. It waits for as long as it
 takes, so nothing fails while you are away; press Stop to give up instead.
-Once you finish the check, saving carries on by itself. The app also
-remembers that site and reads it carefully from then on, a page every 12
-seconds, which in testing kept its checks away entirely. While it does, the
+Once you finish the check, saving carries on by itself. The app also takes
+the check as a sign it was going too fast, and reads that site carefully from
+then on, a page every 12 seconds. While it does, the
 window says so ("Going slower on purpose"), and the time estimate before you
 press Save allows for it, so a slower download is never mistaken for a stuck
 one. Settings, Sites, lets you choose speed instead for any site.
@@ -201,15 +204,27 @@ what it already has, so a later save never downloads a chapter twice; leave
 it be, or delete the whole book folder to start fresh. Books saved by older
 versions are tidied into this layout the next time you save them.
 
+### Checked as it saves
+
+Every chapter is checked against the page it came from as it is saved. If a
+line of the page that looks like story did not make it into the chapter, or
+a paragraph was saved twice, or two chapters came out with exactly the same
+text, the app says so: the chapter is marked **!** in the Chapters list with
+what is wrong, and the status at the end names every such chapter, for
+example "Chapter(s) 12, 40: some text on the site's page was not saved; open
+them in the Reader to check." The log keeps the first words of anything left
+out. Short things a site puts in the story box, such as "Share to your
+friends", reading-time counters or a one-line advert, are left out on
+purpose and do not count.
+
 A book file is only ever named for the chapters it really holds. If you ask
 for 1 to 50 and chapter 27 fails, or you press Stop there, you get
 `The Lighthouse 1-26.pdf`, never `1-50`. Chapters saved after the gap are
 kept, and join the book when you press Save again and the gap is filled; the
 full `1-50` file then replaces the shorter one.
 
-Only the chapter heading and the story text are kept. Ads, menus, comments,
-"next chapter" links and hidden text that some sites use to mark copies are
-all left out.
+Only the chapter heading and the story text as a reader sees it on the page
+are kept. Ads, menus, comments and "next chapter" links are left out.
 
 ### Settings
 
@@ -220,16 +235,14 @@ same window; press **Back** to return. Changes are saved as you make them.
 - **Logs**: keep a detailed log (CSV) of every extraction, and **Open log
   folder** to see them.
 - **Pace**: how many chapters each extraction fetches at the same time, and
-  how many seconds to wait between pages. The default, one to two seconds,
-  was measured safe: on four sites, 100 chapters each at about a page a
-  second brought no checks, no errors and no incomplete chapters.
+  how many seconds to wait between pages. The default is one to two
+  seconds. Tested on four sites, 100 chapters each, it saved every chapter
+  complete with no errors.
 - **Sites**: sites that have asked to check you're a person. The app learns
   these itself: the first time a site asks, it reads that site carefully from
-  then on, a page every 12 seconds, which in testing kept the checks away
-  entirely (75 pages, no check) where any faster pace drew one about every
-  50 pages. Turn
-  Careful off for a site to go at full speed and click the odd check, or
-  press Forget to start it fresh.
+  then on, a page every 12 seconds. Turn Careful off for a site to go at the
+  normal pace (you click any check yourself), or press Forget to start it
+  fresh.
 - **Text**: keep links in the text, and remove ad markers.
 - **For audiobooks (text to speech)**: leave chapter numbers and titles out
   of the TXT book and **Copy text**, so a voice goes straight into the story
@@ -294,8 +307,8 @@ Right-click the app and choose **Open** instead of double-clicking it.
 **One site is much slower than the others.**
 That site asked to check you're a person before, so the app now reads it at a
 careful pace (a page every 12 seconds, shared by every book from that site).
-The window says so while it happens. To go fast anyway and click the odd
-check, turn Careful off for that site in Settings, Sites.
+The window says so while it happens. To go at the normal pace and click any
+check yourself, turn Careful off for that site in Settings, Sites.
 
 **The app says a chapter "came out much shorter than the rest".**
 Open it in the Reader. Usually the site's own page really is short (an
@@ -306,6 +319,17 @@ story never slips unnoticed into your book.
 Chapter 27 did not save (the Chapters tab says why). The file holds only the
 chapters it names. Press Save again to fetch what is missing; the full file
 then replaces the shorter one.
+
+**A chapter is marked ! and says words on the page were left out.**
+Open it in the Reader and compare it with the site. Usually it is something
+the site placed inside the story box that is not story; if a paragraph really
+is missing, the log (Settings, Open log folder) shows the first words of what
+was left out, so it can be reported.
+
+**The browser window shows pages without pictures.**
+That is on purpose. While the app reads on its own it skips pictures, video
+and web fonts, which it never saves, so pages load faster and use less
+memory. Pages load in full while you are signing in or completing a check.
 
 **Some chapters say "Page 12" instead of "Chapter 12".**
 That is how the site names them. Some sites split a book into pages that do
@@ -498,6 +522,11 @@ nothing is overwritten. The log mentions it.
 
 ## Version history
 
+How it grew: 1.0.0 (September 2025) was a single Python script. 2.0.0
+(August 2026) rebuilt it as a tested command line tool. The C# desktop app
+came in September 2026, and 2.0.1 to 2.2.1 went out on the same day, each a
+small release fixing what a live test on real sites had just turned up.
+
 **2.2.1** (2026-09-25)
 
 From a 20-book stress test on five sites:
@@ -596,35 +625,6 @@ From a 20-book stress test on five sites:
 
 <details>
 <summary><strong>For developers</strong></summary>
-
-### Size of the code
-
-Lines per language across the repository, counted from the files git tracks
-for this release. **Code** is every line that is neither blank nor only a
-comment; **of which tests** is the part of it under a `tests/` folder.
-
-| Language | Files | Code | of which tests | Comments | Blank |
-|---|--:|--:|--:|--:|--:|
-| C# | 122 | 14,984 | 5,869 | 2,426 | 3,315 |
-| JSON (shared test data) | 4 | 14,109 | 14,100 | 0 | 4 |
-| Python | 49 | 7,111 | 3,757 | 1,524 | 2,258 |
-| Markdown | 3 | 861 | 0 | 2 | 217 |
-| XAML (Avalonia) | 3 | 598 | 0 | 19 | 46 |
-| MSBuild / project | 13 | 258 | 96 | 0 | 76 |
-| YAML (CI) | 2 | 226 | 0 | 38 | 21 |
-| JavaScript | 2 | 200 | 0 | 59 | 17 |
-| Makefile | 1 | 111 | 0 | 0 | 29 |
-| SVG | 6 | 98 | 0 | 0 | 6 |
-| TOML | 2 | 78 | 0 | 25 | 19 |
-| XML (plist, manifest) | 2 | 46 | 0 | 0 | 2 |
-| Shell | 1 | 35 | 0 | 14 | 8 |
-| PowerShell | 1 | 22 | 0 | 7 | 6 |
-| HTML | 2 | 21 | 21 | 0 | 2 |
-| **Total** | **213** | **38,758** | **23,843** | **4,114** | **6,026** |
-
-C# is the desktop app and its engine; Python is the original command line
-tool, still maintained. The JSON is test data both implementations are
-checked against (text cleaning, file names, robots.txt), not program code.
 
 ### The desktop app (C# and .NET)
 

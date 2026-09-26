@@ -166,6 +166,31 @@ public sealed class WindowTests
     }
 
     [AvaloniaFact]
+    public async Task A_range_past_the_end_of_the_book_says_so_in_the_list_rather_than_ready()
+    {
+        var harness = new Harness();
+        await harness.StartAsync();
+        await harness.ScannedAsync();
+
+        harness.Job.From = 51;
+        harness.Job.To = 100;
+        Harness.Pump();
+
+        Assert.False(harness.Job.SaveCommand.CanExecute(null));
+        Assert.NotEqual("Ready to save", harness.Job.RailStatus);
+        Assert.Equal("Only chapters 1 to 40", harness.Job.RailStatus);
+
+        // Pressed anyway (from code), it does nothing rather than save a plan it refused.
+        await harness.Job.SaveCommand.ExecuteAsync(null);
+        Assert.Empty(harness.Job.Chapters);
+
+        harness.Job.From = 1;
+        harness.Job.To = 10;
+        Harness.Pump();
+        Assert.Equal("Ready to save", harness.Job.RailStatus);
+    }
+
+    [AvaloniaFact]
     public async Task A_sign_in_that_did_not_take_is_explained()
     {
         var harness = new Harness();

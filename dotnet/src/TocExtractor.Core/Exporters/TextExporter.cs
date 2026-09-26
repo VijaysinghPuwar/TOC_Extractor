@@ -11,12 +11,16 @@ namespace TocExtractor.Core.Exporters;
 /// <remarks>
 /// Chapters land as they complete, which with concurrency is out of order.
 /// combined.txt is assembled at close in table-of-contents order, because the
-/// byte-identity claim is about its contents.
+/// byte-identity claim is about its contents. A caller that never closes the
+/// exporter, and builds its own book from the chapter files, passes
+/// <c>keepForMerge: false</c>, so the whole book is not held in memory twice
+/// for a merge that never happens.
 /// </remarks>
 public sealed class TextExporter(
     string outputDirectory,
     bool includeLinks = false,
-    IReadOnlyDictionary<string, PriorChapter>? resumed = null) : ISink
+    IReadOnlyDictionary<string, PriorChapter>? resumed = null,
+    bool keepForMerge = true) : ISink
 {
     public const string FormatName = "text";
     public const string CombinedName = "combined.txt";
@@ -63,8 +67,12 @@ public sealed class TextExporter(
         var path = Path.Combine(outputDirectory, allocated.Name);
         await File.WriteAllTextAsync(path, body, cancellationToken).ConfigureAwait(false);
 
-        this.records[record.Index] = record;
-        this.chunks[record.Index] = body + "\n" + Separator + "\n\n";
+        if (keepForMerge)
+        {
+            this.records[record.Index] = record;
+            this.chunks[record.Index] = body + "\n" + Separator + "\n\n";
+        }
+
         this.written[record.Index] = new ChapterOutput(
             allocated.Name,
             Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(body))));

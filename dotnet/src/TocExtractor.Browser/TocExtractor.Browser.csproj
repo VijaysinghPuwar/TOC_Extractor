@@ -2,6 +2,8 @@
 
   <PropertyGroup>
     <RootNamespace>TocExtractor.Browser</RootNamespace>
+    <!-- MachineBudget reads memory from the system through sysctl. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

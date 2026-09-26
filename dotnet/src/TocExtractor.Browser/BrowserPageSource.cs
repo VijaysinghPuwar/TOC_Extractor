@@ -130,6 +130,8 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
     // Tabs showing a site's check, kept for the person until it is passed.
     private readonly List<PageSlot> held = [];
 
+    private readonly CancellationTokenSource stopTidying = new();
+    private Task tidying = Task.CompletedTask;
     private IPlaywright? playwright;
     private int people;
     private volatile bool closed;
@@ -231,6 +233,11 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         {
             await this.AddSlotAsync().ConfigureAwait(false);
         }
+
+        if (this.options is { GrowTo: not null, IdleTabsCloseAfter: { } idle })
+        {
+            this.tidying = this.TidyEveryAsync(idle, this.stopTidying.Token);
+        }
     }
 
     /// <summary>True once the browser has gone away, closed by the person or crashed.</summary>
@@ -323,6 +330,17 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
 
     public async ValueTask DisposeAsync()
     {
+        await this.stopTidying.CancelAsync().ConfigureAwait(false);
+        try
+        {
+            await this.tidying.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Stopped, as asked.
+        }
+
+        this.stopTidying.Dispose();
         foreach (var closable in new IAsyncDisposable?[] { this.context, this.browser })
         {
             if (closable is null)
@@ -369,7 +387,11 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             // Screened but never proxied. A scraped page carrying an image on a
             // private address would otherwise fire a blind request into the
             // user's network; aborting needs no fulfilment.
-            if (verdict.Allowed)
+            if (verdict.Allowed && this.Skippable(slot, request.ResourceType))
+            {
+                await route.AbortAsync("blockedbyclient").ConfigureAwait(false);
+            }
+            else if (verdict.Allowed)
             {
                 await route.ContinueAsync().ConfigureAwait(false);
             }
@@ -381,7 +403,12 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             return;
         }
 
-        var nav = slot.Navigation;
+        // Only the tab's own page is the chapter. An ad frame inside it is a
+        // document too, and is screened hop by hop the same way, but where it
+        // ends up is not where the chapter ended up: counting it recorded
+        // chapters as "redirected" to ad servers, and failed a whole chapter
+        // when an ad hopped somewhere refused.
+        var nav = IsMainFrame(request) ? slot.Navigation : null;
         if (!verdict.Allowed)
         {
             if (nav is not null)
@@ -395,6 +422,26 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
 
         await this.FollowRedirectsAsync(route, request.Url, nav).ConfigureAwait(false);
     }
+
+    private static bool IsMainFrame(IRequest request)
+    {
+        try
+        {
+            return request.Frame.ParentFrame is null;
+        }
+        catch (PlaywrightException)
+        {
+            // No frame to ask (a worker's request): not the page itself.
+            return false;
+        }
+    }
+
+    /// <summary>Whether a part of a page can be left out: see <see cref="BrowserPageSourceOptions.LightPages"/>.</summary>
+    private bool Skippable(PageSlot slot, string resourceType) =>
+        this.options.LightPages
+        && resourceType is "image" or "media" or "font"
+        && !slot.HeldForPerson
+        && !this.PersonAtWindow;
 
     private async Task FollowRedirectsAsync(IRoute route, string url, GuardedNavigation? nav)
     {
@@ -514,8 +561,19 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                 this.ReturnHeld();
             }
 
+            // Short of memory, wait for a tab already open rather than open
+            // another, unless every open tab is kept for a check, when
+            // waiting would wait on the person.
+            int kept;
+            lock (this.held)
+            {
+                kept = this.held.Count;
+            }
+
+            var spare = open > kept && this.options.MemoryTight?.Invoke() == true;
+
             // Another caller may have grown the pool while this one waited.
-            if (open < limit && this.available.CurrentCount == 0 && !this.IsClosed)
+            if (open < limit && !spare && this.available.CurrentCount == 0 && !this.IsClosed)
             {
                 try
                 {
@@ -550,8 +608,133 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         }
 
         slot.HeldForPerson = false;
+        slot.IdleSince = Environment.TickCount64;
         this.pool.Add(slot);
         this.available.Release();
+    }
+
+    // -- tidying ------------------------------------------------------------
+
+    /// <summary>How long a tab can sit idle before its page is emptied.</summary>
+    private static readonly TimeSpan EmptyAfter = TimeSpan.FromSeconds(3);
+
+    private async Task TidyEveryAsync(TimeSpan closeAfter, CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+        {
+            try
+            {
+                await this.TidyAsync(closeAfter, cancellationToken).ConfigureAwait(false);
+            }
+            catch (PlaywrightException)
+            {
+                // A tab or the browser went away mid-tidy; the next look starts over.
+            }
+        }
+    }
+
+    /// <summary>
+    /// Close tabs nobody has needed for a while, down to one, and empty the
+    /// page on a tab that is waiting, so its ads and scripts stop running.
+    /// </summary>
+    /// <remarks>
+    /// Tabs are taken from the pool the same way work takes them, so a tab
+    /// is never tidied while a chapter is loading in it. While memory is
+    /// short an idle tab is closed sooner. Nothing is touched while the person
+    /// is using the window, or on a tab kept for a check.
+    /// </remarks>
+    internal async Task TidyAsync(TimeSpan closeAfter, CancellationToken cancellationToken = default)
+    {
+        if (this.IsClosed || this.PersonAtWindow)
+        {
+            return;
+        }
+
+        await this.growing.WaitAsync(cancellationToken).ConfigureAwait(false);
+        List<PageSlot> idle = [];
+        try
+        {
+            while (this.available.Wait(0, CancellationToken.None))
+            {
+                idle.Add(this.pool.Take());
+            }
+
+            if (this.options.MemoryTight?.Invoke() == true)
+            {
+                closeAfter = EmptyAfter;
+            }
+
+            var now = Environment.TickCount64;
+            idle.Sort((a, b) => a.IdleSince.CompareTo(b.IdleSince));
+            List<PageSlot> keep = [];
+            for (var i = 0; i < idle.Count; i++)
+            {
+                var slot = idle[i];
+                var waited = TimeSpan.FromMilliseconds(now - slot.IdleSince);
+
+                // The newest idle tab always stays, so work never waits for one to open.
+                var another = keep.Count + (idle.Count - i - 1) > 0;
+                if (another && waited >= closeAfter)
+                {
+                    lock (this.slots)
+                    {
+                        this.slots.Remove(slot);
+                    }
+
+                    try
+                    {
+                        await slot.Page.CloseAsync().ConfigureAwait(false);
+                    }
+                    catch (PlaywrightException)
+                    {
+                        // Already gone.
+                    }
+
+                    continue;
+                }
+
+                if (!slot.Emptied && waited >= EmptyAfter && !slot.Page.IsClosed && !slot.Crashed)
+                {
+                    try
+                    {
+                        await slot.Page.GotoAsync("about:blank").ConfigureAwait(false);
+                        slot.Emptied = true;
+                    }
+                    catch (PlaywrightException)
+                    {
+                        // A tab that cannot be emptied is healed when it is next used.
+                    }
+                }
+
+                keep.Add(slot);
+            }
+
+            idle = keep;
+        }
+        finally
+        {
+            // Back in the order they came, with their idle times kept.
+            foreach (var slot in idle)
+            {
+                this.pool.Add(slot);
+                this.available.Release();
+            }
+
+            this.growing.Release();
+        }
+    }
+
+    /// <summary>How many tabs the app works in, those kept for a check included. For tests.</summary>
+    internal int WorkTabs
+    {
+        get
+        {
+            lock (this.slots)
+            {
+                return this.slots.Count;
+            }
+        }
     }
 
     /// <summary>Tabs kept for a check go back to work: the check is done, or it is no longer waited for.</summary>
@@ -593,6 +776,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
 
         var nav = new GuardedNavigation();
         slot.Navigation = nav;
+        slot.Emptied = false;
         try
         {
             await slot.Page.GotoAsync(url, new PageGotoOptions
@@ -1020,10 +1204,14 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                 ? null
                 : await NextLinkAsync(slot.Page, nextSelector).ConfigureAwait(false);
 
+            // Before the body: reading the body removes ads and menus from
+            // the page, and this is the whole box, to check nothing else went.
+            var whole = await PageTextAsync(slot.Page, contentSelector).ConfigureAwait(false);
+
             var body = await ReadFieldAsync(slot.Page, contentSelector, finalUrl, this.Remaining(deadline), readable: true)
                 .ConfigureAwait(false);
 
-            return new ChapterPage(url, finalUrl, title, body, next);
+            return new ChapterPage(url, finalUrl, title, body, next) { PageText = whole };
         }
         finally
         {
@@ -1060,6 +1248,22 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         catch (PlaywrightException)
         {
             // An invalid selector is the person's to fix; the preview says so.
+            return null;
+        }
+    }
+
+    /// <summary>The story box's whole text, as a reader sees it, before anything is removed; null if it cannot be read.</summary>
+    private static async Task<string?> PageTextAsync(IPage page, string selector)
+    {
+        try
+        {
+            return await page.EvaluateAsync<string?>(
+                "selector => { const box = document.querySelector(selector); return box ? box.innerText : null; }",
+                selector).ConfigureAwait(false);
+        }
+        catch (PlaywrightException)
+        {
+            // The check is skipped for this chapter; the chapter itself is not.
             return null;
         }
     }
@@ -1251,6 +1455,12 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
 
         /// <summary>The page is a site's check, which the person has to finish on this tab.</summary>
         internal bool HeldForPerson { get; set; }
+
+        /// <summary>When the tab was last handed back, from <see cref="Environment.TickCount64"/>.</summary>
+        internal long IdleSince { get; set; } = Environment.TickCount64;
+
+        /// <summary>The tab shows an empty page, so nothing on it is running.</summary>
+        internal bool Emptied { get; set; }
     }
 
     private sealed class ConcurrentQueueOfSlots
