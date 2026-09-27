@@ -1,0 +1,22 @@
+# novelfire.net
+#
+# The contents are at /book/<slug>/chapters. Do not use
+# '#chpagedlist a', which also matches the pager links.
+#
+# Selectors surveyed against the live site on 2026-09-27 and checked by
+# actually extracting chapters with them. Sites redesign, so treat a profile
+# that stops working as a survey to redo, not a bug.
+#
+#   python -m toc_extractor --profile profiles/sites/novelfire.toml --toc https://novelfire.net/book/lord-of-the-mysteries/chapters
+#
+# Use only on content you own or are permitted to access.
+
+[selectors]
+link = "ul.chapter-list li a"
+title = ".chapter-title"
+content = "#content"
+
+[options]
+min_delay = 2.0
+max_delay = 4.0
+concurrency = 2

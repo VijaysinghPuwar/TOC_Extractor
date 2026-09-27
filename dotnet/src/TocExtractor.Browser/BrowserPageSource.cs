@@ -290,7 +290,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
     /// </remarks>
     private async Task<PageSlot> HealAsync(PageSlot slot)
     {
-        if (!slot.Page.IsClosed && !slot.Crashed)
+        if (!slot.Page.IsClosed && !slot.Crashed && !slot.Dirty)
         {
             return slot;
         }
@@ -469,10 +469,18 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             }
             catch (PlaywrightException exception)
             {
+                // The connection was refused, reset, or never answered. That is
+                // a transport failure, not a policy one, and the difference
+                // decides whether the chapter is retried: a blocked page never
+                // is, on the reasoning that a disallowed target stays
+                // disallowed. A refused connection does not stay refused. Under
+                // load - a busy site, or a machine with no memory left - this is
+                // the common failure, and reporting it as blocked abandoned the
+                // chapter on the first attempt while the retry budget went
+                // unspent.
                 if (nav is not null)
                 {
-                    nav.Blocked = new PageBlockedException(
-                        url, RejectionReason.Malformed, exception.Message);
+                    nav.TransportError = exception.Message;
                 }
 
                 await route.AbortAsync("failed").ConfigureAwait(false);
@@ -838,14 +846,27 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         }
         catch (PlaywrightException exception)
         {
-            throw nav.Blocked ?? new PageException($"{url}: {exception.Message}", exception);
+            // Prefer the handler's own words: Chromium reports an aborted
+            // navigation as a bare net::ERR_FAILED, which says nothing about
+            // why. The route handler knows it was a refused connection.
+            throw nav.Blocked
+                ?? (nav.TransportError is { } transport
+                    ? new PageException($"{url}: {transport}", exception)
+                    : new PageException($"{url}: {exception.Message}", exception));
         }
         finally
         {
             slot.Navigation = null;
         }
 
-        return nav.Blocked is not null ? throw nav.Blocked : nav.FinalUrl ?? url;
+        if (nav.Blocked is not null)
+        {
+            throw nav.Blocked;
+        }
+
+        return nav.TransportError is { } failure
+            ? throw new PageException($"{url}: {failure}")
+            : nav.FinalUrl ?? url;
     }
 
     /// <summary>
@@ -901,6 +922,18 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                 previous = current;
                 await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken).ConfigureAwait(false);
             }
+        }
+        catch
+        {
+            // Released while something may still be in flight on this page.
+            // Playwright does not abandon a navigation because the caller
+            // stopped waiting, so the next chapter to take this slot can
+            // collide with it - Chromium reports "interrupted by another
+            // navigation" - and that chapter fails with its retries already
+            // spent. Marked here, repaired on the way back out of the pool.
+            // Kept identical to _acquire in browser.py.
+            slot.Dirty = true;
+            throw;
         }
         finally
         {
@@ -1214,6 +1247,18 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         {
             return await this.GotoAsync(slot, url, this.options.OperationBudget).ConfigureAwait(false);
         }
+        catch
+        {
+            // Released while something may still be in flight on this page.
+            // Playwright does not abandon a navigation because the caller
+            // stopped waiting, so the next chapter to take this slot can
+            // collide with it - Chromium reports "interrupted by another
+            // navigation" - and that chapter fails with its retries already
+            // spent. Marked here, repaired on the way back out of the pool.
+            // Kept identical to _acquire in browser.py.
+            slot.Dirty = true;
+            throw;
+        }
         finally
         {
             this.Release(slot);
@@ -1257,6 +1302,18 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                 .ConfigureAwait(false);
 
             return new TocPage(url, finalUrl, raw ?? [], html);
+        }
+        catch
+        {
+            // Released while something may still be in flight on this page.
+            // Playwright does not abandon a navigation because the caller
+            // stopped waiting, so the next chapter to take this slot can
+            // collide with it - Chromium reports "interrupted by another
+            // navigation" - and that chapter fails with its retries already
+            // spent. Marked here, repaired on the way back out of the pool.
+            // Kept identical to _acquire in browser.py.
+            slot.Dirty = true;
+            throw;
         }
         finally
         {
@@ -1325,6 +1382,18 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                 .ConfigureAwait(false);
 
             return new ChapterPage(url, finalUrl, title, body, next) { PageText = whole };
+        }
+        catch
+        {
+            // Released while something may still be in flight on this page.
+            // Playwright does not abandon a navigation because the caller
+            // stopped waiting, so the next chapter to take this slot can
+            // collide with it - Chromium reports "interrupted by another
+            // navigation" - and that chapter fails with its retries already
+            // spent. Marked here, repaired on the way back out of the pool.
+            // Kept identical to _acquire in browser.py.
+            slot.Dirty = true;
+            throw;
         }
         finally
         {
@@ -1548,6 +1617,14 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
 
         internal PageBlockedException? Blocked { get; set; }
 
+        /// <summary>
+        /// A refused, reset or unanswered connection, kept apart from
+        /// <see cref="Blocked"/> because the two get opposite treatment: a
+        /// blocked page is never retried, a transport failure is. Kept
+        /// identical to _GuardedNavigation.transport_error in Python.
+        /// </summary>
+        internal string? TransportError { get; set; }
+
         internal List<string> Hops { get; } = [];
     }
 
@@ -1565,6 +1642,13 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         internal GuardedNavigation? Navigation { get; set; }
 
         internal bool Crashed { get; set; }
+
+        /// <summary>
+        /// Set when this slot was released while something may still have been
+        /// in flight on it. The page is replaced before anyone navigates it
+        /// again. Kept identical to _PageSlot.dirty in browser.py.
+        /// </summary>
+        internal bool Dirty { get; set; }
 
         /// <summary>The page is a site's check, which the person has to finish on this tab.</summary>
         internal bool HeldForPerson { get; set; }

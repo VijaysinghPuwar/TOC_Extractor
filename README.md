@@ -359,8 +359,17 @@ links, the title, and the story text are) and it saves every chapter.
 - Python 3.11 to 3.14 (free, from [python.org](https://www.python.org/downloads/))
 - About 5 minutes for the first setup
 
-Playwright, the only runtime dependency, is installed for you in the steps
-below. It lets the tool open web pages the same way a normal browser does.
+Playwright is the only runtime dependency, and it is installed for you in
+the steps below. It lets the tool open web pages the same way a normal
+browser does.
+
+On Windows one more small package comes with it, `truststore`. Windows ships
+a list of certificate authorities that still contains long-expired ones, and
+Python does not ask Windows to check certificates: it copies that list and
+decides for itself, which can make it reject a site every browser on the
+same machine opens. Because a `robots.txt` that cannot be read is treated as
+permitting everything, that quietly switched `robots.txt` off for the
+affected sites. `truststore` hands the check back to Windows.
 
 ### Getting started
 
@@ -531,7 +540,7 @@ nothing is overwritten. The log mentions it.
 
 ## Version history
 
-**2.5.1** (2026-09-27)
+**2.6.1** (2026-09-27)
 
 From a stress test of 40 extractions of 50 chapters each at once, through the
 real window and a real browser, against books served on the computer itself
@@ -558,6 +567,45 @@ real window and a real browser, against books served on the computer itself
 - The window says what a long walk is doing ("Getting to chapter 51 ... at
   chapter 12 of 50") instead of only "Saving...", and says when a book waits
   its turn for its PDF.
+
+**2.6.0** (2026-09-27)
+
+From a load test of 40 extractions at once, 50 chapters each - 2,000
+chapters - against a local stand-in for the reading sites, on Windows 11
+with 15.2 GB and 16 logical cores. Every chapter was re-read from disk
+afterwards and checked for gaps, empty files, unusable filenames and a
+matching checkpoint. Two bugs it found, each with a regression test checked
+against the unfixed code first:
+- Fixed: a refused or reset connection was reported as a blocked URL.
+  Blocked URLs are never retried, on the reasoning that a disallowed address
+  stays disallowed, so the chapter was abandoned on its first attempt with
+  its retries unspent. Under load that is the ordinary failure, not a rare
+  one.
+- Fixed: when a chapter ran past its time limit, its browser tab went back
+  into the pool while Chromium was still loading the abandoned page. The
+  next chapter to use that tab collided with it and failed for a reason of
+  its own. The tab is now replaced before it is handed on.
+
+Also:
+- Fixed on Windows: `robots.txt` was quietly skipped for some sites. Windows
+  ships a root store holding long-expired authorities, and Python verifies
+  certificates itself rather than asking Windows, so it could reject a site
+  every browser on the machine opens. Since an unreadable `robots.txt` means
+  "no restrictions", those sites lost their rules. The check is handed back
+  to Windows now.
+- The command line will not accept more at once than the computer can hold:
+  it lowers the number to what the machine's memory and cores allow, says
+  so, and lowers it further when memory is already short.
+- Pictures, video and web fonts are no longer loaded, since none of them can
+  affect the text. Measured, this is not a memory saving - what a browser
+  costs is its processes, not the images they decode - but it is about two
+  and a half fewer requests per chapter the site has to serve.
+  `--with-images` puts them back.
+- Every browser routing step now tolerates a request that is already gone. A
+  live site produced an error from inside the handler, where it reached no
+  caller and left the page waiting for its own timeout.
+- `make` works on Windows, and `make stress` runs the load test.
+- Selector profiles for four sites, in `profiles/sites/`.
 
 **2.5.0** (2026-09-26)
 
@@ -807,9 +855,9 @@ usage: toc-extractor [-h] [--version] [--gui] [--profile PROFILE] --toc TOC
                      [--format FORMAT] [--no-strip-ads] [--dry-run] [--force]
                      [--dump-html] [--screenshot] [-v] [-q] [--ua UA]
                      [--storage-state STORAGE_STATE] [--headful]
-                     [--timeout TIMEOUT] [--min-delay MIN_DELAY]
-                     [--max-delay MAX_DELAY] [--retries RETRIES]
-                     [--wait-after-load WAIT_AFTER_LOAD]
+                     [--timeout TIMEOUT] [--with-images]
+                     [--min-delay MIN_DELAY] [--max-delay MAX_DELAY]
+                     [--retries RETRIES] [--wait-after-load WAIT_AFTER_LOAD]
                      [--concurrency CONCURRENCY] [--allow-private-hosts]
 
 Extract chapter text from a table-of-contents page using CSS selectors you supply. Use only on content you own or are permitted to access.
@@ -855,6 +903,9 @@ browser:
                         Path to Playwright storage state JSON (reuses login)
   --headful             Run headed (GUI). Default is headless.
   --timeout TIMEOUT     Navigation timeout ms (default: 25000)
+  --with-images         Load pictures, video and webfonts too. Off by default:
+                        none of them can affect the text, so fetching them
+                        only costs bandwidth and requests against the site.
 
 politeness:
   --min-delay MIN_DELAY
