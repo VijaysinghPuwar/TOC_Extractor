@@ -201,6 +201,9 @@ class ExtractionWorker:
                     user_data_dir=request.profile_dir,
                     navigation_timeout_ms=int(request.options.timeout * 1000),
                     max_pages=request.options.concurrency,
+                    # The person signs in and passes checks in this window,
+                    # and a picture check or a sign-in page needs its images.
+                    light_pages=False,
                 )
                 await self._source.start()
 

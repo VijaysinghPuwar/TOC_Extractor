@@ -38,6 +38,12 @@ internal sealed class LocalSite : IDisposable
         return this;
     }
 
+    internal LocalSite Answer(string path, int status, string body)
+    {
+        this.routes[path] = new Response(status, "text/html; charset=utf-8", body, null);
+        return this;
+    }
+
     internal LocalSite Redirect(string path, string location)
     {
         this.routes[path] = new Response(302, "text/plain", "", location);

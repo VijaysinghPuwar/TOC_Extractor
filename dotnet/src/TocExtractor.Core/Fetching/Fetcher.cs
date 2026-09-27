@@ -366,11 +366,12 @@ public sealed class Fetcher : IDisposable
                     }
 
                     // Another extraction of this book opening this very page
-                    // now: wait for it rather than open it a second time.
+                    // now, or a moment ago: take its page rather than open it
+                    // a second time.
                     ChapterPage? joined = null;
                     SharedLoads.Claim? claim = null;
                     var passed = PassSaved();
-                    if (passed is null && shared?.JoinOrClaim(here, out claim) is { } underway)
+                    if (passed is null && shared?.JoinOrClaim(here, walk.StepSelector, out claim) is { } underway)
                     {
                         // It has usually saved the page by the time it is done.
                         joined = await underway.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -410,12 +411,12 @@ public sealed class Fetcher : IDisposable
                         page = joined;
                         var number = savedBefore ? null : Decide(joined);
                         this.Trace(number is null ? "step" : "loaded", number ?? guess, here,
-                            $"\"{joined.Title}\", opened by another extraction of this book at the same moment, so not opened again"
+                            $"\"{joined.Title}\", opened by another extraction of this book just now, so not opened again"
                             + (number is null ? " | outside the range, visited only to follow its links" : "")
                             + (joined.NextUrl is { } after ? " | next " + after : ""));
                         if (number is { } keep)
                         {
-                            await this.RecordSuccessAsync(progress, keep, here, joined, check.Decisions[0], 1, cancellationToken)
+                            await this.RecordSuccessAsync(progress, keep, here, joined, check.Decisions[0], 1, walk.Direction > 0, cancellationToken)
                                 .ConfigureAwait(false);
                         }
                     }
@@ -425,7 +426,7 @@ public sealed class Fetcher : IDisposable
                         {
                             page = await this.FetchOneAsync(
                                 guess, here, check.Decisions[0], selectors, single, progress, cancellationToken,
-                                walk.StepSelector, savedBefore ? static _ => null : Decide).ConfigureAwait(false);
+                                walk.StepSelector, savedBefore ? static _ => null : Decide, walk.Direction > 0).ConfigureAwait(false);
 
                             // After it is recorded, so whoever waited finds it saved.
                             claim?.Complete(page);
@@ -501,7 +502,8 @@ public sealed class Fetcher : IDisposable
         Progress progress,
         CancellationToken cancellationToken,
         string? nextSelector = null,
-        Func<ChapterPage, int?>? decide = null)
+        Func<ChapterPage, int?>? decide = null,
+        bool stepLeadsForward = true)
     {
         var host = new Uri(url);
 
@@ -606,7 +608,7 @@ public sealed class Fetcher : IDisposable
                     + (page.NextUrl is { } next ? " | next " + next : ""));
                 if (number is { } keep)
                 {
-                    await this.RecordSuccessAsync(progress, keep, url, page, decision, attempt, cancellationToken)
+                    await this.RecordSuccessAsync(progress, keep, url, page, decision, attempt, stepLeadsForward, cancellationToken)
                         .ConfigureAwait(false);
                 }
 
@@ -677,6 +679,7 @@ public sealed class Fetcher : IDisposable
         ChapterPage page,
         RobotsDecision? decision,
         int attempts,
+        bool stepLeadsForward,
         CancellationToken cancellationToken)
     {
         var cleaned = TextCleaner.Clean(
@@ -694,7 +697,11 @@ public sealed class Fetcher : IDisposable
             this.now(),
             attempts,
             decision,
-            page.NextUrl)
+            // Kept only when it is the next link. A walk going backward reads
+            // the previous one into NextUrl, and saved as "next" it sent a
+            // later forward walk back over chapters it had passed, leaving
+            // the ones it was asked for unopened.
+            stepLeadsForward ? page.NextUrl : null)
         {
             // The whole story box, cleaned the same way, against what is
             // saved: so a paragraph left out, or saved twice, is caught.

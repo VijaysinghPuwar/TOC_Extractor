@@ -118,6 +118,19 @@ STORY_ABOUT_LOGINS_HTML = """<!doctype html><html><body>
 </body></html>"""
 
 
+# A chapter whose ad slot is an iframe the guard refuses: the ad must not
+# fail the chapter it sits in.
+CHAPTER_WITH_BROKEN_AD_HTML = """<!doctype html><html><body>
+<h1 class="t">Chapter Title</h1>
+<iframe src="/ad-frame"></iframe>
+<script>
+// Holds the page open so the frame's navigation lands inside the page's own.
+var until = Date.now() + 800; while (Date.now() < until) {}
+</script>
+<article class="c">Chapter body text.</article>
+</body></html>"""
+
+
 class Handler(BaseHTTPRequestHandler):
     # Shared across instances on purpose: the server makes one handler per
     # request, so per-instance state could not record a redirect chain.
@@ -145,6 +158,16 @@ class Handler(BaseHTTPRequestHandler):
             self._html(CLUTTERED_CHAPTER_HTML)
         elif self.path == "/toc/late":
             self._html(LATE_TOC_HTML)
+        elif self.path == "/busy":
+            self._html("<html><body>busy</body></html>", status=503)
+        elif self.path == "/throttled":
+            self._html("<html><body>slow down</body></html>", status=429)
+        elif self.path == "/gone":
+            self._html("<html><body>not here</body></html>", status=404)
+        elif self.path == "/with-broken-ad":
+            self._html(CHAPTER_WITH_BROKEN_AD_HTML)
+        elif self.path == "/ad-frame":
+            self._redirect("/redirect/to-private")
         elif self.path == "/slow":
             # Long enough that a caller with a short deadline gives up while
             # the response is still owed, leaving the navigation in flight.
@@ -159,9 +182,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
-    def _html(self, body: str) -> None:
+    def _html(self, body: str, status: int = 200) -> None:
         encoded = body.encode("utf-8")
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(encoded)))
         self.end_headers()
@@ -595,3 +618,69 @@ async def test_a_slot_released_cleanly_keeps_its_page(server: str) -> None:
 
         async with source._acquire() as again:
             assert again.page is original, "a cleanly released page was needlessly replaced"
+
+
+@pytest.mark.parametrize("path", ["/busy", "/throttled"])
+async def test_a_busy_site_is_retryable_not_a_missing_selector(server: str, path: str) -> None:
+    """A 503 or 429 page has no story, and reading it used to report the
+    chapter's selector missing - which the fetch loop never retries. Under
+    load one chapter in twenty was lost to a single 503, each after waiting
+    out the whole selector timeout. It has to arrive as a plain PageError."""
+    async with BrowserPageSource(
+        guard=loopback_permitted(), navigation_timeout_ms=20_000
+    ) as source:
+        started = time.monotonic()
+        with pytest.raises(PageError) as caught:
+            await source.load_chapter(
+                f"{server}{path}", title_selector="h1.t", content_selector="article.c"
+            )
+    assert not isinstance(caught.value, (SelectorNotFound, PageBlocked))
+    assert time.monotonic() - started < 10, "the busy page waited out the selector timeout"
+
+
+async def test_a_missing_page_is_still_a_missing_selector(server: str) -> None:
+    """Only "try again later" statuses are retryable. A 404 stays what it was."""
+    async with BrowserPageSource(guard=loopback_permitted(), navigation_timeout_ms=1_000) as source:
+        with pytest.raises(SelectorNotFound):
+            await source.load_chapter(
+                f"{server}/gone", title_selector="h1.t", content_selector="article.c"
+            )
+
+
+async def test_a_refused_ad_frame_does_not_fail_its_chapter(server: str) -> None:
+    """An iframe is a document too. Its refused redirect used to be recorded
+    against the page's own navigation, failing a chapter that loaded fine."""
+    async with BrowserPageSource(guard=only_the_fixture_origin(server)) as source:
+        page = await source.load_chapter(
+            f"{server}/with-broken-ad", title_selector="h1.t", content_selector="article.c"
+        )
+    assert page.title == "Chapter Title"
+    assert page.final_url.endswith("/with-broken-ad")
+
+
+async def test_a_failed_repair_keeps_the_slot_in_the_pool(
+    server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Replacing a dirty page can fail or be cancelled. The slot used to be
+    dropped then, and with one page the next acquire waited forever."""
+    async with BrowserPageSource(guard=loopback_permitted(), max_pages=1) as source:
+        with pytest.raises(RuntimeError):
+            async with source._acquire():
+                raise RuntimeError("mid-navigation")
+
+        async def broken(slot: object) -> None:
+            raise asyncio.CancelledError
+
+        with monkeypatch.context() as patched:
+            patched.setattr(source, "_replace_page", broken)
+            with pytest.raises(asyncio.CancelledError):
+                async with source._acquire():
+                    pass
+
+        page = await asyncio.wait_for(
+            source.load_chapter(
+                f"{server}/chapter", title_selector="h1.t", content_selector="article.c"
+            ),
+            timeout=10,
+        )
+    assert page.title == "Chapter Title"

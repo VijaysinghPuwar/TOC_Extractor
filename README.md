@@ -540,6 +540,39 @@ nothing is overwritten. The log mentions it.
 
 ## Version history
 
+**2.6.2** (2026-09-27)
+
+From the load test run again on a Mac (10 cores, 24 GB) with the local site
+made unreliable on purpose: one chapter request in ten answered 503, one in
+five redirected, every answer 150 ms late.
+- Fixed: a busy answer (503, 429, any 5xx) was read as a chapter whose
+  selector matched nothing, which is never retried. 40 extractions of 50
+  chapters lost 219 of 2,000 and took 112 s. It is now retried with backoff:
+  2,000 of 2,000 with `--retries 4` in 30 s; 3 lost with the default 2
+  retries (expected at one in ten, three tries), in 45 s. 20 extractions of
+  200 chapters with one request in twenty busy: 1 lost, where it was 205, and
+  69 s, where it was 182 s. A human check served as a 503 still goes to the
+  person.
+- Fixed: a walk going backward recorded each chapter's previous link as its
+  next one, so a later walk forward past it went back and left the chapters
+  asked for unsaved, on every run. Such records from 2.6.1 are ignored.
+- Fixed: extractions of one book walking in opposite directions could take
+  each other's pages and follow the wrong link. Pages are shared per
+  direction.
+- Fixed: when one of two extractions walking one book ran a page or two
+  ahead, the other opened every page again (156 loads for 100 chapters). The
+  last 16 pages opened are kept: 104-106 loads for every book, 50 of 50
+  saved in all 50 extractions of the desktop stress test.
+- Fixed (Python): an ad's iframe was tracked as the page's own navigation,
+  so an ad server failing or redirecting somewhere refused failed the
+  chapter.
+- Fixed (Python): replacing a spent tab could fail or be cancelled and leave
+  the pool a tab short for good; with one tab the run then hung.
+- Fixed (Python window): pictures were blocked in the window where the person
+  signs in or passes a check.
+- The release workflow, run by hand for a tag, builds that tag's source.
+- Also run: 80 processes of 50 chapters at 6 tabs each, 4,000 of 4,000.
+
 **2.6.1** (2026-09-27)
 
 From a stress test of 40 extractions of 50 chapters each at once, through the
@@ -547,9 +580,9 @@ real window and a real browser, against books served on the computer itself
 (`TOC_STRESS=1`, see `StressTests.cs`):
 - Fixed: "Leave out chapter numbers and titles" now leaves them out of the
   PDF too, not only the TXT book. And a site that repeats a chapter's title as
-  the first line of its text (novelfire does) no longer leaves "Chapter 151
+  the first line of its text (some sites do) no longer leaves "Chapter 151
   ..." for a voice to read, or shows it twice in a book with headings.
-- Fixed: chapters 51-100 of a book whose site lists only chapter 1 (ranobes)
+- Fixed: chapters 51-100 of a book whose site lists only chapter 1
   opened chapters 1-50 again first, even when they were already saved: ten
   minutes at a careful site's pace with nothing to see. A walk now passes a
   saved chapter by the next link it recorded, without opening it, and starts
@@ -605,7 +638,6 @@ Also:
   live site produced an error from inside the handler, where it reached no
   caller and left the page waiting for its own timeout.
 - `make` works on Windows, and `make stress` runs the load test.
-- Selector profiles for four sites, in `profiles/sites/`.
 
 **2.5.0** (2026-09-26)
 

@@ -24,6 +24,10 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Run by hand, the tag's own source: not the branch it was run from,
+          # which built the newest version into an old release.
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
@@ -40,6 +44,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Run by hand, the tag's own source: not the branch it was run from,
+          # which built the newest version into an old release.
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
@@ -56,6 +64,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Run by hand, the tag's own source: not the branch it was run from,
+          # which built the newest version into an old release.
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/download-artifact@v8
         with:
           path: dist

@@ -43,6 +43,25 @@ public sealed class CheckpointTests : IDisposable
     private static Dictionary<string, ChapterOutput> Output(string name) =>
         new(StringComparer.Ordinal) { ["text"] = new ChapterOutput(name, "hash") };
 
+    // -- next links -----------------------------------------------------------
+
+    [Fact]
+    public void A_next_link_that_leads_back_is_not_trusted()
+    {
+        // 2.6.1 saved a backward walk's previous link as "next"; a record
+        // written then must not send a forward walk back.
+        var checkpoint = this.New();
+        checkpoint.Record(Record(4, "https://e.com/c4"), Output("004 - T.txt"));
+        checkpoint.Record(Record(5, "https://e.com/c5") with { NextUrl = "https://e.com/c4" }, Output("005 - T.txt"));
+        checkpoint.Record(Record(6, "https://e.com/c6") with { NextUrl = "https://e.com/c7" }, Output("006 - T.txt"));
+        checkpoint.Record(Record(3, "https://e.com/c3") with { NextUrl = "https://e.com/c4" }, Output("003 - T.txt"));
+
+        Assert.Null(checkpoint.ForwardNextOf(checkpoint.Completed["https://e.com/c5"]));
+        Assert.Null(checkpoint.ForwardNextOf(checkpoint.Completed["https://e.com/c4"]));
+        Assert.Equal("https://e.com/c7", checkpoint.ForwardNextOf(checkpoint.Completed["https://e.com/c6"]));
+        Assert.Equal("https://e.com/c4", checkpoint.ForwardNextOf(checkpoint.Completed["https://e.com/c3"]));
+    }
+
     // -- identity ------------------------------------------------------------
 
     [Fact]

@@ -259,6 +259,81 @@ public sealed partial class RangeTests
     }
 
     [Fact]
+    public async Task A_backward_walk_records_no_next_link()
+    {
+        // Its pages' step link is the previous one. Saved as "next", a later
+        // forward walk followed it back over chapters it had passed and left
+        // the ones it was asked for unopened, on every run after.
+        var records = new System.Collections.Concurrent.ConcurrentDictionary<int, string?>();
+        var source = new StubPageSource(Chain(10), maxConcurrent: 1);
+        var options = new FetchOptions { MinDelay = TimeSpan.Zero, MaxDelay = TimeSpan.Zero, WaitAfterLoad = TimeSpan.Zero };
+        Fetcher Walker() => new(
+            source, PermissiveGuard.Instance, new NullSink(), options, new RateLimiter(TimeSpan.Zero),
+            onRecord: record => records[record.Index] = record.NextUrl);
+
+        using (var backward = Walker())
+        {
+            await backward.FetchRangeAsync(
+                Book, [], [new WalkSpec(Url(10), 10, "prev", -1, 6, 10, 100)], Selectors, numberOf: NumberOf, cancellationToken: Token);
+        }
+
+        using (var forward = Walker())
+        {
+            await forward.FetchRangeAsync(
+                Book, [], [new WalkSpec(Url(1), 1, "next", +1, 1, 3, 100)], Selectors, numberOf: NumberOf, cancellationToken: Token);
+        }
+
+        Assert.All(Enumerable.Range(6, 5), n => Assert.Null(records[n]));
+        Assert.Equal([Url(2), Url(3), Url(4)], Enumerable.Range(1, 3).Select(n => records[n]));
+    }
+
+    [Fact]
+    public void Walks_in_opposite_directions_do_not_share_a_page()
+    {
+        // A page opened walking backward carries its previous link as the
+        // step; taken by a walk going forward, that walk went back.
+        var shared = new SharedLoads();
+
+        Assert.Null(shared.JoinOrClaim(Url(5), "prev", out var backward));
+        Assert.NotNull(backward);
+        Assert.Null(shared.JoinOrClaim(Url(5), "next", out var forward));
+        Assert.NotNull(forward);
+        Assert.NotNull(shared.JoinOrClaim(Url(5), "next", out var joined));
+        Assert.Null(joined);
+
+        backward!.Dispose();
+        forward!.Dispose();
+        Assert.Null(shared.JoinOrClaim(Url(5), "next", out var again));
+        again!.Dispose();
+    }
+
+    [Fact]
+    public async Task A_walk_a_few_pages_behind_takes_the_pages_just_opened()
+    {
+        // Measured: the walk that started second overtook the first by two
+        // pages, and every page it had just finished was opened again.
+        var shared = new SharedLoads();
+        for (var n = 1; n <= SharedLoads.Recent + 1; n++)
+        {
+            Assert.Null(shared.JoinOrClaim(Url(n), "next", out var claim));
+            using (claim)
+            {
+                claim!.Complete(new ChapterPage(Url(n), Url(n), $"Chapter {n}", "Body.", Url(n + 1)));
+            }
+        }
+
+        var latest = shared.JoinOrClaim(Url(SharedLoads.Recent + 1), "next", out var none);
+        Assert.Null(none);
+        Assert.Equal($"Chapter {SharedLoads.Recent + 1}", (await latest!)!.Title);
+
+        // Only the last few are kept, and only for the same direction.
+        Assert.Null(shared.JoinOrClaim(Url(1), "next", out var oldest));
+        oldest!.Dispose();
+        Assert.Null(shared.JoinOrClaim(Url(SharedLoads.Recent + 1), "prev", out var other));
+        other!.Dispose();
+    }
+
+    [Fact]
     public async Task A_walk_ends_at_a_saved_chapter_past_the_range()
     {
         var (fetcher, source) = Build(Chain(10));

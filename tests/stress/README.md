@@ -30,8 +30,8 @@ selector depth, hydration timing, redirects, flaky responses, page weight,
 and titles carrying characters Windows will not put in a filename.
 
 The real sites are still used, separately and gently: a few chapters at a
-time, to check that the profiles in `profiles/sites/` still select what they
-claim to. That is a correctness check, and it is not this.
+time, to check that selectors still select what they claim to. That is a
+correctness check, and it is not this.
 
 ## The three pieces
 

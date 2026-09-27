@@ -92,7 +92,7 @@ class Archetype:
 # ones a person would pass on the command line for that site, so the load test
 # exercises the same selector depth the real thing does.
 ARCHETYPES: tuple[Archetype, ...] = (
-    # Deeply nested list inside a scroll pane: the ranobes shape.
+    # Deeply nested list inside a scroll pane: a real site's shape.
     Archetype(
         name="deep-nested",
         link_selector=".cat_line a",
@@ -106,7 +106,7 @@ ARCHETYPES: tuple[Archetype, ...] = (
 <div class="chapter-nav"><a href="#">Previous</a><a href="#">Next</a></div>
 </div></div></div>""",
     ),
-    # Flat paged list: the fanmtl / novelfire shape.
+    # Flat paged list: the shape of two real sites.
     Archetype(
         name="paged-list",
         link_selector="#chpagedlist ul.chapter-list li a",

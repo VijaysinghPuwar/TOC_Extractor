@@ -145,7 +145,7 @@ public sealed class PlaceNumberedPlanTests
 
 public sealed class SavedChaptersPlanTests
 {
-    /// <summary>A book like ranobes: chapter 1 by its first-chapter link, and the newest 25, nothing between.</summary>
+    /// <summary>A book whose site lists chapter 1 by its first-chapter link, and the newest 25, nothing between.</summary>
     private static Scanning.ScanResult Scan() => new()
     {
         NovelUrl = "https://novel.example/book",
