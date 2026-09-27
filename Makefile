@@ -18,7 +18,7 @@ endif
 
 .PHONY: help setup deps check-tk lint fmt typecheck test test-fast test-browser run gui clean \
         stress stress-verify \
-        cs-build cs-test cs-lint cs-fmt cs-clean cs-exe
+        cs-build cs-test cs-lint cs-fmt cs-clean cs-installer
 
 help:
 	@echo "setup        deps, plus Chromium and a Tk check (what you want locally)"
@@ -43,7 +43,7 @@ help:
 	@echo "cs-lint      build with warnings as errors + format check"
 	@echo "cs-fmt       apply C# formatting"
 	@echo "cs-run       run the C# CLI: make cs-run ARGS='--toc ... --link ...'"
-	@echo "cs-exe       build the one-file Windows .exe"
+	@echo "cs-installer build the Windows setup.exe (needs Inno Setup 6)"
 	@echo "cs-clean     remove C# build output"
 
 $(BIN)/python:
@@ -164,10 +164,10 @@ cs-fmt:
 cs-run:
 	dotnet run --project dotnet/src/TocExtractor.Cli -- $(ARGS)
 
-# One file for Windows: the .NET runtime and Playwright's driver inside it,
-# and it fetches Chromium itself on first launch.
-cs-exe:
-	pwsh packaging/windows/make-exe.ps1
+# The Windows installer. Self-contained, so no .NET to install first, and
+# the app fetches Chromium itself on first launch.
+cs-installer:
+	pwsh packaging/windows/make-installer.ps1
 
 cs-clean:
 	rm -rf dotnet/src/*/bin dotnet/src/*/obj dotnet/tests/*/bin dotnet/tests/*/obj

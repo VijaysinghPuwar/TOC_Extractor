@@ -1,4 +1,4 @@
-Made for Windows as much as for the Mac: many books at once without running the computer out of memory, and no book lost to a busy moment.
+Two bugs that only a load test finds, both of which could lose a chapter, and a Windows fix that had quietly switched robots.txt off for some sites.
 
 ## Download
 
@@ -16,31 +16,26 @@ Download only the file for your computer; "Source code" is for developers.
 
 ## What is new
 
-Stress tested on Windows 11 (16 GB, 8 cores) with 25 extractions at once. On
-sites without a check, 25 books of 10 chapters finished in 4.5 minutes with
-every one checked on disk, the same speed as 2.4.0. The Mac is unchanged.
+Load tested with 40 extractions running at once, 50 chapters each - 2,000 chapters - against a local stand-in for the reading sites, on Windows 11 with 15.2 GB and 16 logical cores. Not against the real sites: two thousand requests aimed at someone else's server is an attack, not a test, and it would measure their rate limiter rather than this app. Every chapter was re-read from disk afterwards and checked for gaps, empty files, filenames Windows cannot store, and a matching checkpoint.
 
-- **Fixed: with many books at once, one could stop with "Collection was
-  modified".** When two sites asked for a check at the same moment, the scan
-  that was waiting could fail as other books opened and closed tabs. It
-  happened in every 25-book run on Windows where sites asked for checks, and
-  is fixed on every system.
-- **Windows: the app now notices when memory is short.** It used to open
-  browser tabs up to its limit whatever else the computer was doing, and on a
-  16 GB machine with other programs open, memory fell to 6% free. Now, as on
-  the Mac, it stops opening tabs and closes idle ones while memory is short.
-- **Windows: the browser moved to the local app folder.** Chromium and its
-  profile (about 430 MB) now live in `%LOCALAPPDATA%\TOC Extractor`, not the
-  roaming folder that work networks copy at every sign-out. The first launch
-  moves them over, keeping any site you signed in to.
-- **Windows: the taskbar button flashes** when a site needs you, where a Mac
-  shows a notification.
-- **A slow novel page is tried once more** before the scan gives up, as a slow
-  chapter already was. In a 25-book run one site took over 30 seconds once, and
-  that whole book was lost.
-- Windows: saving progress no longer fails when antivirus or search indexing
-  has the file open for a moment.
-- Windows: a book whose title ends in dots, or is a name Windows reserves
-  (CON, NUL, COM1), gets a folder Windows can create; long paths work; the
-  message for a browser left open from an earlier run now appears on Windows
-  too; and the app starts faster.
+Two bugs it found. Each has a regression test that was checked against the unfixed code first, so it is known to catch the bug and not merely to pass.
+
+- **Fixed: a chapter could be lost to a refused connection.** A refused or reset connection was being reported as a *blocked address*. Blocked addresses are deliberately never retried, on the reasoning that a disallowed one stays disallowed, so the chapter was abandoned on its first attempt with its retries unspent. A refused connection does not stay refused, and under load it is the ordinary failure rather than a rare one. This is the one most likely to have been noticed on a slower or busier machine.
+
+- **Fixed: a chapter that ran past its time limit could break the next one.** When the limit fired, the browser tab went back into the pool while Chromium was still loading the abandoned page. The next chapter to use that tab collided with it and failed for a reason that had nothing to do with it. The tab is now replaced before it is handed on.
+
+Also:
+
+- **Fixed on Windows: robots.txt was quietly being skipped for some sites.** Windows ships a list of certificate authorities that still contains long-expired ones, and Python does not ask Windows to check certificates: it copies that list and decides for itself, which could make it reject a site every browser on the same machine opens without complaint. Because a robots.txt that cannot be read is treated as permitting everything, those sites silently lost their robots.txt rules. The check is now handed back to Windows.
+
+- **The command line will not accept more at once than the computer can hold.** It lowers the number to what the machine's memory and cores allow, says that it did, and lowers it further when memory is already short.
+
+- **Pictures, video and web fonts are no longer loaded** while the tool reads on its own, since none of them can affect the text it saves. That is bandwidth the site no longer has to serve. It is not a memory saving: measured, the memory is the same, because what a browser costs is its processes, not the images they decode. `--with-images` puts them back.
+
+- Every browser routing step now copes with a request that has already gone away. A live site produced an error from inside the handler, where it reached no caller and left the page waiting for its own timeout instead of failing cleanly.
+
+- **Developer:** `make` works on Windows now, where it had been looking for a folder layout that only exists on macOS and Linux. `make stress` runs the load test above. Selector profiles for four sites are in `profiles/sites/`, each checked by actually extracting chapters with it.
+
+## A note on running many at once
+
+Forty at a time is a stress test, not a recommendation. On a 16 GB machine it finishes and every chapter is correct, but memory runs out and the work ends up waiting on the disk. Around eight at a time is what that machine sustains comfortably.
