@@ -478,10 +478,12 @@ def _tls_context() -> ssl.SSLContext:
     is still used and still verifies - the site is simply refused as before.
     """
     try:
-        import truststore
+        # Installed only on Windows, so elsewhere a type checker cannot find it.
+        import truststore  # type: ignore[import-not-found, unused-ignore]
     except ImportError:
         return ssl.create_default_context()
-    return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context: ssl.SSLContext = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    return context
 
 
 def _certificate_hint() -> str:
