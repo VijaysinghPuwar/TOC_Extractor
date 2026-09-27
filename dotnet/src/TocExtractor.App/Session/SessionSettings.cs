@@ -36,7 +36,7 @@ public sealed record SessionSettings
 
     public bool StripAds { get; init; } = true;
 
-    /// <summary>Start each chapter in the TXT book (and copied text) with its number and title.</summary>
+    /// <summary>Start each chapter in the books, TXT and PDF (and copied text), with its number and title.</summary>
     public bool BookHeadings { get; init; } = true;
 
     /// <summary>Take out symbols a text-to-speech voice would read aloud.</summary>

@@ -30,8 +30,8 @@ public sealed record RangeRequest
 
     public bool WritePdf { get; init; }
 
-    /// <summary>Each chapter in the TXT book starts with its number and title. The PDF always has them.</summary>
-    public bool TextHeadings { get; init; } = true;
+    /// <summary>Each chapter in the books, TXT and PDF, starts with its number and title.</summary>
+    public bool Headings { get; init; } = true;
 
     /// <summary>Take the symbols a text-to-speech voice reads aloud out of the books.</summary>
     public bool ForSpeech { get; init; }
@@ -154,6 +154,26 @@ public static class RangePipeline
             checkpoint = book.Checkpoint;
         }
 
+        // A walk starts from the nearest chapter saved before, as the
+        // progress record now stands: it may have grown since the range was
+        // planned, with another extraction of this book still saving.
+        if (request.Plan.Walks.Count > 0)
+        {
+            IReadOnlyList<ScannedChapter> steps;
+            lock (book.Gate)
+            {
+                steps = BookFiles.SavedSteps(checkpoint);
+            }
+
+            var shorter = RangePlanner.Plan(request.Scan, request.From, request.To, predict: false, saved: steps);
+            if (shorter.Problem is null && shorter.ExtraVisits < request.Plan.ExtraVisits
+                && shorter.Requested == request.Plan.Requested)
+            {
+                observer.Log($"Chapters saved before lead most of the way: {shorter.ExtraVisits} page(s) visited only to get there, not {request.Plan.ExtraVisits}.");
+                request = request with { Plan = shorter };
+            }
+        }
+
         int already;
         lock (book.Gate)
         {
@@ -206,6 +226,18 @@ public static class RangePipeline
             }
         }
 
+        // A chapter saved before, by this extraction or another, whose next
+        // link is known: a walk passes it without opening it again.
+        SavedStep? SavedStepOf(string url)
+        {
+            lock (book.Gate)
+            {
+                return checkpoint.Completed.TryGetValue(url, out var done) && !string.IsNullOrEmpty(done.Next)
+                    ? new SavedStep(done.Index, done.Next)
+                    : null;
+            }
+        }
+
         using var fetcher = new Fetcher(
             new TidyTitles(source), guard, sink, request.Fetch, limiter, robots,
             onRecord: Persist, onFailure: observer.Failure, onHumanCheck: onHumanCheck, onTrace: observer.Trace);
@@ -231,6 +263,8 @@ public static class RangePipeline
                 // A book numbered by place: a walked page is the next place,
                 // whatever its title says.
                 request.Scan.PositionalNumbers ? null : page => ChapterNumbers.FromTitle(page.Title),
+                SavedStepOf,
+                book.Loads,
                 cancellationToken).ConfigureAwait(false);
             }
             finally
@@ -295,10 +329,19 @@ public static class RangePipeline
                 + (later > 0 ? $"; {later} chapter(s) after the gap are saved and join it once the gap is filled." : "."));
         }
 
+        // Said, so a window at "50 of 50 saved" does not look stuck: PDFs are
+        // printed a few at a time, and with forty books finishing together
+        // one waited half a minute for its turn.
+        if ((request.WriteText || request.WritePdf) && chapters.Count > 0)
+        {
+            observer.Trace(new FetchTrace("writing", null, request.Scan.NovelUrl,
+                $"Writing the book file(s) for chapters {chapters.Keys.First()}-{chapters.Keys.Last()}."));
+        }
+
         if (request.WriteText && chapters.Count > 0)
         {
             var path = Path.Combine(folder, stem + ".txt");
-            await File.WriteAllTextAsync(path, BookFiles.Combined(chapters.Values, request.TextHeadings, request.ForSpeech), new UTF8Encoding(false), CancellationToken.None)
+            await File.WriteAllTextAsync(path, BookFiles.Combined(chapters.Values, request.Headings, request.ForSpeech), new UTF8Encoding(false), CancellationToken.None)
                 .ConfigureAwait(false);
             files.Add(path);
             observer.Log($"Wrote {Path.GetFileName(path)} ({chapters.Count} chapters).");
@@ -311,7 +354,9 @@ public static class RangePipeline
             {
                 await pdf.WriteAsync(
                     request.Scan.BookTitle,
-                    [.. chapters.Values.Select(c => (c.Heading, request.ForSpeech ? SpeechText.Clean(c.Body) : c.Body))],
+                    // Without headings a chapter still starts a new page,
+                    // just with no title for a voice to read out.
+                    [.. chapters.Values.Select(c => (request.Headings ? c.Heading : "", BookFiles.Story(c.Heading, c.Body, request.ForSpeech)))],
                     path,
                     CancellationToken.None).ConfigureAwait(false);
                 files.Add(path);
@@ -428,6 +473,60 @@ public static partial class BookFiles
 
     [System.Text.RegularExpressions.GeneratedRegex(@"^(CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³])$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
     private static partial System.Text.RegularExpressions.Regex ReservedOnWindows();
+
+    /// <summary>Chapters a progress record holds with the next link each led to, the places a walk may pass without opening.</summary>
+    public static IReadOnlyList<ScannedChapter> SavedSteps(Checkpoint checkpoint)
+    {
+        ArgumentNullException.ThrowIfNull(checkpoint);
+        return [.. checkpoint.Completed.Values
+            .Where(done => !string.IsNullOrEmpty(done.Next))
+            .Select(done => new ScannedChapter(done.Index, done.Title, done.Url))];
+    }
+
+    /// <summary>
+    /// The same, for a book not being saved right now: read from its folder
+    /// under <paramref name="outputRoot"/>, or from the folder with the site's
+    /// name added when another source's book of the same title took the plain one.
+    /// </summary>
+    public static IReadOnlyList<ScannedChapter> SavedSteps(string? outputRoot, ScanResult scan)
+    {
+        ArgumentNullException.ThrowIfNull(scan);
+        if (string.IsNullOrWhiteSpace(outputRoot))
+        {
+            return [];
+        }
+
+        try
+        {
+            var folder = Path.Combine(outputRoot, FolderName(scan.BookTitle, scan.NovelUrl));
+            var site = HostOf(scan.NovelUrl);
+            for (var n = 0; n < 10; n++)
+            {
+                var candidate = n switch
+                {
+                    0 => folder,
+                    1 => $"{folder} ({site})",
+                    _ => $"{folder} ({site} {n})",
+                };
+                var chapters = Path.Combine(candidate, ChaptersFolderName);
+                if (!File.Exists(Checkpoint.PathFor(chapters)))
+                {
+                    continue;
+                }
+
+                if (Checkpoint.Load(chapters) is { } saved && SharedBook.SameNovel(saved.TocUrl, scan.NovelUrl))
+                {
+                    return SavedSteps(saved);
+                }
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            // Only an estimate reads this; the save itself uses the record it holds.
+        }
+
+        return [];
+    }
 
     public static string RangeName(string title, int from, int to) =>
         FolderName(title, "") + $" {from}-{to}";
@@ -548,10 +647,59 @@ public static partial class BookFiles
     /// <summary>One chapter as text, with or without its heading, cleaned for a voice or not.</summary>
     public static string Chapter(string? heading, string body, bool headings = true, bool forSpeech = false)
     {
-        ArgumentNullException.ThrowIfNull(body);
-        var story = forSpeech ? SpeechText.Clean(body) : body.Trim();
+        var story = Story(heading, body, forSpeech);
         return headings && !string.IsNullOrWhiteSpace(heading) ? heading.Trim() + "\n\n" + story : story;
     }
+
+    /// <summary>
+    /// A chapter's story alone: without the title many sites repeat as its
+    /// first line, and cleaned for a voice or not.
+    /// </summary>
+    /// <remarks>
+    /// A site such as novelfire starts the text with "Chapter 151 Peak of the
+    /// Mortal World!" again, so leaving the heading out still left a voice
+    /// reading the chapter's number, and a book with headings showed it twice.
+    /// </remarks>
+    public static string Story(string? heading, string body, bool forSpeech = false)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        var story = body.Trim();
+        var end = story.IndexOf('\n', StringComparison.Ordinal);
+        var first = (end < 0 ? story : story[..end]).Trim();
+        if (IsTitleLine(first, heading))
+        {
+            story = end < 0 ? "" : story[(end + 1)..].TrimStart();
+        }
+
+        return forSpeech ? SpeechText.Clean(story) : story;
+    }
+
+    /// <summary>Whether a line is the chapter's own title: the heading itself, or "Chapter N" with the heading's number.</summary>
+    internal static bool IsTitleLine(string line, string? heading)
+    {
+        if (line.Length == 0 || line.Length > 250 || string.IsNullOrWhiteSpace(heading))
+        {
+            return false;
+        }
+
+        var bare = LettersAndDigits(line);
+        if (bare.Length > 0 && bare == LettersAndDigits(heading))
+        {
+            return true;
+        }
+
+        var opening = TitleOpening().Match(line);
+        return opening.Success
+            && int.TryParse(opening.Groups[1].Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var number)
+            && Scanning.ChapterNumbers.FromTitle(heading) == number;
+
+        static string LettersAndDigits(string text) =>
+            new([.. text.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant)]);
+    }
+
+    /// <summary>A line that opens as a chapter title does: "Chapter 12", "Ch. 12:", "第12".</summary>
+    [System.Text.RegularExpressions.GeneratedRegex(@"^\W*(?:chapter|chap\.?|ch\.?|episode|第)\s*[#:.-]?\s*(\d{1,6})(?!\d)", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex TitleOpening();
 
     /// <summary>"3, 5-9, 12" from a sorted list of numbers.</summary>
     public static string Ranges(IReadOnlyList<int> numbers)
@@ -612,6 +760,9 @@ internal sealed class SharedBook : IDisposable
 
     /// <summary>The progress record, loaded by the first run in and shared until the last one leaves.</summary>
     public Checkpoint? Checkpoint { get; set; }
+
+    /// <summary>Chapter pages its extractions are opening right now, so two walking one stretch open each page once.</summary>
+    public SharedLoads Loads { get; } = new();
 
     /// <summary>
     /// Enter the folder for one book: <paramref name="folder"/>, unless it

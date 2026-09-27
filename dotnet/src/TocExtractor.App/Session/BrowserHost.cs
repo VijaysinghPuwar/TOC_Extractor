@@ -103,6 +103,8 @@ public sealed class BrowserHost(NovelEnvironment environment) : IAsyncDisposable
                 LightPages = true,
                 IdleTabsCloseAfter = IdleTabsCloseAfter,
                 MemoryTight = MachineBudget.MemoryTight,
+                TabsWhenTight = MachineBudget.FewestTabs,
+                MemoryCritical = MachineBudget.MemoryCritical,
             };
 
             try

@@ -129,7 +129,7 @@ internal sealed class FakeNovelService : INovelService
     /// <summary>The book's title, so two fakes can be two books.</summary>
     public string Book { get; set; } = "The Lighthouse";
 
-    public RangePreview Preview(ScanResult scan, int first, int last)
+    public RangePreview Preview(ScanResult scan, int first, int last, string? outputRoot = null)
     {
         var plan = RangePlanner.Plan(scan, first, last);
         var from = Math.Max(Math.Min(first, last), scan.FirstNumber);

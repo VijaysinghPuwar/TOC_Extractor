@@ -28,3 +28,6 @@ public sealed record WalkSpec(
     /// <summary>Whether a walk at <paramref name="number"/> has gone beyond the far end of its range.</summary>
     public bool IsPast(int number) => this.Direction > 0 ? number >= this.SaveTo : number <= this.SaveFrom;
 }
+
+/// <summary>A chapter saved before, as its progress record remembers it: its number and where its next link led.</summary>
+public sealed record SavedStep(int Number, string Next);

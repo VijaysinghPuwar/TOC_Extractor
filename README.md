@@ -253,8 +253,9 @@ same window; press **Back** to return. Changes are saved as you make them.
   fresh.
 - **Text**: keep links in the text, and remove ad markers.
 - **For audiobooks (text to speech)**: leave chapter numbers and titles out
-  of the TXT book and **Copy text**, so a voice goes straight into the story
-  (the PDF keeps them); and remove symbols a voice would read aloud, such as
+  of the TXT and PDF books and **Copy text**, so a voice goes straight into
+  the story (a title the site repeats at the top of the text goes too); and
+  remove symbols a voice would read aloud, such as
   lines of `=====` or `-----` and stray `# _ = * ~ |`. Words and punctuation
   are never changed. Press Save again to rebuild a book with these;
   nothing is downloaded again.
@@ -538,6 +539,34 @@ nothing is overwritten. The log mentions it.
   address check. Closing that needs control the browser does not offer.
 
 ## Version history
+
+**2.6.1** (2026-09-27)
+
+From a stress test of 40 extractions of 50 chapters each at once, through the
+real window and a real browser, against books served on the computer itself
+(`TOC_STRESS=1`, see `StressTests.cs`):
+- Fixed: "Leave out chapter numbers and titles" now leaves them out of the
+  PDF too, not only the TXT book. And a site that repeats a chapter's title as
+  the first line of its text (novelfire does) no longer leaves "Chapter 151
+  ..." for a voice to read, or shows it twice in a book with headings.
+- Fixed: chapters 51-100 of a book whose site lists only chapter 1 (ranobes)
+  opened chapters 1-50 again first, even when they were already saved: ten
+  minutes at a careful site's pace with nothing to see. A walk now passes a
+  saved chapter by the next link it recorded, without opening it, and starts
+  from the nearest saved chapter; 101-150 after 1-100 opens 50 pages, where
+  it opened 126.
+- Fixed: two extractions of one such book started together (1-50 and 51-100)
+  opened every page twice, each going at half the site's pace (156 pages for
+  100 chapters). Now one opens a page and the other uses it (106, of which 6
+  are the scans).
+- Fixed: with less than 20% of memory free, which is where a 16 GB machine
+  with a browser and a few apps open already starts, every extraction shared
+  one browser tab. 40 extractions saved 523 chapters in 20 minutes that way.
+  While memory is short the app now still keeps up to 4 tabs working, and
+  only goes down to one below 8% free.
+- The window says what a long walk is doing ("Getting to chapter 51 ... at
+  chapter 12 of 50") instead of only "Saving...", and says when a book waits
+  its turn for its PDF.
 
 **2.6.0** (2026-09-27)
 

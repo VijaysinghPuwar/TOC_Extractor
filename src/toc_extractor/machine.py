@@ -69,7 +69,8 @@ def _windows_memory() -> tuple[int, int] | None:
     try:
         status = _MemoryStatusEx()
         status.dwLength = ctypes.sizeof(_MemoryStatusEx)
-        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+        # windll exists only on Windows, where a type checker also sees it.
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):  # type: ignore[attr-defined, unused-ignore]
             return None
     except (AttributeError, OSError):
         return None

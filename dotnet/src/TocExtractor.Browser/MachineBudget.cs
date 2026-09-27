@@ -30,6 +30,9 @@ public static partial class MachineBudget
     /// <summary>Below this share of memory free, no new tabs are opened.</summary>
     public const int TightBelowPercent = 20;
 
+    /// <summary>Below this share of memory free, not even <see cref="FewestTabs"/> tabs are kept open for work.</summary>
+    public const int CriticalBelowPercent = 8;
+
     /// <summary>Memory left for the system and the person's other apps before any tabs.</summary>
     private const double ReservedGigabytes = 4;
 
@@ -97,6 +100,9 @@ public static partial class MachineBudget
     /// <remarks>Unknown counts as plenty, so a system that does not say behaves as before.</remarks>
     public static bool MemoryTight() => FreeMemoryPercent() is { } free && free < TightBelowPercent;
 
+    /// <summary>Whether memory is so short that work should share the tabs already open, however few.</summary>
+    public static bool MemoryCritical() => FreeMemoryPercent() is { } free && free < CriticalBelowPercent;
+
     private static long ReadMemoryBytes()
     {
         // For testing on a large machine how the app behaves on a small one.
@@ -124,6 +130,12 @@ public static partial class MachineBudget
 
     private static int? ReadFreePercent()
     {
+        // For testing how the app behaves while memory is short.
+        if (int.TryParse(Environment.GetEnvironmentVariable("TOC_SIMULATE_FREE_PERCENT"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var simulated))
+        {
+            return simulated;
+        }
+
         if (OperatingSystem.IsMacOS())
         {
             // The kernel's own measure of memory pressure: the share of memory

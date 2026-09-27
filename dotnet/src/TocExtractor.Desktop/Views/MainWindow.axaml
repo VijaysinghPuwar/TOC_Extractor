@@ -378,7 +378,7 @@
               <CheckBox x:Name="LeaveOutHeadingsBox" Content="Leave out chapter numbers and titles"
                         IsChecked="{Binding LeaveOutHeadings}" />
               <TextBlock Classes="hint" TextWrapping="Wrap" Margin="28,0,0,4"
-                         Text="In the TXT book and in Copy text, so a voice goes straight into the story. The PDF keeps them, so you can find your place." />
+                         Text="In the TXT and PDF books and in Copy text, so a voice goes straight into the story. Each chapter still starts on a new page of the PDF." />
               <CheckBox x:Name="ForSpeechBox" Content="Remove symbols a voice would read aloud"
                         IsChecked="{Binding ForSpeech}" />
               <TextBlock Classes="hint" TextWrapping="Wrap" Margin="28,0,0,0"

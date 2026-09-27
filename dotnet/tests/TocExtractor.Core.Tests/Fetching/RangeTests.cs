@@ -185,6 +185,97 @@ public sealed partial class RangeTests
     }
 
     [Fact]
+    public async Task A_walk_passes_saved_chapters_by_their_recorded_next_links_without_opening_them()
+    {
+        // Chapters 1-50 saved; 51-53 asked for; the site lists only chapter 1.
+        // It used to open all fifty again first: ten minutes at a careful pace.
+        var (fetcher, source) = Build(Chain(60));
+        using var _ = fetcher;
+        var walk = new WalkSpec(Url(1), 1, "next", +1, 51, 53, 100);
+        var saved = Enumerable.Range(1, 50).ToDictionary(Url, n => new SavedStep(n, Url(n + 1)), StringComparer.Ordinal);
+
+        var result = await fetcher.FetchRangeAsync(
+            Book, [], [walk], Selectors, alreadyDone: saved.ContainsKey, numberOf: NumberOf,
+            savedStep: url => saved.GetValueOrDefault(url), cancellationToken: Token);
+
+        Assert.Equal([51, 52, 53], result.Completed.Select(r => r.Index));
+        Assert.Equal([Url(51), Url(52), Url(53)], source.UrlsLoaded);
+        Assert.True(result.AccountsForEveryLink());
+    }
+
+    [Fact]
+    public async Task Saved_chapters_inside_the_range_are_passed_as_already_saved()
+    {
+        var (fetcher, source) = Build(Chain(10));
+        using var _ = fetcher;
+        var walk = new WalkSpec(Url(1), 1, "next", +1, 2, 5, 100);
+        var saved = new Dictionary<string, SavedStep>(StringComparer.Ordinal)
+        {
+            [Url(1)] = new(1, Url(2)),
+            [Url(2)] = new(2, Url(3)),
+            [Url(3)] = new(3, Url(4)),
+        };
+
+        var result = await fetcher.FetchRangeAsync(
+            Book, [], [walk], Selectors, alreadyDone: saved.ContainsKey, numberOf: NumberOf,
+            savedStep: url => saved.GetValueOrDefault(url), cancellationToken: Token);
+
+        Assert.Equal([4, 5], result.Completed.Select(r => r.Index));
+        Assert.Equal([Url(2), Url(3)], result.SkippedResumed);
+        Assert.Equal([Url(4), Url(5)], source.UrlsLoaded);
+        Assert.True(result.AccountsForEveryLink());
+    }
+
+    [Fact]
+    public async Task Two_extractions_walking_one_stretch_together_open_each_page_once()
+    {
+        // 1-10 and 11-20 of a book that lists only chapter 1, started at once:
+        // both walk from chapter 1. Measured before: every page opened twice.
+        var pages = Chain(20).ToDictionary(
+            pair => pair.Key,
+            pair => new StubPage { Title = pair.Value.Title, Body = pair.Value.Body, Next = pair.Value.Next, Hang = TimeSpan.FromMilliseconds(15) },
+            StringComparer.Ordinal);
+        var source = new StubPageSource(pages, maxConcurrent: 2);
+        var limiter = new RateLimiter(TimeSpan.Zero);
+        var shared = new SharedLoads();
+        var saved = new System.Collections.Concurrent.ConcurrentDictionary<string, SavedStep>(StringComparer.Ordinal);
+        var options = new FetchOptions { MinDelay = TimeSpan.Zero, MaxDelay = TimeSpan.Zero, WaitAfterLoad = TimeSpan.Zero };
+        Fetcher Walker() => new(
+            source, PermissiveGuard.Instance, new NullSink(), options, limiter,
+            onRecord: record => saved[record.RequestedUrl] = new SavedStep(record.Index, record.NextUrl!));
+        using var first = Walker();
+        using var second = Walker();
+
+        Task<Core.Models.RunResult> Run(Fetcher fetcher, int from, int to) => fetcher.FetchRangeAsync(
+            Book, [], [new WalkSpec(Url(1), 1, "next", +1, from, to, 100)], Selectors,
+            alreadyDone: saved.ContainsKey, numberOf: NumberOf, savedStep: url => saved.GetValueOrDefault(url),
+            shared: shared, cancellationToken: Token);
+        var results = await Task.WhenAll(Run(first, 1, 10), Run(second, 11, 20));
+
+        Assert.Equal(Enumerable.Range(1, 10), results[0].Completed.Select(r => r.Index));
+        Assert.Equal(Enumerable.Range(11, 10), results[1].Completed.Select(r => r.Index));
+        Assert.Equal(20, source.UrlsLoaded.Count);
+        Assert.Equal(20, source.UrlsLoaded.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
+    public async Task A_walk_ends_at_a_saved_chapter_past_the_range()
+    {
+        var (fetcher, source) = Build(Chain(10));
+        using var _ = fetcher;
+        var walk = new WalkSpec(Url(1), 1, "next", +1, 1, 3, 100);
+        var saved = Enumerable.Range(1, 10).ToDictionary(Url, n => new SavedStep(n, Url(n + 1)), StringComparer.Ordinal);
+
+        var result = await fetcher.FetchRangeAsync(
+            Book, [], [walk], Selectors, alreadyDone: saved.ContainsKey, numberOf: NumberOf,
+            savedStep: url => saved.GetValueOrDefault(url), cancellationToken: Token);
+
+        Assert.Empty(result.Completed);
+        Assert.Equal([Url(1), Url(2), Url(3)], result.SkippedResumed);
+        Assert.Empty(source.UrlsLoaded);
+    }
+
+    [Fact]
     public async Task A_walk_stops_at_a_step_robots_txt_disallows()
     {
         var robots = RobotsPolicy.Parse("User-agent: *\nDisallow: /book/c4\n", "https://e.com");

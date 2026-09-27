@@ -61,4 +61,15 @@ public sealed record BrowserPageSourceOptions
     /// While it is, work waits for a tab to come free instead. Null never waits.
     /// </summary>
     public Func<bool>? MemoryTight { get; init; }
+
+    /// <summary>
+    /// Tabs that may still open while memory is short, unless it is
+    /// critically short (<see cref="MemoryCritical"/>). One made forty books
+    /// share a single tab on a machine that started at 17% free, the usual
+    /// state of a 16 GB machine with a browser and a few apps open.
+    /// </summary>
+    public int TabsWhenTight { get; init; } = 1;
+
+    /// <summary>Whether memory is so short that not even <see cref="TabsWhenTight"/> tabs should open. Null never is.</summary>
+    public Func<bool>? MemoryCritical { get; init; }
 }

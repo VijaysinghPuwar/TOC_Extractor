@@ -21,7 +21,8 @@ public interface INovelService : IAsyncDisposable
 
     Task<ScanResult> ScanAsync(string novelUrl, Action<string>? log, CancellationToken cancellationToken = default);
 
-    RangePreview Preview(ScanResult scan, int first, int last);
+    /// <summary>Plan a range. <paramref name="outputRoot"/>, when given, is where chapters saved before are looked for, since a walk passes those without opening them.</summary>
+    RangePreview Preview(ScanResult scan, int first, int last, string? outputRoot = null);
 
     Task<RangeResult> SaveAsync(
         ScanResult scan,

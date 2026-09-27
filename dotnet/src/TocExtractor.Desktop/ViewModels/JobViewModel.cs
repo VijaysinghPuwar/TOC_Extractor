@@ -7,6 +7,7 @@ using TocExtractor.App;
 using TocExtractor.App.Pipeline;
 using TocExtractor.App.Scanning;
 using TocExtractor.App.Session;
+using TocExtractor.Core.Fetching;
 using TocExtractor.Core.Models;
 using TocExtractor.Desktop.Services;
 
@@ -490,7 +491,7 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
 
         this.session.Pace = this.owner.Pace();
         this.slowConfirmed = false;
-        this.preview = this.session.Preview(scan, (int)from, (int)to);
+        this.preview = this.session.Preview(scan, (int)from, (int)to, this.OutputDirectory);
         this.PlanSummary = this.preview.Summary;
         this.PlanIsSlow = this.preview.Slow;
         this.SaveCommand.NotifyCanExecuteChanged();
@@ -1061,6 +1062,44 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
                 }
             }
         });
+
+        /// <summary>
+        /// A page passed on the way to the range. Reaching chapter 51 from
+        /// chapter 1 on a careful site takes minutes before anything is
+        /// saved, and a window that said only "Saving..." all that time
+        /// looked stuck.
+        /// </summary>
+        public void Trace(FetchTrace trace)
+        {
+            if (trace.Event == "writing")
+            {
+                owner.post(() =>
+                {
+                    if (owner.Stage == Stage.Saving)
+                    {
+                        owner.Status = owner.ProgressLine + ". Writing the book"
+                            + (owner.Pdf ? "; PDFs are made a few at a time, so this can take a moment when several books finish together." : ".");
+                    }
+                });
+                return;
+            }
+
+            if (trace.Event != "step" || trace.Chapter is not { } number)
+            {
+                return;
+            }
+
+            owner.post(() =>
+            {
+                if (owner.Stage == Stage.Saving && owner.Chapters.Count > 0 && number < owner.Chapters[0].Number)
+                {
+                    var first = owner.Chapters[0].Number;
+                    owner.Status = string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Getting to chapter {first} by following the site's next links: at chapter {number} of {first - 1}. Nothing is saved from these pages.");
+                }
+            });
+        }
 
         public void Failure(FailedChapter failure) => owner.post(() =>
         {
