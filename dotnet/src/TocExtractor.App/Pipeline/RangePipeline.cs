@@ -232,8 +232,8 @@ public static class RangePipeline
         {
             lock (book.Gate)
             {
-                return checkpoint.Completed.TryGetValue(url, out var done) && !string.IsNullOrEmpty(done.Next)
-                    ? new SavedStep(done.Index, done.Next)
+                return checkpoint.Completed.TryGetValue(url, out var done) && checkpoint.ForwardNextOf(done) is { } next
+                    ? new SavedStep(done.Index, next)
                     : null;
             }
         }
@@ -479,7 +479,7 @@ public static partial class BookFiles
     {
         ArgumentNullException.ThrowIfNull(checkpoint);
         return [.. checkpoint.Completed.Values
-            .Where(done => !string.IsNullOrEmpty(done.Next))
+            .Where(done => checkpoint.ForwardNextOf(done) is not null)
             .Select(done => new ScannedChapter(done.Index, done.Title, done.Url))];
     }
 
@@ -656,7 +656,7 @@ public static partial class BookFiles
     /// first line, and cleaned for a voice or not.
     /// </summary>
     /// <remarks>
-    /// A site such as novelfire starts the text with "Chapter 151 Peak of the
+    /// Some sites start the text with "Chapter 151 Peak of the
     /// Mortal World!" again, so leaving the heading out still left a voice
     /// reading the chapter's number, and a book with headings showed it twice.
     /// </remarks>

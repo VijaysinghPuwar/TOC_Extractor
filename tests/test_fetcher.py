@@ -17,7 +17,7 @@ import pytest
 from toc_extractor.exporters.text import TextExporter
 from toc_extractor.fetcher import Fetcher, FetchOptions, observed_intervals
 from toc_extractor.models import ChapterRecord, PriorChapter
-from toc_extractor.pagesource import ChapterLocked, PageError, PageTimeout
+from toc_extractor.pagesource import ChapterLocked, PageError, PageTimeout, SelectorNotFound
 from toc_extractor.parser import SelectorSet
 from toc_extractor.politeness import RateLimiter, UrlGuard, parse_robots
 from toc_extractor.sinks import NullSink
@@ -194,6 +194,27 @@ async def test_selector_not_found_is_not_retried() -> None:
     result = await fetcher.run(TOC, SELECTORS)
 
     assert source.attempts_for("https://example.com/ch/1") == 1
+    assert result.failed[0].reason == "selector_not_found"
+
+
+async def test_a_selector_miss_after_others_matched_is_tried_once_more() -> None:
+    """The layout found this run's other chapters, so a page without its story
+    is an error page or a machine too busy to draw it: once more, not more.
+    At 80 processes on a 24 GB machine, 28 lost a chapter to this."""
+    pages = {
+        "https://example.com/ch/2": StubPage(
+            title="Chapter 2", body="Body 2.", fail_times=1, failure=SelectorNotFound
+        ),
+        "https://example.com/ch/3": StubPage(missing_selector=True),
+    }
+    fetcher, source, _, _ = build(
+        chapters=3, pages=pages, retries=5, concurrency=1, wait_after_load=0.0
+    )
+    result = await fetcher.run(TOC, SELECTORS)
+
+    assert [record.index for record in result.completed] == [1, 2]
+    assert source.attempts_for("https://example.com/ch/2") == 2
+    assert source.attempts_for("https://example.com/ch/3") == 2
     assert result.failed[0].reason == "selector_not_found"
 
 

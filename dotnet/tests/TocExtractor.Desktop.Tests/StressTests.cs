@@ -22,10 +22,10 @@ namespace TocExtractor.Desktop.Tests;
 /// served on this machine. Off unless TOC_STRESS is set: it takes minutes.
 /// </summary>
 /// <remarks>
-/// Half the books are laid out like ranobes: the site lists chapter 1 (by a
+/// Half the books are laid out like a site that hides most of its list: the site lists chapter 1 (by a
 /// first-chapter link) and its newest chapters only, so 1-50 and 51-100 are
 /// both reached by following next links from chapter 1, started together.
-/// The other half are laid out like novelfire: every chapter listed, and
+/// The other half are laid out like a site that lists everything: every chapter listed, and
 /// each chapter's text starting with its own title again. Every book is
 /// saved as TXT and PDF with chapter numbers and titles left out.
 /// </remarks>
@@ -71,8 +71,8 @@ public sealed partial class StressTests
         {
             foreach (var (url, from, to) in new[]
             {
-                (site.Ranobes(book), 1, 50), (site.Ranobes(book), 51, 100),
-                (site.Novelfire(book), 101, 150), (site.Novelfire(book), 151, 200),
+                (site.FirstOnly(book), 1, 50), (site.FirstOnly(book), 51, 100),
+                (site.Listed(book), 101, 150), (site.Listed(book), 151, 200),
             })
             {
                 var job = started.Count == 0 ? viewModel.SelectedJob! : NewJob(viewModel);
@@ -188,7 +188,7 @@ public sealed partial class StressTests
         }
 
         // Then Save again further on, as a person does the next day: 101-150
-        // of each ranobes book, reached from chapter 1 past the hundred saved
+        // of each first-only book, reached from chapter 1 past the hundred saved
         // chapters. It used to open all hundred again before saving one.
         Dictionary<string, int> before = new(site.ChapterLoads, StringComparer.Ordinal);
         var again = started.Where(s => s.Book.Contains("//r", StringComparison.Ordinal) && s.Job.From == 1).ToList();
@@ -287,9 +287,9 @@ public sealed partial class StressTests
 
         public ConcurrentDictionary<string, int> ChapterLoads { get; } = new(StringComparer.Ordinal);
 
-        public string Ranobes(int book) => $"http://r{book}.localtest.me:{this.Port}/novels/book-{book}.html";
+        public string FirstOnly(int book) => $"http://r{book}.localtest.me:{this.Port}/novels/book-{book}.html";
 
-        public string Novelfire(int book) => $"http://n{book}.localtest.me:{this.Port}/book/b{book}";
+        public string Listed(int book) => $"http://n{book}.localtest.me:{this.Port}/book/b{book}";
 
         public void Dispose()
         {
@@ -364,48 +364,48 @@ public sealed partial class StressTests
                 return ("404 Not Found", "");
             }
 
-            var ranobes = hostName.StartsWith('r');
+            var firstOnly = hostName.StartsWith('r');
             var book = int.Parse(hostName[1..hostName.IndexOf('.', StringComparison.Ordinal)], CultureInfo.InvariantCulture);
-            if (ranobes)
+            if (firstOnly)
             {
                 if (path == $"/novels/book-{book}.html")
                 {
                     var latest = string.Concat(Enumerable.Range(Chapters - 24, 25).Reverse()
-                        .Select(n => $"<li><a href=\"{RanobesUrl(n)}\">Chapter {n}: {Title(n)}</a></li>"));
-                    return ("200 OK", Document($"Ranobes Book {book}",
-                        $"<h1>Ranobes Book {book}</h1><p>A long story.</p><p><a href=\"{RanobesUrl(1)}\">First chapter</a></p><h3>Latest</h3><ul>{latest}</ul>"));
+                        .Select(n => $"<li><a href=\"{FirstOnlyUrl(n)}\">Chapter {n}: {Title(n)}</a></li>"));
+                    return ("200 OK", Document($"First-only Book {book}",
+                        $"<h1>First-only Book {book}</h1><p>A long story.</p><p><a href=\"{FirstOnlyUrl(1)}\">First chapter</a></p><h3>Latest</h3><ul>{latest}</ul>"));
                 }
 
-                if (RanobesChapter().Match(path) is { Success: true } match)
+                if (FirstOnlyChapter().Match(path) is { Success: true } match)
                 {
                     var id = long.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
                     var n = id >= 900000 ? (int)((id - 900000) / 3) : (int)(id - 100000);
                     this.ChapterLoads.AddOrUpdate(hostName, 1, (_, count) => count + 1);
-                    return ("200 OK", ChapterPage($"Ranobes Book {book}", $"Chapter {n}: {Title(n)}", Story(book, n, repeatTitle: null),
-                        n > 1 ? RanobesUrl(n - 1) : null, n < Chapters ? RanobesUrl(n + 1) : null));
+                    return ("200 OK", ChapterPage($"First-only Book {book}", $"Chapter {n}: {Title(n)}", Story(book, n, repeatTitle: null),
+                        n > 1 ? FirstOnlyUrl(n - 1) : null, n < Chapters ? FirstOnlyUrl(n + 1) : null));
                 }
             }
             else
             {
                 if (path == $"/book/b{book}")
                 {
-                    return ("200 OK", Document($"Novelfire Book {book}",
-                        $"<h1>Novelfire Book {book}</h1><p>A long story.</p><p><a href=\"/book/b{book}/chapters\">Chapters</a></p>"));
+                    return ("200 OK", Document($"Listed Book {book}",
+                        $"<h1>Listed Book {book}</h1><p>A long story.</p><p><a href=\"/book/b{book}/chapters\">Chapters</a></p>"));
                 }
 
                 if (path == $"/book/b{book}/chapters")
                 {
                     var all = string.Concat(Enumerable.Range(1, Chapters)
                         .Select(n => $"<li><a href=\"/book/b{book}/chapter-{n}\">Chapter {n} {Title(n)}</a></li>"));
-                    return ("200 OK", Document($"Novelfire Book {book} chapters", $"<h1>Novelfire Book {book}</h1><ul>{all}</ul>"));
+                    return ("200 OK", Document($"Listed Book {book} chapters", $"<h1>Listed Book {book}</h1><ul>{all}</ul>"));
                 }
 
-                if (NovelfireChapter().Match(path) is { Success: true } match)
+                if (ListedChapter().Match(path) is { Success: true } match)
                 {
                     var n = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
                     this.ChapterLoads.AddOrUpdate(hostName, 1, (_, count) => count + 1);
                     var title = $"Chapter {n} {Title(n)}";
-                    return ("200 OK", ChapterPage($"Novelfire Book {book}", title, Story(book, n, repeatTitle: title),
+                    return ("200 OK", ChapterPage($"Listed Book {book}", title, Story(book, n, repeatTitle: title),
                         n > 1 ? $"/book/b{book}/chapter-{n - 1}" : null, n < Chapters ? $"/book/b{book}/chapter-{n + 1}" : null));
                 }
             }
@@ -414,7 +414,7 @@ public sealed partial class StressTests
         }
 
         /// <summary>Chapter 1 to 225 have one run of ids, the newest another, so no address pattern holds.</summary>
-        private static string RanobesUrl(int n) =>
+        private static string FirstOnlyUrl(int n) =>
             n > Chapters - 25 ? $"/read/{900000 + (n * 3)}.html" : $"/read/{100000 + n}.html";
 
         private static string Title(int n) => $"The {Words[n % Words.Length]} of {Words[(n * 7) % Words.Length]}";
@@ -460,9 +460,9 @@ public sealed partial class StressTests
             $"<!doctype html><html><head><meta charset=\"utf-8\"><title>{title}</title></head><body>{body}</body></html>";
 
         [GeneratedRegex(@"^/read/(\d+)\.html$")]
-        private static partial Regex RanobesChapter();
+        private static partial Regex FirstOnlyChapter();
 
         [GeneratedRegex(@"^/book/b\d+/chapter-(\d+)$")]
-        private static partial Regex NovelfireChapter();
+        private static partial Regex ListedChapter();
     }
 }

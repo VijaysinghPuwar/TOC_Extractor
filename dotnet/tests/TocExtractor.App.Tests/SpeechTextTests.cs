@@ -51,7 +51,7 @@ public sealed class SpeechTextTests
     [Fact]
     public void A_title_the_site_repeats_at_the_top_of_the_text_is_left_out_too()
     {
-        // novelfire starts every chapter's text with its title again, so a
+        // Some sites start every chapter's text with its title again, so a
         // voice still read "Chapter 151" with headings left out.
         SavedChapter[] chapters =
         [

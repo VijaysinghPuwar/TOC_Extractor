@@ -556,6 +556,40 @@ public sealed class BrowserPageSourceTests
         Assert.Equal(tabs, source.WorkTabs);
     }
 
+    [Theory]
+    [InlineData(503)]
+    [InlineData(429)]
+    public async Task A_busy_site_is_retryable_not_a_missing_selector(int status)
+    {
+        // A busy page has no story. Read as one, it reported the chapter's
+        // selector missing, retried once at most: under load a site's 503s
+        // lost chapters, each after waiting out the whole selector budget.
+        using var site = new LocalSite();
+        site.Answer("/ch/busy", status, "<html><body>busy</body></html>");
+
+        await using var source = await StartAsync();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var failure = await Assert.ThrowsAnyAsync<PageException>(
+            () => source.LoadChapterAsync(site.Url("/ch/busy"), ".t", ".c", Token));
+
+        Assert.IsNotType<SelectorNotFoundException>(failure);
+        Assert.IsNotType<PageBlockedException>(failure);
+        Assert.IsNotType<HumanCheckException>(failure);
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(10), "the busy page waited out the selector budget");
+    }
+
+    [Fact]
+    public async Task A_missing_page_is_still_a_missing_selector()
+    {
+        using var site = new LocalSite();
+        site.Answer("/ch/gone", 404, "<html><body>not here</body></html>");
+
+        await using var source = await BrowserPageSource.StartAsync(
+            Guard, new BrowserPageSourceOptions { OperationBudget = TimeSpan.FromSeconds(2) }, Token);
+        await Assert.ThrowsAsync<SelectorNotFoundException>(
+            () => source.LoadChapterAsync(site.Url("/ch/gone"), ".t", ".c", Token));
+    }
+
     [Fact]
     public async Task A_chapter_locked_to_visitors_is_refused_not_half_saved()
     {

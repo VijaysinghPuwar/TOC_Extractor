@@ -435,6 +435,10 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         await this.FollowRedirectsAsync(route, request.Url, nav).ConfigureAwait(false);
     }
 
+    /// <summary>A status that means "try again later": too many requests, or a server error.</summary>
+    /// <remarks>Kept identical to is_busy_status in browser.py.</remarks>
+    internal static bool IsBusyStatus(int status) => status is 429 or (>= 500 and <= 599);
+
     private static bool IsMainFrame(IRequest request)
     {
         try
@@ -511,6 +515,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             if (nav is not null)
             {
                 nav.FinalUrl = url;
+                nav.Status = response.Status;
             }
 
             await route.FulfillAsync(new RouteFulfillOptions { Response = response })
@@ -832,6 +837,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         var nav = new GuardedNavigation();
         slot.Navigation = nav;
         slot.Emptied = false;
+        slot.Status = null;
         try
         {
             await slot.Page.GotoAsync(url, new PageGotoOptions
@@ -864,6 +870,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             throw nav.Blocked;
         }
 
+        slot.Status = nav.Status;
         return nav.TransportError is { } failure
             ? throw new PageException($"{url}: {failure}")
             : nav.FinalUrl ?? url;
@@ -1346,6 +1353,19 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         {
             var finalUrl = await this.GotoAsync(slot, url, this.Remaining(deadline)).ConfigureAwait(false);
             await ThrowIfHumanCheckAsync(slot, url).ConfigureAwait(false);
+
+            // After the check, which some sites serve as a 503: that one wants
+            // the person. Any other busy page has no story, and reading it
+            // reported the chapter's selector missing, which is retried once
+            // at most: under load a site's 503s lost chapters, each after
+            // waiting out the whole selector budget. This is retried with
+            // backoff, as a refused connection is.
+            if (slot.Status is { } status && IsBusyStatus(status))
+            {
+                throw new PageException(string.Create(
+                    System.Globalization.CultureInfo.InvariantCulture, $"{url}: the site answered HTTP {status}, busy"));
+            }
+
             string title;
             if (this.options.TitleFallback)
             {
@@ -1625,6 +1645,9 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         /// </summary>
         internal string? TransportError { get; set; }
 
+        /// <summary>The HTTP status of the response delivered to the page.</summary>
+        internal int? Status { get; set; }
+
         internal List<string> Hops { get; } = [];
     }
 
@@ -1640,6 +1663,9 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         internal IPage Page { get; } = page;
 
         internal GuardedNavigation? Navigation { get; set; }
+
+        /// <summary>The status the page's last navigation answered with.</summary>
+        internal int? Status { get; set; }
 
         internal bool Crashed { get; set; }
 

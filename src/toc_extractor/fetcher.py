@@ -167,6 +167,9 @@ class Fetcher:
         self._already_done = already_done or (lambda _url: False)
         self._on_record = on_record
         self._on_failure = on_failure
+        # Whether these selectors have found a chapter this run. Kept
+        # identical to selectorsMatched in Fetcher.cs.
+        self._selectors_matched = False
         self._limiter = limiter or RateLimiter(
             min_interval=self._options.min_delay, clock=clock, sleep=self._sleep
         )
@@ -313,6 +316,15 @@ class Fetcher:
                     )
                     return
                 except (PageBlocked, SelectorNotFound, ChapterLocked) as exc:
+                    missed_once = isinstance(exc, SelectorNotFound) and attempt == 1
+                    if missed_once and self._selectors_matched:
+                        # The same selectors found this run's other chapters, so
+                        # the layout is right and this page came without its
+                        # story: an error page, or a machine too busy to draw it
+                        # in time. Measured at 80 processes on 24 GB: 28 lost a
+                        # chapter this way. Once more, before giving up on it.
+                        await self._sleep(self._backoff(attempt))
+                        continue
                     # None is worth retrying: the target is disallowed, the
                     # page loaded fine and simply lacks the selector, or it is
                     # locked to visitors and will be locked again.
@@ -325,6 +337,7 @@ class Fetcher:
                     await self._sleep(self._backoff(attempt))
                     continue
 
+                self._selectors_matched = True
                 await self._record_success(progress, index, url, page, decision, attempt)
                 return
 

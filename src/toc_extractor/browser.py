@@ -37,7 +37,7 @@ from types import TracebackType
 from typing import Any
 from urllib.parse import urljoin
 
-from playwright.async_api import Browser, BrowserContext, Page, Route, async_playwright
+from playwright.async_api import Browser, BrowserContext, Page, Request, Route, async_playwright
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeout
 
@@ -149,6 +149,9 @@ class _GuardedNavigation:
         # PageError is. Collapsing them cost a chapter every time a connection
         # was refused under load.
         self.transport_error: str | None = None
+        # The HTTP status of the response that was delivered, for telling a
+        # site's busy page (503, 429) from a chapter that lacks its selector.
+        self.status: int | None = None
         self.hops: list[str] = []
 
 
@@ -164,6 +167,8 @@ class _PageSlot:
     def __init__(self, page: Page) -> None:
         self.page = page
         self.nav: _GuardedNavigation | None = None
+        # The status the page's last navigation answered with.
+        self.status: int | None = None
         # Set when this slot was released while something was still in flight
         # on it. The page is then replaced before anyone navigates it again.
         self.dirty = False
@@ -304,7 +309,11 @@ class BrowserPageSource:
                 await _settle(route.abort("blockedbyclient"), what="block a subresource")
             return
 
-        nav = slot.nav
+        # Only the page's own navigation is tracked. An ad's iframe is a
+        # document too, and letting its redirects, failures and status stand
+        # for the page's failed chapters because an ad server was down. Kept
+        # identical to IsMainFrame in BrowserPageSource.cs.
+        nav = slot.nav if _is_main_frame(request) else None
         if not allowed:
             if nav is not None:
                 nav.blocked = PageBlocked(request.url, reason or RejectionReason.MALFORMED, detail)
@@ -351,6 +360,7 @@ class BrowserPageSource:
             if await _settle(route.fulfill(response=response), what="deliver the response"):
                 if nav is not None:
                     nav.final_url = url
+                    nav.status = response.status
                 return
             # Delivered to nobody: treat it as transport, so it is retried
             # rather than reported as a page that loaded and lacked its
@@ -376,7 +386,14 @@ class BrowserPageSource:
             # caller is being cancelled, and awaiting anything in that window
             # just raises CancelledError again. Acquiring is an ordinary
             # context, so the repair can be awaited properly.
-            await self._replace_page(slot)
+            try:
+                await self._replace_page(slot)
+            except BaseException:
+                # Back in the pool still dirty, for the next taker to repair.
+                # Kept out, the pool was one page short for the rest of the
+                # run, and with every page gone the next get() waited forever.
+                self._pool.put_nowait(slot)
+                raise
         try:
             yield slot
         except BaseException:
@@ -418,6 +435,7 @@ class BrowserPageSource:
 
         nav = _GuardedNavigation()
         slot.nav = nav
+        slot.status = None
         try:
             await slot.page.goto(url, wait_until="domcontentloaded")
         except PlaywrightTimeout as exc:
@@ -438,6 +456,7 @@ class BrowserPageSource:
             raise nav.blocked
         if nav.transport_error is not None:
             raise PageError(f"{url}: {nav.transport_error}")
+        slot.status = nav.status
         return nav.final_url or url
 
     # -- PageSource ---------------------------------------------------------
@@ -514,6 +533,13 @@ class BrowserPageSource:
     ) -> ChapterPage:
         async with self._acquire() as slot:
             final_url = await self._goto(slot, url)
+            if slot.status is not None and is_busy_status(slot.status):
+                # The site's "busy, come back later" page. It has no story, so
+                # reading it reported the chapter's selector missing, which is
+                # never retried: under load one chapter in twenty was lost to
+                # a single 503, and each waited out the whole selector timeout
+                # first. A PageError is retried with backoff.
+                raise PageError(f"{url}: the site answered HTTP {slot.status}, busy")
             title = await self._read_field(slot.page, title_selector, final_url)
             if await slot.page.evaluate(LOCKED_JS):
                 raise ChapterLocked(
@@ -561,6 +587,22 @@ async def open_browser_source(**kwargs: Any) -> BrowserPageSource:
 
 
 __all__ = ["BrowserPageSource", "open_browser_source"]
+
+
+def is_busy_status(status: int) -> bool:
+    """A status that means "try again later": too many requests, or a server error.
+
+    Kept identical to BrowserPageSource.IsBusyStatus in C#.
+    """
+    return status == 429 or 500 <= status <= 599
+
+
+def _is_main_frame(request: Request) -> bool:
+    try:
+        return request.frame.parent_frame is None
+    except PlaywrightError:
+        # No frame to ask (a worker's request): not the page itself.
+        return False
 
 
 def first_line(text: str) -> str:

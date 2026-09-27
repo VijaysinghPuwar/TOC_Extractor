@@ -136,6 +136,24 @@ public sealed class Checkpoint
     /// <summary>Where a saved chapter's next link led, if that was recorded.</summary>
     public string? NextOf(string url) => this.Completed.TryGetValue(url, out var done) ? done.Next : null;
 
+    /// <summary>
+    /// A saved chapter's next link, unless it leads back to a chapter saved
+    /// under the same number or an earlier one.
+    /// </summary>
+    /// <remarks>
+    /// 2.6.1 recorded a backward walk's previous link as "next". Followed, it
+    /// sent a forward walk back over chapters it had passed and left the ones
+    /// asked for unopened, so a record that points backward is not trusted.
+    /// </remarks>
+    public string? ForwardNextOf(CompletedChapter done)
+    {
+        ArgumentNullException.ThrowIfNull(done);
+        return string.IsNullOrEmpty(done.Next)
+            || (this.Completed.TryGetValue(done.Next, out var after) && after.Index <= done.Index)
+            ? null
+            : done.Next;
+    }
+
     public void Record(ChapterRecord record, IReadOnlyDictionary<string, ChapterOutput> outputs)
     {
         ArgumentNullException.ThrowIfNull(record);
