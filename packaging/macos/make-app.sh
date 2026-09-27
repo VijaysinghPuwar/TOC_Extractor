@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Build "TOC Extractor.app" and a zip of it for one Mac architecture.
+# Build "TOC Extractor.app" and a disk image of it for one Mac architecture.
 #
 #   packaging/macos/make-app.sh osx-arm64   # Apple silicon
 #   packaging/macos/make-app.sh osx-x64     # Intel
 #
-# Writes dist/TOC-Extractor-<version>-macos-<arch>.zip. Self-contained: the
-# person downloading it needs no .NET installed.
+# Writes dist/TOC-Extractor-<version>-macos-<arch>.dmg: open it and drag the
+# app onto Applications. Self-contained: the person downloading it needs no
+# .NET installed.
 set -euo pipefail
 
 rid="${1:?usage: make-app.sh osx-arm64|osx-x64}"
@@ -50,7 +51,15 @@ else
   "$app/Contents/MacOS/TocExtractor" --self-test
 fi
 
-zip="$out/TOC-Extractor-$version-macos-$arch.zip"
-rm -f "$zip"
-ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
-echo "built $zip"
+# The disk image holds the app and a shortcut to Applications, so installing
+# is one drag.
+dmg="$out/TOC-Extractor-$version-macos-$arch.dmg"
+volume="$stage/volume"
+rm -rf "$volume" "$dmg"
+mkdir -p "$volume"
+ditto "$app" "$volume/TOC Extractor.app"
+ln -s /Applications "$volume/Applications"
+hdiutil create -volname "TOC Extractor" -srcfolder "$volume" -fs HFS+ \
+  -format UDZO -imagekey zlib-level=9 -ov "$dmg"
+hdiutil verify "$dmg"
+echo "built $dmg"

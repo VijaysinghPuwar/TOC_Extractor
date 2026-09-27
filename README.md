@@ -77,16 +77,23 @@ Get the latest version from the
 
 | Your computer | File to download |
 |---|---|
-| Mac with Apple silicon (M1 or newer) | `TOC-Extractor-...-macos-arm64.zip` |
-| Mac with Intel | `TOC-Extractor-...-macos-x64.zip` |
-| Windows 10 or 11 | `TOC-Extractor-...-windows-x64.zip` |
+| Mac with Apple silicon (M1 or newer) | `TOC-Extractor-...-macos-arm64.dmg` |
+| Mac with Intel | `TOC-Extractor-...-macos-x64.dmg` |
+| Windows 10 or 11 | `TOC-Extractor-...-windows-x64-setup.exe` |
 
-**Mac:** unzip it and move **TOC Extractor** to Applications. The first time,
-right-click the app and choose **Open**. macOS asks once, because the app is
-not from the App Store.
+You only need the one file for your computer; the "Source code" files on the
+Releases page are for developers.
 
-**Windows:** unzip the folder anywhere and run `TocExtractor.exe`. If a blue
-SmartScreen box appears, choose **More info**, then **Run anyway**.
+**Mac:** open the `.dmg` and drag **TOC Extractor** onto **Applications**.
+The app is not from the App Store, so the first time macOS may say it cannot
+check it: open **System Settings > Privacy & Security**, scroll down and click
+**Open Anyway**. After that it opens normally from Launchpad or Applications.
+
+**Windows:** run the `setup.exe` and follow the steps. It installs for your
+account without asking for an administrator, and adds TOC Extractor to the
+Start menu (and the desktop, if you tick that box). If a blue SmartScreen box
+appears, choose **More info**, then **Run anyway**. To remove it, use
+**Settings > Apps**.
 
 The first time it starts, the app downloads its own private browser (about
 150 MB to download, 350 MB on disk). It is kept in the app's own data folder

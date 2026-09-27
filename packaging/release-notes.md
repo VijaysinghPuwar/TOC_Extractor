@@ -4,13 +4,15 @@ Made for Windows as much as for the Mac: many books at once without running the 
 
 | Your computer | File |
 |---|---|
-| Mac with Apple silicon (M1 or newer) | `TOC-Extractor-*-macos-arm64.zip` |
-| Mac with Intel | `TOC-Extractor-*-macos-x64.zip` |
-| Windows 10 or 11 | `TOC-Extractor-*-windows-x64.zip` |
+| Mac with Apple silicon (M1 or newer) | `TOC-Extractor-*-macos-arm64.dmg` |
+| Mac with Intel | `TOC-Extractor-*-macos-x64.dmg` |
+| Windows 10 or 11 | `TOC-Extractor-*-windows-x64-setup.exe` |
 
-**Mac:** unzip, move TOC Extractor to Applications, then right-click it and choose Open the first time. The app is not notarized, so macOS asks once.
+Download only the file for your computer; "Source code" is for developers.
 
-**Windows:** unzip and run `TocExtractor.exe`. If SmartScreen appears, choose More info, then Run anyway.
+**Mac:** open the `.dmg` and drag TOC Extractor onto Applications. The app is not notarized, so the first time macOS may refuse to open it: go to System Settings > Privacy & Security and click Open Anyway.
+
+**Windows:** run the setup and follow the steps; no administrator needed. It adds TOC Extractor to the Start menu. If SmartScreen appears, choose More info, then Run anyway.
 
 ## What is new
 

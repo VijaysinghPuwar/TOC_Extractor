@@ -1,9 +1,11 @@
-# Build the Windows app and a zip of it.
+# Build the Windows app and an installer for it.
 #
-#   pwsh packaging/windows/make-zip.ps1
+#   pwsh packaging/windows/make-installer.ps1
 #
-# Writes dist/TOC-Extractor-<version>-windows-x64.zip holding a folder with
-# TocExtractor.exe. Self-contained: the person downloading it needs no .NET.
+# Writes dist/TOC-Extractor-<version>-windows-x64-setup.exe, which installs
+# the app with a Start menu entry and an uninstaller. Needs Inno Setup 6
+# (preinstalled on GitHub's Windows runners). Self-contained: the person
+# downloading it needs no .NET.
 $ErrorActionPreference = 'Stop'
 
 $root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
@@ -29,7 +31,10 @@ $test = Start-Process -FilePath (Join-Path $app 'TocExtractor.exe') -ArgumentLis
 if ($test.ExitCode -ne 0) { throw "self-test failed with exit code $($test.ExitCode)" }
 Write-Host 'self-test passed'
 
-$zip = Join-Path $out "TOC-Extractor-$version-windows-x64.zip"
-if (Test-Path $zip) { Remove-Item $zip }
-Compress-Archive -Path $app -DestinationPath $zip
-Write-Host "built $zip"
+$iscc = Get-Command iscc.exe -ErrorAction SilentlyContinue
+$compiler = if ($iscc) { $iscc.Source } else { Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe' }
+if (-not (Test-Path $compiler)) { throw "Inno Setup 6 not found; install it with: choco install innosetup" }
+
+& $compiler "/DAppVersion=$version" "/DSourceDir=$app" "/DOutputDir=$out" (Join-Path $PSScriptRoot 'installer.iss')
+if ($LASTEXITCODE -ne 0) { throw "installer build failed" }
+Write-Host "built $(Join-Path $out "TOC-Extractor-$version-windows-x64-setup.exe")"
