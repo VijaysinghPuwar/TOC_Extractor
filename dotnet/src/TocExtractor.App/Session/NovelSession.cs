@@ -154,11 +154,11 @@ public sealed class NovelSession : INovelService
     }
 
     /// <summary>Plan a range and describe it, with the cost of any walking.</summary>
-    public RangePreview Preview(ScanResult scan, int first, int last)
+    public RangePreview Preview(ScanResult scan, int first, int last, string? outputRoot = null)
     {
         var (from, to) = (first, last);
         ArgumentNullException.ThrowIfNull(scan);
-        var plan = RangePlanner.Plan(scan, from, to);
+        var plan = RangePlanner.Plan(scan, from, to, saved: BookFiles.SavedSteps(outputRoot, scan));
         var low = Math.Max(Math.Min(from, to), scan.FirstNumber);
         var high = Math.Min(Math.Max(from, to), scan.LastNumber);
         var count = Math.Max(0, high - low + 1);
@@ -218,7 +218,7 @@ public sealed class NovelSession : INovelService
         var plan = preview.Plan;
         if (plan.PredictedLinks.Count > 0 && !await this.PredictionHoldsAsync(plan.PredictedLinks[0], observer, cancellationToken).ConfigureAwait(false))
         {
-            var walking = RangePlanner.Plan(scan, preview.From, preview.To, predict: false);
+            var walking = RangePlanner.Plan(scan, preview.From, preview.To, predict: false, saved: BookFiles.SavedSteps(outputRoot, scan));
             if (walking.ExtraVisits > SlowWalkThreshold)
             {
                 // Never swap a direct plan for a long walk without asking:
@@ -241,7 +241,7 @@ public sealed class NovelSession : INovelService
             OutputRoot = outputRoot,
             WriteText = text,
             WritePdf = pdf,
-            TextHeadings = this.Pace.BookHeadings,
+            Headings = this.Pace.BookHeadings,
             ForSpeech = this.Pace.ForSpeech,
             Force = force,
             Fetch = this.Pace.ToFetchOptions(this.SignedIn),

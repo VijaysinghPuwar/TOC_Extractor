@@ -33,9 +33,20 @@ public sealed record RangePlan(
 /// </remarks>
 public static class RangePlanner
 {
-    public static RangePlan Plan(ScanResult scan, int from, int to, bool predict = true)
+    /// <param name="scan">The book as scanned.</param>
+    /// <param name="from">The first chapter wanted.</param>
+    /// <param name="to">The last chapter wanted.</param>
+    /// <param name="predict">Build addresses from the book's pattern when one holds.</param>
+    /// <param name="saved">
+    /// Chapters saved before whose next link was recorded. A walk passes them
+    /// without opening them, so one is the cheapest place to start: 101-150
+    /// after 1-100 were saved costs no page outside the range, where from
+    /// chapter 1 it cost a hundred and from the newest chapter seventy-six.
+    /// </param>
+    public static RangePlan Plan(ScanResult scan, int from, int to, bool predict = true, IReadOnlyCollection<ScannedChapter>? saved = null)
     {
         ArgumentNullException.ThrowIfNull(scan);
+        saved ??= [];
 
         if (!scan.Ready || scan.Layout is null)
         {
@@ -64,8 +75,9 @@ public static class RangePlanner
             var listedFrom = scan.Chapters.Where(c => c.Number > 1).Select(c => c.Number).DefaultIfEmpty(int.MaxValue).Min();
             if (from < listedFrom)
             {
-                var walk = new WalkSpec(one.Url, 1, next, +1, from, to, to + 1);
-                return new RangePlan([], [walk], from - 1, null);
+                var start = saved.Where(c => c.Number > 1 && c.Number < from).MaxBy(c => c.Number) ?? one;
+                var walk = new WalkSpec(start.Url, start.Number, next, +1, from, to, to - start.Number + 2);
+                return new RangePlan([], [walk], Math.Max(0, from - start.Number - (start == one ? 0 : 1)), null);
             }
         }
 
@@ -108,9 +120,24 @@ public static class RangePlanner
                 ? Math.Max(0, above.Number - to)
                 : int.MaxValue;
 
-            if (nextCost == int.MaxValue && prevCost == int.MaxValue)
+            // A chapter saved before, with its next link recorded, is passed
+            // without being opened: only the pages between it and the
+            // stretch cost anything.
+            var savedBelow = scan.Layout.NextSelector is null
+                ? null
+                : saved.Where(c => c.Number < start && c.Number > (below?.Number ?? int.MinValue)).MaxBy(c => c.Number);
+            var savedCost = savedBelow is null ? int.MaxValue : Math.Max(0, from - savedBelow.Number - 1);
+
+            if (nextCost == int.MaxValue && prevCost == int.MaxValue && savedCost == int.MaxValue)
             {
                 unreachable.Add(start == end ? $"{start}" : $"{start}-{end}");
+                continue;
+            }
+
+            if (savedCost < nextCost && savedCost <= prevCost)
+            {
+                walks.Add(new WalkSpec(savedBelow!.Url, savedBelow.Number, scan.Layout.NextSelector!, +1, start, end, end - savedBelow.Number + 2));
+                extra += savedCost;
                 continue;
             }
 

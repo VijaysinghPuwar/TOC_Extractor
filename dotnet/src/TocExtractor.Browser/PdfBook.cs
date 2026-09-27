@@ -14,7 +14,7 @@ namespace TocExtractor.Browser;
 /// </para>
 /// <para>
 /// Plain black on white. A title page, then each chapter on a new page with
-/// its heading, and page numbers in the footer.
+/// its heading (unless it comes without one), and page numbers in the footer.
 /// </para>
 /// <para>
 /// Each PDF starts a browser of its own for as long as it is being printed,
@@ -110,14 +110,26 @@ public sealed class PdfBook
             p { margin: 0 0 3.2mm; text-align: justify; hyphens: auto; orphans: 2; widows: 2; }
             </style></head><body>
             """);
+        // Chapters given without headings (left out for a voice) leave the
+        // cover to the title alone: no chapter names for it to read out.
         var first = chapters.Count > 0 ? chapters[0].Heading : "";
         var last = chapters.Count > 0 ? chapters[^1].Heading : "";
-        html.Append("<div class=\"cover\"><h1>").Append(Encode(title)).Append("</h1><p>")
-            .Append(Encode(first)).Append("</p><p>to</p><p>").Append(Encode(last)).Append("</p></div>");
+        html.Append("<div class=\"cover\"><h1>").Append(Encode(title)).Append("</h1>");
+        if (!string.IsNullOrWhiteSpace(first) && !string.IsNullOrWhiteSpace(last))
+        {
+            html.Append("<p>").Append(Encode(first)).Append("</p><p>to</p><p>").Append(Encode(last)).Append("</p>");
+        }
+
+        html.Append("</div>");
 
         foreach (var (heading, body) in chapters)
         {
-            html.Append("<section><h2>").Append(Encode(heading)).Append("</h2>");
+            html.Append("<section>");
+            if (!string.IsNullOrWhiteSpace(heading))
+            {
+                html.Append("<h2>").Append(Encode(heading)).Append("</h2>");
+            }
+
             foreach (var paragraph in body.Split('\n'))
             {
                 var text = paragraph.Trim();

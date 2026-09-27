@@ -582,7 +582,9 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                 kept = this.held.Count;
             }
 
-            var spare = open > kept && this.options.MemoryTight?.Invoke() == true;
+            var spare = open > kept
+                && this.options.MemoryTight?.Invoke() == true
+                && (open - kept >= this.options.TabsWhenTight || this.options.MemoryCritical?.Invoke() == true);
 
             // Another caller may have grown the pool while this one waited.
             if (open < limit && !spare && this.available.CurrentCount == 0 && !this.IsClosed)

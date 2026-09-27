@@ -526,6 +526,36 @@ public sealed class BrowserPageSourceTests
         Assert.Equal(1, source.WorkTabs);
     }
 
+    [Theory]
+    [InlineData(false, 2)]
+    [InlineData(true, 1)]
+    public async Task Short_of_memory_a_few_tabs_still_open_unless_it_is_critical(bool critical, int tabs)
+    {
+        using var site = new LocalSite();
+        site.Html("/slow", """
+            <h1 class="t">Slow</h1><article class="c"></article>
+            <script>setTimeout(() => document.querySelector('.c').innerHTML = '<p>Late.</p>', 800);</script>
+            """);
+
+        await using var source = await BrowserPageSource.StartAsync(
+            Guard,
+            new BrowserPageSourceOptions
+            {
+                MaxPages = 1,
+                GrowTo = 4,
+                MemoryTight = () => true,
+                TabsWhenTight = 2,
+                MemoryCritical = () => critical,
+                OperationBudget = TimeSpan.FromSeconds(20),
+            },
+            Token);
+        var answers = await Task.WhenAll(Enumerable.Range(0, 3)
+            .Select(_ => source.ProbeAsync(site.Url("/slow"), "() => document.querySelector('.c').innerText", TimeSpan.FromSeconds(3), Token)));
+
+        Assert.All(answers, answer => Assert.Equal("Late.", answer.Json.Trim()));
+        Assert.Equal(tabs, source.WorkTabs);
+    }
+
     [Fact]
     public async Task A_chapter_locked_to_visitors_is_refused_not_half_saved()
     {

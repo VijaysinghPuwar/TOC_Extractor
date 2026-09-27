@@ -142,3 +142,63 @@ public sealed class PlaceNumberedPlanTests
         Assert.Empty(plan.Walks);
     }
 }
+
+public sealed class SavedChaptersPlanTests
+{
+    /// <summary>A book like ranobes: chapter 1 by its first-chapter link, and the newest 25, nothing between.</summary>
+    private static Scanning.ScanResult Scan() => new()
+    {
+        NovelUrl = "https://novel.example/book",
+        BookTitle = "Book",
+        Chapters =
+        [
+            new Scanning.ScannedChapter(1, "Chapter 1", "https://novel.example/book/100001.html"),
+            .. Enumerable.Range(226, 25).Select(n => new Scanning.ScannedChapter(n, $"Chapter {n}", $"https://novel.example/book/{900000 + (n * 3)}.html")),
+        ],
+        Layout = new Scanning.ChapterLayout("h1", "article", "a.next", "a.prev"),
+    };
+
+    private static Scanning.ScannedChapter[] Saved(int from, int to) =>
+        [.. Enumerable.Range(from, to - from + 1).Select(n => new Scanning.ScannedChapter(n, $"Chapter {n}", $"https://novel.example/book/{100000 + n}.html"))];
+
+    [Fact]
+    public void Without_saved_chapters_the_nearer_listed_chapter_is_walked_from()
+    {
+        var plan = Scanning.RangePlanner.Plan(Scan(), 101, 150);
+
+        // Back from the newest listed chapter: 76 pages before the range.
+        Assert.Equal(76, plan.ExtraVisits);
+    }
+
+    [Fact]
+    public void After_1_to_100_were_saved_101_to_150_starts_from_chapter_100()
+    {
+        var plan = Scanning.RangePlanner.Plan(Scan(), 101, 150, saved: Saved(1, 100));
+
+        var walk = Assert.Single(plan.Walks);
+        Assert.Equal("https://novel.example/book/100100.html", walk.StartUrl);
+        Assert.Equal((100, +1, 101, 150), (walk.StartNumber, walk.Direction, walk.SaveFrom, walk.SaveTo));
+        Assert.Equal(0, plan.ExtraVisits);
+        Assert.Equal(50, plan.Requested);
+    }
+
+    [Fact]
+    public void Only_the_pages_between_the_last_saved_chapter_and_the_range_cost_anything()
+    {
+        var plan = Scanning.RangePlanner.Plan(Scan(), 51, 100, saved: Saved(1, 40));
+
+        Assert.Equal(40, Assert.Single(plan.Walks).StartNumber);
+        Assert.Equal(10, plan.ExtraVisits);
+    }
+
+    [Fact]
+    public void A_range_partly_saved_already_costs_no_page_outside_it()
+    {
+        var plan = Scanning.RangePlanner.Plan(Scan(), 40, 100, saved: Saved(1, 60));
+
+        var walk = Assert.Single(plan.Walks);
+        // From chapter 39, passing 40-60 without opening them.
+        Assert.Equal((39, 40, 100), (walk.StartNumber, walk.SaveFrom, walk.SaveTo));
+        Assert.Equal(0, plan.ExtraVisits);
+    }
+}

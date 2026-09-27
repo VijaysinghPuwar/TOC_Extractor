@@ -271,6 +271,8 @@ public sealed class Fetcher : IDisposable
         SelectorSet selectors,
         Func<string, bool>? alreadyDone = null,
         Func<ChapterPage, int?>? numberOf = null,
+        Func<string, SavedStep?>? savedStep = null,
+        SharedLoads? shared = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(direct);
@@ -338,6 +340,56 @@ public sealed class Fetcher : IDisposable
                     }
 
                     var here = check.Collection.Kept[0];
+
+                    // Saved before, and its next link was recorded then: no
+                    // need to open it again just to learn where it leads.
+                    // Walking to chapter 51 past fifty chapters saved an
+                    // hour ago, or saved by another extraction a moment ago,
+                    // costs no page at all, where it cost ten minutes of a
+                    // careful site's pace.
+                    SavedStep? PassSaved()
+                    {
+                        if (walk.Direction < 0 || !isDone(here) || savedStep?.Invoke(here) is not { } known)
+                        {
+                            return null;
+                        }
+
+                        if (walk.Saves(known.Number) && claimed.Add(here))
+                        {
+                            candidates++;
+                            kept.Add(here);
+                            skipped.Add(here);
+                        }
+
+                        this.Trace("step", known.Number, here, "saved before; its next link is known, so it is not opened again | next " + known.Next);
+                        return known;
+                    }
+
+                    // Another extraction of this book opening this very page
+                    // now: wait for it rather than open it a second time.
+                    ChapterPage? joined = null;
+                    SharedLoads.Claim? claim = null;
+                    var passed = PassSaved();
+                    if (passed is null && shared?.JoinOrClaim(here, out claim) is { } underway)
+                    {
+                        // It has usually saved the page by the time it is done.
+                        joined = await underway.WaitAsync(cancellationToken).ConfigureAwait(false);
+                        passed = PassSaved();
+                    }
+
+                    if (passed is not null)
+                    {
+                        expected = passed.Number;
+                        if (walk.IsPast(expected))
+                        {
+                            break;
+                        }
+
+                        expected += walk.Direction;
+                        url = passed.Next;
+                        continue;
+                    }
+
                     var guess = expected;
                     int? Decide(ChapterPage page)
                     {
@@ -351,9 +403,34 @@ public sealed class Fetcher : IDisposable
                     var savedBefore = walk.Saves(guess) && isDone(here) && !claimed.Contains(here);
 
                     var before = progress.Count;
-                    var page = await this.FetchOneAsync(
-                        guess, here, check.Decisions[0], selectors, single, progress, cancellationToken,
-                        walk.StepSelector, savedBefore ? static _ => null : Decide).ConfigureAwait(false);
+                    ChapterPage? page;
+                    if (joined is not null)
+                    {
+                        // The other extraction's page, taken as this one's own load.
+                        page = joined;
+                        var number = savedBefore ? null : Decide(joined);
+                        this.Trace(number is null ? "step" : "loaded", number ?? guess, here,
+                            $"\"{joined.Title}\", opened by another extraction of this book at the same moment, so not opened again"
+                            + (number is null ? " | outside the range, visited only to follow its links" : "")
+                            + (joined.NextUrl is { } after ? " | next " + after : ""));
+                        if (number is { } keep)
+                        {
+                            await this.RecordSuccessAsync(progress, keep, here, joined, check.Decisions[0], 1, cancellationToken)
+                                .ConfigureAwait(false);
+                        }
+                    }
+                    else
+                    {
+                        using (claim)
+                        {
+                            page = await this.FetchOneAsync(
+                                guess, here, check.Decisions[0], selectors, single, progress, cancellationToken,
+                                walk.StepSelector, savedBefore ? static _ => null : Decide).ConfigureAwait(false);
+
+                            // After it is recorded, so whoever waited finds it saved.
+                            claim?.Complete(page);
+                        }
+                    }
 
                     // Counted exactly once: as saved or failed on this run, or
                     // as skipped when an earlier run saved it and it loaded.

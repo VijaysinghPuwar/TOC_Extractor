@@ -49,6 +49,41 @@ public sealed class SpeechTextTests
     }
 
     [Fact]
+    public void A_title_the_site_repeats_at_the_top_of_the_text_is_left_out_too()
+    {
+        // novelfire starts every chapter's text with its title again, so a
+        // voice still read "Chapter 151" with headings left out.
+        SavedChapter[] chapters =
+        [
+            new(151, "Chapter 151 Peak of the Mortal World!", "Chapter 151 Peak of the Mortal World!\nTu Ling'er arrived."),
+            new(152, "Chapter 152: Dao Heart", "Chapter 152\n\nHan Jue sat."),
+        ];
+
+        var text = BookFiles.Combined(chapters, headings: false);
+
+        Assert.DoesNotContain("Chapter", text, StringComparison.Ordinal);
+        Assert.StartsWith("Tu Ling'er arrived.\n\nHan Jue sat.", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void With_headings_a_repeated_title_shows_once()
+    {
+        var text = BookFiles.Chapter("Chapter 151 Peak", "Chapter 151 Peak\nStory.");
+
+        Assert.Equal("Chapter 151 Peak\n\nStory.", text);
+    }
+
+    [Theory]
+    [InlineData("Chapter 3: Dawn", "[Name: Han Jue]\n[Lifespan: 11]")]
+    [InlineData("Chapter 3: Dawn", "Chapter 4 was never written.\nHe slept.")]
+    [InlineData("Chapter 3: Dawn", "Dawn broke over the hills.\nHe slept.")]
+    [InlineData("", "Chapter 3\nHe slept.")]
+    public void A_first_line_that_is_story_stays(string heading, string body)
+    {
+        Assert.Equal(body, BookFiles.Story(heading, body));
+    }
+
+    [Fact]
     public void A_book_for_speech_has_no_dividers_between_chapters()
     {
         SavedChapter[] chapters = [new(1, "Chapter 1", "A.\n=====\nB."), new(2, "Chapter 2", "C.")];
