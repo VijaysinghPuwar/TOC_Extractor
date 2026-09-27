@@ -29,7 +29,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import re
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Sequence
 from contextlib import asynccontextmanager
 from functools import partial
 from pathlib import Path
@@ -55,6 +55,10 @@ from .parser import LINK_COLLECTOR_JS
 from .politeness import RejectionReason, UrlGuard
 
 MAX_REDIRECT_HOPS = 20
+
+# Resource kinds a text extractor never reads. Kept identical to Skippable in
+# BrowserPageSource.cs.
+_SKIPPABLE = frozenset({"image", "media", "font"})
 # The longest the contents page waits for its first chapter link.
 LINK_WAIT_MS = 10_000
 
@@ -114,12 +118,37 @@ READABLE_TEXT_JS = r"""(element) => {
 log = get_logger("browser")
 
 
+async def _settle(action: Awaitable[None], *, what: str) -> bool:
+    """Run one route operation, tolerating a route that is already gone.
+
+    Every one of these can fail rather than return, and for a reason that is
+    nobody's mistake: the page navigated away, the tab was replaced, or the
+    context closed while the request was in the air. Playwright then reports
+    something like "Fetch response has been disposed". Raising here does not
+    reach the caller - this runs inside a route handler, which has no caller -
+    so the exception surfaces as an unhandled error from the driver and the
+    navigation hangs until its own timeout instead of failing cleanly. Seen on
+    a live site during the chapter tests.
+    """
+    try:
+        await action
+        return True
+    except PlaywrightError as exc:
+        log.debug("route could not %s: %s", what, exc)
+        return False
+
+
 class _GuardedNavigation:
     """Tracks one navigation's redirect chain and the verdict on each hop."""
 
     def __init__(self) -> None:
         self.final_url: str | None = None
         self.blocked: PageBlocked | None = None
+        # A transport failure is tracked apart from a policy one because the
+        # two get opposite treatment: PageBlocked is never retried, a
+        # PageError is. Collapsing them cost a chapter every time a connection
+        # was refused under load.
+        self.transport_error: str | None = None
         self.hops: list[str] = []
 
 
@@ -135,6 +164,9 @@ class _PageSlot:
     def __init__(self, page: Page) -> None:
         self.page = page
         self.nav: _GuardedNavigation | None = None
+        # Set when this slot was released while something was still in flight
+        # on it. The page is then replaced before anyone navigates it again.
+        self.dirty = False
 
 
 class BrowserPageSource:
@@ -150,9 +182,11 @@ class BrowserPageSource:
         user_data_dir: Path | None = None,
         navigation_timeout_ms: int = 25_000,
         max_pages: int = 1,
+        light_pages: bool = True,
     ) -> None:
         self._guard = guard
         self._headless = headless
+        self._light_pages = light_pages
         self._user_agent = user_agent
         self._storage_state = storage_state
         self._user_data_dir = user_data_dir
@@ -246,20 +280,35 @@ class BrowserPageSource:
         allowed, reason, detail = self._screen(request.url)
 
         if request.resource_type != "document":
+            # Pictures, video and webfonts cannot affect the text this tool
+            # reads: the content comes from innerText, which is settled before
+            # any of them arrive. So they are pure cost - bandwidth, and
+            # requests against a site that did not ask for them. Measured on
+            # the load test's page shape, skipping them avoided about two and
+            # a half requests per chapter; on a real reading site, with ad
+            # networks, it is many more.
+            #
+            # Not a memory saving, despite the intuition: measured at eight
+            # processes, peak resident set was the same either way. What
+            # Chromium costs is its processes, not the images they decode.
+            # The concurrency budget in machine.py is what addresses that.
+            if self._light_pages and request.resource_type in _SKIPPABLE:
+                await _settle(route.abort("blockedbyclient"), what="skip a subresource")
+                return
             # Screen but never proxy. A scraped page carrying
             # <img src="http://192.168.1.1/..."> would otherwise fire a blind
             # request into the user's LAN; aborting needs no fulfilment.
             if allowed:
-                await route.continue_()
+                await _settle(route.continue_(), what="pass a subresource through")
             else:
-                await route.abort("blockedbyclient")
+                await _settle(route.abort("blockedbyclient"), what="block a subresource")
             return
 
         nav = slot.nav
         if not allowed:
             if nav is not None:
                 nav.blocked = PageBlocked(request.url, reason or RejectionReason.MALFORMED, detail)
-            await route.abort("blockedbyclient")
+            await _settle(route.abort("blockedbyclient"), what="block a navigation")
             return
 
         await self._follow_redirects(route, request.url, nav)
@@ -273,9 +322,17 @@ class BrowserPageSource:
             try:
                 response = await route.fetch(url=url, max_redirects=0)
             except PlaywrightError as exc:
+                # The connection was refused, reset, or never answered. That is
+                # a transport failure, not a policy one, and the difference
+                # decides whether the chapter is retried: PageBlocked is never
+                # retried, on the reasoning that a disallowed target stays
+                # disallowed. A refused connection does not stay refused. Under
+                # load - a busy site, or a machine with no memory left - this is
+                # the common failure, and reporting it as blocked abandoned the
+                # chapter on the first attempt while --retries went unspent.
                 if nav is not None:
-                    nav.blocked = PageBlocked(url, RejectionReason.MALFORMED, str(exc))
-                await route.abort("failed")
+                    nav.transport_error = str(exc)
+                await _settle(route.abort("failed"), what="abort after a failed fetch")
                 return
 
             location = response.headers.get("location")
@@ -287,18 +344,25 @@ class BrowserPageSource:
                     # permitted host redirecting somewhere that was never vetted.
                     if nav is not None:
                         nav.blocked = PageBlocked(url, reason or RejectionReason.MALFORMED, detail)
-                    await route.abort("blockedbyclient")
+                    await _settle(route.abort("blockedbyclient"), what="block a redirect hop")
                     return
                 continue
 
+            if await _settle(route.fulfill(response=response), what="deliver the response"):
+                if nav is not None:
+                    nav.final_url = url
+                return
+            # Delivered to nobody: treat it as transport, so it is retried
+            # rather than reported as a page that loaded and lacked its
+            # selector.
             if nav is not None:
-                nav.final_url = url
-            await route.fulfill(response=response)
+                nav.transport_error = "the response was discarded before it could be delivered"
+            await _settle(route.abort("failed"), what="abort after an undelivered response")
             return
 
         if nav is not None:
             nav.blocked = PageBlocked(url, RejectionReason.MALFORMED, "too many redirects")
-        await route.abort("failed")
+        await _settle(route.abort("failed"), what="abort a redirect loop")
 
     # -- navigation ---------------------------------------------------------
 
@@ -307,10 +371,43 @@ class BrowserPageSource:
         if self._pool is None:
             raise PageError("page source is not started; call start() first")
         slot = await self._pool.get()
+        if slot.dirty:
+            # Repaired here rather than at release: releasing happens while the
+            # caller is being cancelled, and awaiting anything in that window
+            # just raises CancelledError again. Acquiring is an ordinary
+            # context, so the repair can be awaited properly.
+            await self._replace_page(slot)
         try:
             yield slot
-        finally:
+        except BaseException:
+            # The page may still be navigating. The fetch loop's backstop
+            # cancels this coroutine mid-goto(), and Playwright does not
+            # abandon the navigation just because the caller stopped waiting.
+            # Handing that page straight to the next worker makes its goto()
+            # collide with the one still running - Chromium reports
+            # "interrupted by another navigation" - and a chapter that was
+            # never at fault fails with its retries already spent. Measured
+            # under load: two workers in forty lost a chapter this way.
+            slot.dirty = True
             self._pool.put_nowait(slot)
+            raise
+        else:
+            self._pool.put_nowait(slot)
+
+    async def _replace_page(self, slot: _PageSlot) -> None:
+        """Swap in a fresh page for a slot that was released mid-flight."""
+        slot.nav = None
+        try:
+            await slot.page.close()
+        except PlaywrightError as exc:
+            log.debug("ignoring error closing a spent page: %s", exc)
+        if self._context is None:
+            raise PageError("page source is not started; call start() first")
+        page = await self._context.new_page()
+        # Rebound to the same slot, so redirect state stays per-page.
+        await page.route("**/*", partial(self._handle_route, slot))
+        slot.page = page
+        slot.dirty = False
 
     async def _goto(self, slot: _PageSlot, url: str) -> str:
         # The site being read, for telling its own cookies from ad networks'.
@@ -328,12 +425,19 @@ class BrowserPageSource:
         except PlaywrightError as exc:
             if nav.blocked is not None:
                 raise nav.blocked from exc
+            # Prefer the handler's own words: Chromium reports an aborted
+            # navigation as a bare net::ERR_FAILED, which says nothing about
+            # why. The route handler knows it was a refused connection.
+            if nav.transport_error is not None:
+                raise PageError(f"{url}: {nav.transport_error}") from exc
             raise PageError(f"{url}: {exc}") from exc
         finally:
             slot.nav = None
 
         if nav.blocked is not None:
             raise nav.blocked
+        if nav.transport_error is not None:
+            raise PageError(f"{url}: {nav.transport_error}")
         return nav.final_url or url
 
     # -- PageSource ---------------------------------------------------------

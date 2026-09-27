@@ -1,0 +1,27 @@
+# mtlnovel.me
+#
+# Chapter links sit on the info page and point at /read/<slug>/..., and they
+# arrive after the page loads rather than with it.
+#
+# The link selector also asks for 'chapter-' because the same list carries
+# entries that are not chapters (a works-related page first of all), which
+# otherwise get saved as a very short chapter 1. h5 is the chapter's own
+# heading; h3 is the book's name, the same on every page.
+#
+# Selectors surveyed against the live site on 2026-09-27 and checked by
+# actually extracting chapters with them. Sites redesign, so treat a profile
+# that stops working as a survey to redo, not a bug.
+#
+#   python -m toc_extractor --profile profiles/sites/mtlnovel.toml --toc https://mtlnovel.me/info/bend-that-male-god/
+#
+# Use only on content you own or are permitted to access.
+
+[selectors]
+link = "a[href*='/read/'][href*='chapter-']"
+title = "h5"
+content = ".content.text-break"
+
+[options]
+min_delay = 2.0
+max_delay = 4.0
+concurrency = 2

@@ -36,11 +36,32 @@ def test_the_stated_python_range_matches_pyproject() -> None:
 
 
 def test_the_only_runtime_dependency_claim_holds() -> None:
-    """The README says Playwright is the only one. A second would make it false."""
+    """Playwright is the only dependency installed everywhere.
+
+    The claim is still worth guarding, so this allows exactly one exception
+    and makes it pay for itself: anything besides Playwright has to carry a
+    platform marker, so it is not installed everywhere, and has to be named
+    here. A dependency added without a marker, or a new one nobody argued
+    for, fails this.
+    """
     dependencies = PYPROJECT["project"]["dependencies"]
-    assert len(dependencies) == 1
-    assert dependencies[0].startswith("playwright")
+    unconditional = [d for d in dependencies if ";" not in d]
+    assert unconditional == [d for d in unconditional if d.startswith("playwright")]
+    assert len(unconditional) == 1
+
+    # Windows only, and why: see _tls_context in politeness.py.
+    conditional = {
+        d.split(";")[0].strip().split(">")[0].split("=")[0].strip()
+        for d in dependencies
+        if ";" in d
+    }
+    assert conditional <= {"truststore"}, f"undeclared conditional dependency: {conditional}"
+    for dependency in dependencies:
+        if dependency.startswith("truststore"):
+            assert "sys_platform == 'win32'" in dependency
+
     assert "the only runtime dependency" in README
+    assert "truststore" in README
 
 
 @pytest.mark.parametrize(
