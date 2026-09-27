@@ -24,6 +24,7 @@ from .exporters import DEFAULT_FORMAT, available, build_sink, text_exporter_of
 from .exporters.text import TextExporter
 from .fetcher import Fetcher, FetchOptions
 from .logging import configure, get_logger
+from .machine import budget_for
 from .models import ChapterRecord, PriorChapter, RunResult
 from .pagesource import PageError
 from .parser import SelectorSet
@@ -132,6 +133,15 @@ def build_parser() -> argparse.ArgumentParser:
     browser.add_argument(
         "--timeout", type=int, default=25000, help="Navigation timeout ms (default: 25000)"
     )
+    browser.add_argument(
+        "--with-images",
+        action="store_true",
+        help=(
+            "Load pictures, video and webfonts too. Off by default: none of "
+            "them can affect the text, so fetching them only costs bandwidth "
+            "and requests against the site."
+        ),
+    )
 
     politeness = parser.add_argument_group("politeness")
     politeness.add_argument(
@@ -203,6 +213,24 @@ async def run(
         return EXIT_USAGE
 
     output_dir = Path(args.out)
+
+    # A concurrency the machine cannot hold is worse than a lower one: the
+    # pages all open, then every one of them waits on the disk. Lower it to
+    # what this computer can afford and say so, rather than accepting a number
+    # that will not work. Never raised, only lowered.
+    budget = budget_for(max(1, args.concurrency))
+    if budget.capped:
+        log.warning(
+            "concurrency %d lowered to %d for this machine (%s). "
+            "Pass a smaller --concurrency to silence this.",
+            budget.requested,
+            budget.allowed,
+            budget.describe(),
+        )
+        args.concurrency = budget.allowed
+    else:
+        log.debug("concurrency %d fits this machine (%s)", budget.allowed, budget.describe())
+
     options = options_from(args)
     guard = build_url_guard(allow_private_hosts=args.allow_private_hosts)
 
@@ -232,6 +260,7 @@ async def run(
             # abort each other, which the stub cannot model and only a live
             # server exposed.
             max_pages=options.concurrency,
+            light_pages=not args.with_images,
         )
         await source.start()  # type: ignore[attr-defined]
     else:

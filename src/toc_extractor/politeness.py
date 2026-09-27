@@ -12,6 +12,8 @@ import ipaddress
 import math
 import re
 import socket
+import ssl
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -444,6 +446,65 @@ def origin_of(url: str) -> str:
 RobotsFetcher = Callable[[str], str | None]
 
 
+@functools.lru_cache(maxsize=1)
+def _tls_context() -> ssl.SSLContext:
+    """Verify certificates the way the rest of the machine does.
+
+    Windows found this. A site with a perfectly good certificate was rejected
+    here as "certificate has expired" while every browser on the same machine
+    opened it, and the site's own certificate had months to run. Nothing in
+    the chain it served had expired either.
+
+    The expired certificate was in the trust store. Windows ships a root store
+    that accumulates old authorities - 74 of them had expired on the machine
+    this was found on - and Python does not use Windows to check certificates.
+    It copies the store's contents into OpenSSL and builds its own path, which
+    can run into one of those expired roots where Windows' own TLS stack would
+    have built a different, valid path to the same site. Neither loading the
+    store more carefully nor relaxing the path rules helps, because the
+    problem is which path gets built, not how strictly it is judged. Both
+    were tried against this site, and both still failed.
+
+    The effect was worse than a failed fetch: robots.txt that cannot be read
+    is treated as permitting everything, so on Windows this quietly switched
+    robots.txt off for the affected sites - failing open on somebody else's
+    rules because of a local trust-store detail, which is the one thing the
+    loud warning below exists to prevent.
+
+    truststore hands verification to the operating system, so the answer is
+    the one the machine's browsers already give. It is a Windows-only
+    dependency, declared with that marker: elsewhere OpenSSL's default is
+    correct and nothing is added. Missing for any reason, the default context
+    is still used and still verifies - the site is simply refused as before.
+    """
+    try:
+        import truststore
+    except ImportError:
+        return ssl.create_default_context()
+    return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+
+
+def _certificate_hint() -> str:
+    """Where a certificate problem is actually fixed, on this platform."""
+    # Through a str: see read_memory in machine.py for why.
+    platform: str = sys.platform
+    if platform == "win32":
+        return (
+            "If this is a certificate error: Windows keeps its root certificates "
+            "up to date through Windows Update, so check that updates are current "
+            "and that no proxy or antivirus is intercepting HTTPS."
+        )
+    if platform == "darwin":
+        return (
+            "If this is a certificate error, it is a problem on this machine, not "
+            "the site: run Install Certificates.command from your python.org install."
+        )
+    return (
+        "If this is a certificate error, it is a problem on this machine, not the "
+        "site: check that your system's CA certificates are installed and current."
+    )
+
+
 def _urlopen_robots(robots_url: str, *, timeout: float = 10.0) -> str | None:
     """Read robots.txt over HTTP, or None if there is nothing to read.
 
@@ -459,8 +520,9 @@ def _urlopen_robots(robots_url: str, *, timeout: float = 10.0) -> str | None:
     machine is not a defensible default to keep quiet about.
     """
     request = urllib.request.Request(robots_url, headers={"User-Agent": DEFAULT_USER_AGENT})
+    context = _tls_context() if robots_url.lower().startswith("https:") else None
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
             if response.status != 200:
                 log.debug(
                     "%s returned %s; treating as no restrictions", robots_url, response.status
@@ -479,12 +541,11 @@ def _urlopen_robots(robots_url: str, *, timeout: float = 10.0) -> str | None:
         return None
     except (urllib.error.URLError, OSError, ValueError) as exc:
         log.warning(
-            "could not reach %s (%s). Proceeding as if it permits everything. "
-            "If this is a certificate error, it is a problem on this machine, not "
-            "the site: run Install Certificates.command from your python.org "
-            "install, or check your network.",
+            "could not reach %s (%s). Proceeding as if it permits everything, "
+            "which may not be what the site intends. %s",
             robots_url,
             exc,
+            _certificate_hint(),
         )
         return None
     return raw.decode("utf-8", errors="replace")

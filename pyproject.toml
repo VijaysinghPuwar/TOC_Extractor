@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "toc-extractor"
-version = "2.5.0"
+version = "2.6.0"
 description = "Extract chapter text from a table-of-contents page using CSS selectors you supply."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,9 +24,21 @@ classifiers = [
     "Typing :: Typed",
 ]
 
-# Playwright is the only runtime dependency. Config parsing uses stdlib tomllib,
-# which is why the floor is 3.11 rather than 3.10.
-dependencies = ["playwright>=1.44,<2"]
+# Playwright is the only runtime dependency everywhere. Config parsing uses
+# stdlib tomllib, which is why the floor is 3.11 rather than 3.10.
+#
+# truststore is Windows-only and is there for one measured reason: Windows
+# ships a root store carrying long-expired authorities, and Python does not
+# ask Windows to verify certificates - it copies the store into OpenSSL and
+# builds its own path, which can land on one of those expired roots and
+# reject a site the machine's browsers open without complaint. Because an
+# unreadable robots.txt is treated as permitting everything, that quietly
+# turned robots.txt off for the affected sites. truststore hands verification
+# back to the operating system. See _tls_context in politeness.py.
+dependencies = [
+    "playwright>=1.44,<2",
+    "truststore>=0.9; sys_platform == 'win32'",
+]
 
 [project.optional-dependencies]
 dev = [

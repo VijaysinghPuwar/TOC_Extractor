@@ -5,10 +5,20 @@ SHELL := /bin/bash
 #   make setup PYTHON=/Library/Frameworks/Python.framework/Versions/3.14/bin/python3
 PYTHON ?= python3
 VENV := .venv
+
+# A virtualenv puts its executables in Scripts on Windows and bin everywhere
+# else, so a hard-coded bin meant none of these targets ran on Windows at
+# all - awkward for a tool whose users are mostly on Windows. OS is set by
+# Windows itself, and make sees it under Git Bash too.
+ifeq ($(OS),Windows_NT)
+BIN := $(VENV)/Scripts
+else
 BIN := $(VENV)/bin
+endif
 
 .PHONY: help setup deps check-tk lint fmt typecheck test test-fast test-browser run gui clean \
-        cs-build cs-test cs-lint cs-fmt cs-clean
+        stress stress-verify \
+        cs-build cs-test cs-lint cs-fmt cs-clean cs-exe
 
 help:
 	@echo "setup        deps, plus Chromium and a Tk check (what you want locally)"
@@ -23,6 +33,9 @@ help:
 	@echo "gui          open the graphical front end"
 	@echo "clean        remove the venv and tooling caches"
 	@echo ""
+	@echo "stress       load test: 40 processes x 50 chapters, local site"
+	@echo "stress-verify  check the files the last load test produced"
+	@echo ""
 	@echo "cs-build     build the C# solution"
 	@echo "cs-test      run the C# suite (no browser)"
 	@echo "cs-test-browser  only the C# browser tests"
@@ -30,6 +43,7 @@ help:
 	@echo "cs-lint      build with warnings as errors + format check"
 	@echo "cs-fmt       apply C# formatting"
 	@echo "cs-run       run the C# CLI: make cs-run ARGS='--toc ... --link ...'"
+	@echo "cs-exe       build the one-file Windows .exe"
 	@echo "cs-clean     remove C# build output"
 
 $(BIN)/python:
@@ -89,6 +103,21 @@ run:
 gui:
 	$(BIN)/python -m toc_extractor --gui
 
+# The load test. Against a local stand-in, never the real sites: forty
+# processes fetching fifty chapters is two thousand requests, and aimed at
+# someone else's server that is an attack, not a test. See tests/stress/.
+STRESS_OUT ?= stress-out
+STRESS_PROCESSES ?= 40
+STRESS_CHAPTERS ?= 50
+
+stress:
+	$(BIN)/python tests/stress/run_stress.py \
+		--processes $(STRESS_PROCESSES) --chapters $(STRESS_CHAPTERS) --out $(STRESS_OUT)
+	@$(MAKE) --no-print-directory stress-verify
+
+stress-verify:
+	$(BIN)/python tests/stress/verify_stress.py $(STRESS_OUT)
+
 clean:
 	rm -rf $(VENV) .mypy_cache .ruff_cache .pytest_cache
 	find . -name __pycache__ -type d -prune -exec rm -rf {} +
@@ -134,6 +163,11 @@ cs-fmt:
 
 cs-run:
 	dotnet run --project dotnet/src/TocExtractor.Cli -- $(ARGS)
+
+# One file for Windows: the .NET runtime and Playwright's driver inside it,
+# and it fetches Chromium itself on first launch.
+cs-exe:
+	pwsh packaging/windows/make-exe.ps1
 
 cs-clean:
 	rm -rf dotnet/src/*/bin dotnet/src/*/obj dotnet/tests/*/bin dotnet/tests/*/obj

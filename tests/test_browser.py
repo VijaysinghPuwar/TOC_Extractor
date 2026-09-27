@@ -11,7 +11,10 @@ the guard tests.
 
 from __future__ import annotations
 
+import asyncio
+import socket
 import threading
+import time
 from collections.abc import Iterator, Sequence
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -20,7 +23,12 @@ from typing import ClassVar
 import pytest
 
 from toc_extractor.browser import BrowserPageSource
-from toc_extractor.pagesource import ChapterLocked, PageBlocked, SelectorNotFound
+from toc_extractor.pagesource import (
+    ChapterLocked,
+    PageBlocked,
+    PageError,
+    SelectorNotFound,
+)
 from toc_extractor.politeness import RejectionReason, UrlGuard, UrlVerdict
 
 pytestmark = pytest.mark.browser
@@ -137,6 +145,11 @@ class Handler(BaseHTTPRequestHandler):
             self._html(CLUTTERED_CHAPTER_HTML)
         elif self.path == "/toc/late":
             self._html(LATE_TOC_HTML)
+        elif self.path == "/slow":
+            # Long enough that a caller with a short deadline gives up while
+            # the response is still owed, leaving the navigation in flight.
+            time.sleep(3.0)
+            self._html(CHAPTER_HTML)
         else:
             self._html(CHAPTER_HTML)
 
@@ -332,7 +345,6 @@ async def test_concurrent_chapter_loads_do_not_abort_each_other(server: str) -> 
     and has no notion of a page being busy, so it cannot model this at all.
     One page per worker is the fix.
     """
-    import asyncio
 
     async with BrowserPageSource(guard=loopback_permitted(), max_pages=4) as source:
         pages = await asyncio.gather(
@@ -349,7 +361,6 @@ async def test_concurrent_chapter_loads_do_not_abort_each_other(server: str) -> 
 
 
 async def test_a_single_page_pool_still_serialises_correctly(server: str) -> None:
-    import asyncio
 
     async with BrowserPageSource(guard=loopback_permitted(), max_pages=1) as source:
         pages = await asyncio.gather(
@@ -417,7 +428,6 @@ async def test_open_page_reports_the_final_url(server: str) -> None:
 
 async def test_open_page_takes_a_slot_from_the_pool(server: str) -> None:
     """It shares the context with the worker pages, so it must not bypass the pool."""
-    import asyncio
 
     async with BrowserPageSource(guard=loopback_permitted(), max_pages=2) as source:
         results = await asyncio.gather(*(source.open_page(f"{server}/chapter") for _ in range(6)))
@@ -426,7 +436,6 @@ async def test_open_page_takes_a_slot_from_the_pool(server: str) -> None:
 
 async def test_open_page_then_load_chapter_share_the_pool(server: str) -> None:
     """The human gate opens a page, then extraction runs on the same context."""
-    import asyncio
 
     async with BrowserPageSource(guard=loopback_permitted(), max_pages=2) as source:
         await source.open_page(f"{server}/chapter")
@@ -486,3 +495,103 @@ async def test_a_story_that_mentions_logging_in_is_not_locked(server: str) -> No
         )
 
     assert "log in to read the files" in page.body
+
+
+def a_port_nothing_is_listening_on() -> int:
+    """Bind, read the port, release it. Connecting there is refused at once."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+
+
+async def test_a_refused_connection_is_retryable_not_a_policy_block() -> None:
+    """A refused connection must not be reported as a blocked URL.
+
+    PageBlocked means the guard refused the target, and the fetch loop never
+    retries it: trying a disallowed URL again cannot change the answer. A
+    refused connection is the opposite kind of failure - nothing is wrong with
+    the URL, the server just did not answer this time - and a second attempt
+    routinely succeeds.
+
+    The two were collapsed, so every connection error spent the chapter's
+    whole retry budget at once and abandoned it after a single attempt. A load
+    test found it: forty processes against one host refused enough connections
+    that a chapter was lost while --retries sat unused.
+    """
+    dead = f"http://127.0.0.1:{a_port_nothing_is_listening_on()}"
+    async with BrowserPageSource(guard=loopback_permitted()) as source:
+        with pytest.raises(PageError) as caught:
+            await source.load_chapter(
+                f"{dead}/chapter", title_selector="h1.t", content_selector="article.c"
+            )
+
+    assert not isinstance(caught.value, PageBlocked), (
+        "a refused connection was reported as a policy block, which is never retried"
+    )
+    # The handler's own words, not Chromium's bare net::ERR_FAILED.
+    assert "ERR_CONNECTION_REFUSED" in str(caught.value) or "ECONNREFUSED" in str(caught.value)
+
+
+async def test_a_guard_refusal_is_still_a_policy_block(server: str) -> None:
+    """The other half of the same distinction, so the fix cannot overshoot.
+
+    Separating transport failures out of PageBlocked must not make genuine
+    refusals retryable: those still have to arrive as PageBlocked so the loop
+    abandons them immediately.
+    """
+    async with BrowserPageSource(guard=only_the_fixture_origin(server)) as source:
+        with pytest.raises(PageBlocked) as caught:
+            await source.load_chapter(
+                f"{server}/redirect/to-private",
+                title_selector="h1.t",
+                content_selector="article.c",
+            )
+    assert caught.value.reason is RejectionReason.PRIVATE_ADDRESS
+
+
+async def test_a_slot_released_mid_flight_is_marked_and_repaired(server: str) -> None:
+    """A page released while something was still running on it is replaced.
+
+    The fetch loop puts a wall-clock backstop over each chapter. When it
+    fires, the coroutine is cancelled while Chromium is still navigating -
+    Playwright does not abandon a navigation because the caller stopped
+    waiting. The slot used to go straight back into the pool, so the next
+    worker's goto() could collide with the one still running and Chromium
+    refused it: "interrupted by another navigation", with the chapter's
+    retries already spent. Seen twice in a forty-process load test.
+
+    This asserts the mechanism rather than racing for the symptom: released
+    after a failure, the slot is marked; acquired again, it carries a new
+    page. Timing-dependent reproductions of the collision itself passed just
+    as happily against the unfixed code, so they proved nothing.
+    """
+    async with BrowserPageSource(guard=loopback_permitted(), max_pages=1) as source:
+        with pytest.raises(RuntimeError):
+            async with source._acquire() as slot:
+                original = slot.page
+                raise RuntimeError("cancelled, or failed, mid-navigation")
+
+        assert slot.dirty, "a slot released after a failure was not marked for repair"
+
+        async with source._acquire() as reacquired:
+            assert reacquired is slot
+            assert not reacquired.dirty, "the slot was handed on without being repaired"
+            assert reacquired.page is not original, "the spent page was reused"
+
+        # And the repaired slot still works, routing included.
+        page = await source.load_chapter(
+            f"{server}/chapter", title_selector="h1.t", content_selector="article.c"
+        )
+    assert page.title == "Chapter Title"
+
+
+async def test_a_slot_released_cleanly_keeps_its_page(server: str) -> None:
+    """The repair must not fire on the ordinary path: replacing a page per
+    chapter would throw away the pooling this class exists for."""
+    async with BrowserPageSource(guard=loopback_permitted(), max_pages=1) as source:
+        async with source._acquire() as slot:
+            original = slot.page
+        assert not slot.dirty
+
+        async with source._acquire() as again:
+            assert again.page is original, "a cleanly released page was needlessly replaced"
