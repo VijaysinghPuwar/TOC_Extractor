@@ -323,7 +323,10 @@ class RobotsPolicy:
             # An origin with no reachable robots.txt is treated as permitted,
             # which is what RFC 9309 specifies for a 404.
             return True, None
-        path = urlparse(url).path or "/"
+        # Path and query, as search engines match them: "Disallow: /*?sort=" is
+        # about the query, and ignoring it allowed what the site refused.
+        parsed = urlparse(url)
+        path = (parsed.path or "/") + (f"?{parsed.query}" if parsed.query else "")
         best = 0
         allowed = True
         decided: RobotsRule | None = None
@@ -393,22 +396,27 @@ def _parse_groups(content: str) -> list[_Group]:
 
 
 def _applicable_group(groups: list[_Group], user_agent: str) -> _Group | None:
-    """The one group that governs `user_agent`.
+    """The group that governs `user_agent`.
 
     robots.txt precedence is winner-takes-all: if a group names this agent, the
     wildcard group does not apply at all. Matching is on the product token,
     the part before any slash, compared case-insensitively, per RFC 9309. So
     "TOCExtractor/2.0" joins a "TOCExtractor" group and "MyTOCExtractorBot"
-    does not.
+    does not. Every group for that agent counts, combined into one (RFC 9309
+    2.2.1): a site that wrote each rule under its own "User-agent: *" had all
+    but its first rule ignored.
     """
     token = user_agent.split("/", 1)[0].strip().lower()
-    for group in groups:
-        if any(agent != "*" and agent == token for agent in group.agents):
-            return group
-    for group in groups:
-        if "*" in group.agents:
-            return group
-    return None
+    named = any(agent != "*" and agent == token for group in groups for agent in group.agents)
+    wanted = token if named else "*"
+    matching = [group for group in groups if wanted in group.agents]
+    if len(matching) <= 1:
+        return matching[0] if matching else None
+    return _Group(
+        agents=[wanted],
+        rules=[rule for group in matching for rule in group.rules],
+        crawl_delay=next((g.crawl_delay for g in matching if g.crawl_delay is not None), None),
+    )
 
 
 def parse_robots(

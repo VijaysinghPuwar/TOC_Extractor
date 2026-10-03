@@ -86,33 +86,49 @@ internal sealed class RobotsGroup
         return groups;
     }
 
-    /// <summary>The one group that governs <paramref name="userAgent"/>.</summary>
+    /// <summary>The group that governs <paramref name="userAgent"/>.</summary>
     /// <remarks>
     /// robots.txt precedence is winner-takes-all: if any group names this agent,
     /// the wildcard group does not apply at all. Matching is on the product
     /// token — the part before a slash — compared case-insensitively, with the
-    /// longest matching token winning, per RFC 9309.
+    /// longest matching token winning, per RFC 9309. Every group for the
+    /// winning agent counts, combined into one (RFC 9309 2.2.1): a site that
+    /// wrote each rule under its own "User-agent: *" had all but its first
+    /// rule ignored, and its chapter pages read against its wishes.
     /// </remarks>
     internal static RobotsGroup? ApplicableTo(List<RobotsGroup> groups, string userAgent)
     {
         var token = userAgent.Split('/')[0].Trim().ToLowerInvariant();
 
-        RobotsGroup? best = null;
-        var bestLength = -1;
+        string? best = null;
         foreach (var group in groups)
         {
             foreach (var agent in group.Agents)
             {
                 if (agent != "*"
                     && string.Equals(agent, token, StringComparison.Ordinal)
-                    && agent.Length > bestLength)
+                    && agent.Length > (best?.Length ?? -1))
                 {
-                    best = group;
-                    bestLength = agent.Length;
+                    best = agent;
                 }
             }
         }
 
-        return best ?? groups.Find(group => group.Agents.Contains("*"));
+        best ??= "*";
+        var matching = groups.Where(group => group.Agents.Contains(best)).ToList();
+        if (matching.Count <= 1)
+        {
+            return matching.FirstOrDefault();
+        }
+
+        var merged = new RobotsGroup();
+        merged.agents.Add(best);
+        foreach (var group in matching)
+        {
+            merged.rules.AddRange(group.rules);
+            merged.CrawlDelay ??= group.CrawlDelay;
+        }
+
+        return merged;
     }
 }

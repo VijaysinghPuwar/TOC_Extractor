@@ -139,6 +139,23 @@ public sealed class ScanCheckTests
     }
 
     [Fact]
+    public async Task Chapter_pages_robots_txt_closes_say_so_rather_than_no_story_found()
+    {
+        // As wtr-lab.com: the novel page is open, its chapter pages are not.
+        var robots = Core.Politeness.RobotsPolicy.Parse(
+            "User-agent: *\nDisallow: /*/novel-list?*\n\nUser-agent: *\nDisallow: /novel/chapter-*\n",
+            "https://e.com",
+            Core.Politeness.Robots.DefaultUserAgent);
+        var scanner = new Scanning.NovelScanner(
+            new NovelPageWithoutPaging(), new Core.Politeness.UrlGuard(resolver: new PublicResolver()),
+            robots, new Core.Politeness.RateLimiter(TimeSpan.Zero));
+
+        var scan = await scanner.ScanAsync("https://e.com/novel", Token);
+
+        Assert.Equal(Scanning.NovelScanner.RobotsRefused, scan.Problem);
+    }
+
+    [Fact]
     public async Task A_novel_page_that_is_slow_once_is_read_on_the_second_try()
     {
         var probe = new SlowFirst(new OnlyTheNovelPage(), slowTimes: 1);
@@ -205,5 +222,23 @@ public sealed class ScanCheckTests
     {
         public Task<(string FinalUrl, string Json)> ProbeAsync(string url, string script, TimeSpan settle, CancellationToken cancellationToken = default) =>
             throw new Core.Pages.HumanCheckException();
+    }
+
+    /// <summary>A novel page listing five chapters on one page; any other page is a check.</summary>
+    private sealed class NovelPageWithoutPaging : Core.Pages.IPageProbe
+    {
+        public Task<(string FinalUrl, string Json)> ProbeAsync(string url, string script, TimeSpan settle, CancellationToken cancellationToken = default)
+        {
+            if (url != "https://e.com/novel")
+            {
+                throw new Core.Pages.HumanCheckException();
+            }
+
+            var chapters = string.Join(",", Enumerable.Range(1, 5).Select(n =>
+                $$"""{"url":"https://e.com/novel/chapter-{{n}}","number":{{n}},"title":"Chapter {{n}}","key":"e.com/novel|chapter-"}"""));
+            return Task.FromResult((url, $$"""
+                {"title":"Novel","key":"e.com/novel|chapter-","chapters":[{{chapters}}],"pages":[],"lists":[],"firsts":[]}
+                """));
+        }
     }
 }

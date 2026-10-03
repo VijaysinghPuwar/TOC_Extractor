@@ -126,12 +126,12 @@
                     <Button Grid.Column="1" Classes="quiet small" Content="All" Command="{Binding WholeBookCommand}" />
                   </Grid>
                   <Grid ColumnDefinitions="*,Auto,*">
-                    <NumericUpDown x:Name="FromBox" Value="{Binding From}" Minimum="{Binding FirstChapter}"
-                                   Maximum="{Binding LastChapter}" FormatString="0" AutomationProperties.Name="From chapter"
+                    <NumericUpDown x:Name="FromBox" Value="{Binding From}" Minimum="0"
+                                   FormatString="0" AutomationProperties.Name="From chapter"
                                    ShowButtonSpinner="False" />
                     <TextBlock Grid.Column="1" Classes="hint" Text="to" Margin="10,0" VerticalAlignment="Center" />
-                    <NumericUpDown x:Name="ToBox" Grid.Column="2" Value="{Binding To}" Minimum="{Binding FirstChapter}"
-                                   Maximum="{Binding LastChapter}" FormatString="0" AutomationProperties.Name="To chapter"
+                    <NumericUpDown x:Name="ToBox" Grid.Column="2" Value="{Binding To}" Minimum="0"
+                                   FormatString="0" AutomationProperties.Name="To chapter"
                                    ShowButtonSpinner="False" />
                   </Grid>
                   <TextBlock x:Name="PlanText" Classes="hint" Text="{Binding PlanSummary}" TextWrapping="Wrap"

@@ -1,4 +1,4 @@
-A site that is briefly busy no longer costs chapters, a walk going backward no longer leaves a later walk skipping chapters, and two extractions of one book open each page once even when one runs ahead. Also in this release, from 2.6.1 and 2.6.0: chapter titles left out of the PDF too, saved chapters passed without reopening them, and two bugs that only a load test finds.
+The chapters you choose are the chapters you get: a range of 1-50 no longer turns into 1-2 by itself. A chapter whose story says "just a moment" no longer stops saving to wait for a check that is not there, and a site that one such false check slowed to a page every 12 seconds is fast again. Also in this release, from 2.6.2: a site that is briefly busy no longer costs chapters.
 
 ## Download
 
@@ -14,7 +14,18 @@ Download only the file for your computer; "Source code" is for developers.
 
 **Windows:** run the setup and follow the steps; no administrator needed. It adds TOC Extractor to the Start menu. If SmartScreen appears, choose More info, then Run anyway.
 
-## What is new in 2.6.2
+## What is new in 2.6.3
+
+From a real session's log on Windows 11 and live tests on nine sites.
+
+- **Fixed: the chosen chapters changed by themselves.** The From and To boxes were held to the chapters the last scan found. Scanning again, or a site that listed only its first chapters this time, quietly turned 1-50 into 1-2 (or 1-1), and Save then saved that. The boxes now keep what you typed. A range past what the scan found says so ("The scan found chapters 1 to 2 only") and Save waits, instead of saving fewer chapters. Scanning a different book still starts from its whole range.
+- **Fixed: "Needs you in the browser" with nothing to do.** A short chapter whose story said "her body tensed for just a moment" was taken for the site's "Just a moment..." check page, so saving stopped at that chapter and waited. Everyday words now count only as a page's title, which is where check pages put them, and a page already showing its story is never taken for a check. novelfire.net chapter 8 of Supreme Daily Login System, which stopped every save of 1-50, now saves like any other.
+- **Fixed: one false check slowed a site to a page every 12 seconds, for good.** Sites the old check saw ask only once are forgotten, so they start fast again; a real check teaches the careful pace once more.
+- **Fixed: some sites' robots.txt rules were partly ignored.** A site that writes each rule under its own "User-agent: *" had only its first rule followed, and rules about the part of an address after "?" never matched. Both now follow the robots.txt standard. Sites whose robots.txt refuses chapter pages (wtr-lab.com, novelping.com) now say so plainly instead of "could not find the story text".
+
+Tested on this release: novelfire.net, royalroad.com, ranobes.top, fanmtl.com and mtl-novel.com scan and save; freewebnovel.com and lightnovelpub.me put a security check in front of automated browsers, which you may be able to pass in the app's browser window; wtr-lab.com and novelping.com do not allow tools like this app.
+
+## New in 2.6.2
 
 From the load test run again on a Mac with the site made unreliable on purpose: one chapter request in ten answered "503, busy", one in five redirected, every answer 150 ms late.
 

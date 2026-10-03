@@ -46,16 +46,22 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
     /// <summary>Whether a page is a site's "verify you are human" page rather than content.</summary>
     /// <remarks>
     /// The wording alone is not enough, since a chapter can mention a
-    /// security check. It also has to be a short page, or carry an actual
-    /// challenge widget, as every real check page does.
+    /// security check. Everyday words ("just a moment", "attention
+    /// required") count only as the page's own title, which is where check
+    /// pages put them: a short chapter whose story said "tensed for just a
+    /// moment" held a save for a person with nothing to do. Wording only a
+    /// check uses counts in the text of a short page, or next to an actual
+    /// challenge widget, as every real check page has.
     /// </remarks>
     internal const string HumanCheckScript = """
         () => {
           const body = document.body ? document.body.innerText : '';
-          const words = (document.title + ' ' + body.slice(0, 4000)).toLowerCase();
-          const says = /just a moment|security check|verify you are (?:a )?human|checking your browser|abnormal activity|if you are human, click|are you a robot|attention required|try another captcha/.test(words);
+          const title = (document.title || '').trim().toLowerCase();
+          const text = body.slice(0, 4000).toLowerCase();
+          const titled = /^(?:just a moment|attention required|security check|one more step|checking your browser|verify(?:ing)? you are (?:a )?human|are you a robot|human verification|ddos-guard)/.test(title);
+          const says = /verify you are (?:a )?human|checking your browser before|checking if the site connection is secure|needs to review the security of your connection|abnormal activity|if you are human, click|are you a robot\?|try another captcha|complete the security check/.test(text);
           const widget = !!document.querySelector('iframe[src*="challenges.cloudflare.com"], .cf-turnstile, #challenge-form, #cf-challenge-running, .g-recaptcha, .h-captcha, [data-sitekey]');
-          return says && (body.length < 6000 || widget);
+          return (titled && (body.length < 6000 || widget)) || (says && (body.length < 2000 || widget));
         }
         """;
 
@@ -816,12 +822,33 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
     }
 
     /// <summary>A check on this tab's page: keep the tab for the person, and say so.</summary>
-    private static async Task ThrowIfHumanCheckAsync(PageSlot slot, string url)
+    /// <remarks>
+    /// Given where a chapter's story is, a page already showing a story is
+    /// never a check: no check page carries the site's own story box, and
+    /// taking one for a check held a save for a person with nothing to do.
+    /// </remarks>
+    private static async Task ThrowIfHumanCheckAsync(PageSlot slot, string url, string? storySelector = null)
     {
-        if (await IsHumanCheckAsync(slot.Page).ConfigureAwait(false))
+        if (await IsHumanCheckAsync(slot.Page).ConfigureAwait(false)
+            && !(storySelector is not null && await ShowsStoryAsync(slot.Page, storySelector).ConfigureAwait(false)))
         {
             slot.HeldForPerson = true;
             throw new HumanCheckException($"{url}: the site is asking to check that you are human");
+        }
+    }
+
+    /// <summary>Whether the story box holds a story's worth of text.</summary>
+    private static async Task<bool> ShowsStoryAsync(IPage page, string selector)
+    {
+        try
+        {
+            return await page.EvaluateAsync<bool>(
+                "(sel) => { try { const el = document.querySelector(sel); return !!el && (el.innerText || '').trim().length >= 500; } catch { return false; } }",
+                selector).ConfigureAwait(false);
+        }
+        catch (PlaywrightException)
+        {
+            return false;
         }
     }
 
@@ -1352,7 +1379,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         try
         {
             var finalUrl = await this.GotoAsync(slot, url, this.Remaining(deadline)).ConfigureAwait(false);
-            await ThrowIfHumanCheckAsync(slot, url).ConfigureAwait(false);
+            await ThrowIfHumanCheckAsync(slot, url, contentSelector).ConfigureAwait(false);
 
             // After the check, which some sites serve as a 503: that one wants
             // the person. Any other busy page has no story, and reading it

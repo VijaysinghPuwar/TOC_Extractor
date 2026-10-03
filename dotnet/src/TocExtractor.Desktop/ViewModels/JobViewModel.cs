@@ -62,6 +62,9 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
     private bool closed;
     private string? savedFolder;
 
+    /// <summary>The book the chosen range belongs to, so a scan of another book starts from its whole range.</summary>
+    private string? rangeBook;
+
     internal JobViewModel(int number, INovelService session, MainViewModel owner, Action<Action> post)
     {
         this.Number = number;
@@ -364,10 +367,20 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
             this.Log((string.IsNullOrWhiteSpace(scan.BookTitle) ? "Scan:" : $"Scan: {scan.BookTitle.TrimEnd('.')}.") + $" {this.ScanSummary} {scan.Problem}".TrimEnd());
             if (scan.Ready)
             {
+                // The person's range is never squeezed to fit the scan: a site
+                // that listed only its first chapters this time turned 1-50
+                // into 1-2 without a word. A range past the end says so and
+                // waits; only another book starts from its whole range.
+                var book = BookFiles.FolderName(scan.BookTitle, scan.NovelUrl);
+                if (this.rangeBook is not null && !string.Equals(this.rangeBook, book, StringComparison.OrdinalIgnoreCase))
+                {
+                    this.From = null;
+                    this.To = null;
+                }
+
+                this.rangeBook = book;
                 this.From ??= scan.FirstNumber;
                 this.To ??= scan.LastNumber;
-                this.From = Math.Clamp(this.From.Value, scan.FirstNumber, scan.LastNumber);
-                this.To = Math.Clamp(this.To.Value, scan.FirstNumber, scan.LastNumber);
                 this.UpdatePlan();
                 this.Status = "Choose the chapters, then press Save.";
             }
@@ -492,6 +505,17 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
         this.session.Pace = this.owner.Pace();
         this.slowConfirmed = false;
         this.preview = this.session.Preview(scan, (int)from, (int)to, this.OutputDirectory);
+
+        // The planner keeps to the chapters the scan found, so 1-50 of a
+        // scan that found 1-2 would save 1-2. Say so instead of saving less.
+        if (this.OutOfBook && this.preview.Plan.Problem is null)
+        {
+            var problem = string.Create(
+                CultureInfo.InvariantCulture,
+                $"The scan found chapters {scan.FirstNumber:N0} to {scan.LastNumber:N0} only. Scan again if the site has more, or choose chapters inside those.");
+            this.preview = this.preview with { Plan = this.preview.Plan with { Problem = problem }, Summary = problem, Slow = false };
+        }
+
         this.PlanSummary = this.preview.Summary;
         this.PlanIsSlow = this.preview.Slow;
         this.SaveCommand.NotifyCanExecuteChanged();
