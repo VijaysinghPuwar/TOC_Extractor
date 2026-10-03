@@ -86,6 +86,33 @@ public sealed class RobotsPolicyTests
         Assert.Equal(3, policy.MatchedRule("https://example.com/private/x")?.LineNumber);
     }
 
+    /// <summary>RFC 9309 2.2.1: groups for the same agent are combined, not first-wins.</summary>
+    /// <remarks>wtr-lab.com writes every rule under its own "User-agent: *".</remarks>
+    [Fact]
+    public void Every_group_for_the_agent_applies()
+    {
+        const string split = """
+            # *
+            User-agent: *
+            Disallow: /*/novel-list?*
+
+            # *
+            User-agent: *
+            Disallow: /*/novel/*/chapter-*
+
+            # *
+            User-agent: *
+            Disallow: /api*
+            """;
+        var policy = RobotsPolicy.Parse(split, "https://wtr-lab.com", Core.Politeness.Robots.DefaultUserAgent);
+
+        Assert.False(policy.CanFetch("https://wtr-lab.com/en/novel/11659/some-book/chapter-1"));
+        Assert.False(policy.CanFetch("https://wtr-lab.com/api/chapters"));
+        Assert.False(policy.CanFetch("https://wtr-lab.com/en/novel-list?page=2"));
+        Assert.True(policy.CanFetch("https://wtr-lab.com/en/novel/11659/some-book"));
+        Assert.Equal(7, policy.MatchedRule("https://wtr-lab.com/en/novel/11659/some-book/chapter-1")?.LineNumber);
+    }
+
     /// <summary>RFC 9309: an unreachable robots.txt means no restrictions.</summary>
     [Fact]
     public void Missing_robots_permits_everything()

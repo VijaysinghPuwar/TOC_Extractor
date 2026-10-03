@@ -111,17 +111,131 @@ public sealed class WindowTests
     }
 
     [AvaloniaFact]
-    public async Task The_range_cannot_leave_the_book()
+    public async Task A_range_outside_the_book_cannot_be_saved()
     {
         var harness = new Harness();
         await harness.StartAsync();
         await harness.ScannedAsync();
 
-        var from = harness.Window.FindControl<NumericUpDown>("FromBox")!;
+        harness.Job.To = 41;
+        Harness.Pump();
+        Assert.False(harness.Job.SaveCommand.CanExecute(null));
+
+        harness.Job.To = 40;
+        harness.Job.From = 0;
+        Harness.Pump();
+        Assert.False(harness.Job.SaveCommand.CanExecute(null));
+
+        harness.Job.From = 1;
+        Harness.Pump();
+        Assert.True(harness.Job.SaveCommand.CanExecute(null));
+    }
+
+    [AvaloniaFact]
+    public async Task A_number_typed_into_the_box_is_kept()
+    {
+        var harness = new Harness();
+        harness.Service.Chapters = 2;
+        await harness.StartAsync();
+        await harness.ScannedAsync();
+        var to = harness.Window.FindControl<NumericUpDown>("ToBox")!;
+        var box = to.GetVisualDescendants().OfType<TextBox>().First();
+
+        box.Focus();
+        box.Text = "50";
+        harness.Window.FindControl<NumericUpDown>("FromBox")!.Focus();
+        Harness.Pump();
+
+        Assert.Equal(50, harness.Job.To);
+        Assert.Equal("Only chapters 1 to 2", harness.Job.RailStatus);
+    }
+
+    [AvaloniaFact]
+    public async Task Scanning_another_book_starts_from_its_whole_range()
+    {
+        var harness = new Harness();
+        harness.Service.Chapters = 100;
+        await harness.StartAsync();
+        await harness.ScannedAsync();
+        harness.Job.From = 51;
+        harness.Job.To = 100;
+
+        harness.Service.Book = "Another Book";
+        harness.Service.Chapters = 30;
+        await harness.ScannedAsync();
+
+        Assert.Equal(1, harness.Job.From);
+        Assert.Equal(30, harness.Job.To);
+    }
+
+    [AvaloniaFact]
+    public async Task A_second_scan_keeps_the_chosen_range()
+    {
+        var harness = new Harness();
+        harness.Service.Chapters = 100;
+        await harness.StartAsync();
+        await harness.ScannedAsync();
+        var to = harness.Window.FindControl<NumericUpDown>("ToBox")!;
+        to.Value = 50;
+        Harness.Pump();
+        Assert.Equal(50, harness.Job.To);
+
+        // While the second scan runs there is no book, so nothing must
+        // squeeze the boxes down to chapter 1 and leave them there.
+        await harness.ScannedAsync();
+
+        Assert.Equal(1, harness.Job.From);
+        Assert.Equal(50, harness.Job.To);
+        Assert.Equal(50m, to.Value);
+        Assert.True(harness.Job.SaveCommand.CanExecute(null));
+    }
+
+    [AvaloniaFact]
+    public async Task A_scan_that_finds_fewer_chapters_does_not_change_the_range()
+    {
+        var harness = new Harness();
+        harness.Service.Chapters = 100;
+        await harness.StartAsync();
+        await harness.ScannedAsync();
+        harness.Job.From = 1;
+        harness.Job.To = 50;
+        Harness.Pump();
+
+        // A site that showed only its first chapters this time.
+        harness.Service.Chapters = 2;
+        await harness.ScannedAsync();
+
+        Assert.Equal(1, harness.Job.From);
+        Assert.Equal(50, harness.Job.To);
+        Assert.False(harness.Job.SaveCommand.CanExecute(null));
+        Assert.Equal("Only chapters 1 to 2", harness.Job.RailStatus);
+
+        // Scanned again with the whole list, the chosen range saves as chosen.
+        harness.Service.Chapters = 100;
+        await harness.ScannedAsync();
+
+        Assert.Equal(50, harness.Job.To);
+        Assert.True(harness.Job.SaveCommand.CanExecute(null));
+        await harness.Job.SaveCommand.ExecuteAsync(null);
+        Harness.Pump();
+        Assert.Equal(Enumerable.Range(1, 50), harness.Job.Chapters.Select(r => r.Number));
+    }
+
+    [AvaloniaFact]
+    public async Task A_number_typed_past_the_end_stays_as_typed_and_is_explained()
+    {
+        var harness = new Harness();
+        harness.Service.Chapters = 2;
+        await harness.StartAsync();
+        await harness.ScannedAsync();
         var to = harness.Window.FindControl<NumericUpDown>("ToBox")!;
 
-        Assert.Equal(1, from.Minimum);
-        Assert.Equal(40, to.Maximum);
+        to.Value = 50;
+        Harness.Pump();
+
+        Assert.Equal(50, harness.Job.To);
+        Assert.False(harness.Job.SaveCommand.CanExecute(null));
+        Assert.Equal("Only chapters 1 to 2", harness.Job.RailStatus);
     }
 
     [AvaloniaFact]

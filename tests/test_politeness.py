@@ -255,6 +255,33 @@ def test_wildcard_group_applies_when_no_specific_group_matches() -> None:
     assert rule.line_number == 3
 
 
+# wtr-lab.com writes every rule under its own "User-agent: *".
+SPLIT_ROBOTS = """# *
+User-agent: *
+Disallow: /*/novel-list?*
+
+# *
+User-agent: *
+Disallow: /*/novel/*/chapter-*
+
+# *
+User-agent: *
+Disallow: /api*
+"""
+
+
+def test_every_group_for_the_agent_applies() -> None:
+    """RFC 9309 2.2.1: groups for the same agent are combined, not first-wins."""
+    policy = parse_robots(SPLIT_ROBOTS, origin="https://wtr-lab.com")
+    assert not policy.can_fetch("https://wtr-lab.com/en/novel/11659/some-book/chapter-1")
+    assert not policy.can_fetch("https://wtr-lab.com/api/chapters")
+    assert not policy.can_fetch("https://wtr-lab.com/en/novel-list?page=2")
+    assert policy.can_fetch("https://wtr-lab.com/en/novel/11659/some-book")
+    rule = policy.matched_rule("https://wtr-lab.com/en/novel/11659/some-book/chapter-1")
+    assert rule is not None
+    assert rule.line_number == 7
+
+
 def test_missing_robots_permits_everything() -> None:
     """RFC 9309: an unreachable robots.txt means no restrictions."""
     policy = missing_robots("https://example.com")

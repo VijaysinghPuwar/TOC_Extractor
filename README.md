@@ -540,6 +540,33 @@ nothing is overwritten. The log mentions it.
 
 ## Version history
 
+**2.6.3** (2026-10-03)
+
+From a real session's log on Windows 11 and live tests on nine sites.
+- Fixed: the From and To boxes were bound to the last scan's first and last
+  chapters, and the scan clamped them too. A second scan, or one where the
+  site listed only its first chapters, turned 1-50 into 1-2 without a word,
+  and Save saved that. The range is now kept as typed; one past what the scan
+  found says so and Save waits. Another book still starts from its whole
+  range.
+- Fixed: the check-page test matched "just a moment" anywhere in a short
+  page, so a chapter whose story said it held a save for a person with
+  nothing to do (novelfire.net, chapter 8 of one book, every time). Everyday
+  wording now counts only in the page title, wording only a check uses only
+  on a short page or next to a challenge widget, and a page showing the
+  chapter's story box is never a check.
+- Fixed: that false check also switched the site to the careful pace for
+  good. Sites recorded as asking once by the old test are forgotten.
+- Fixed: robots.txt groups for the same agent are combined (RFC 9309
+  2.2.1), where only the first applied, and rules are matched against the
+  path and query, where the query was dropped. Both implementations. A book
+  whose chapter pages robots.txt refuses now says so rather than "could not
+  find the story text".
+- Live-tested: novelfire.net, royalroad.com, ranobes.top, fanmtl.com and
+  mtl-novel.com scan and save; freewebnovel.com and lightnovelpub.me put a
+  Cloudflare check in front of automated browsers; wtr-lab.com and
+  novelping.com refuse tools in robots.txt. `TOC_LIVE=1` runs these tests.
+
 **2.6.2** (2026-09-27)
 
 From the load test run again on a Mac (10 cores, 24 GB) with the local site

@@ -589,6 +589,14 @@ public sealed partial class NovelScanner(
         var sample = ordered[ordered.Count / 2];
         var check = ordered.Count > 1 ? ordered[0] : null;
 
+        // Chapter pages robots.txt refuses: say so, rather than "could not
+        // find the story text", which sent people looking for a site problem.
+        if (!this.Permitted(sample.Url, out var refused) && refused == RobotsReason)
+        {
+            this.notes.Add($"Could not open chapter page {sample.Url}: {refused}.");
+            return (null, RobotsRefused);
+        }
+
         // One more try before giving up: a single slow or interrupted page
         // load must not decide the whole scan.
         var found = await this.ProbeContentAsync(sample.Url, FindContent, cancellationToken).ConfigureAwait(false);

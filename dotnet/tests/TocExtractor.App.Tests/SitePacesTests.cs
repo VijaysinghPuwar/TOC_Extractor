@@ -94,6 +94,29 @@ public sealed class SitePacesTests
     }
 
     [Fact]
+    public void A_single_check_seen_by_the_old_detector_is_forgotten()
+    {
+        // What 2.6.2 wrote: novelfire once, over a chapter that said "just a
+        // moment"; ranobes twice.
+        var path = Path.Combine(Scratch.Directory(), "paces.json");
+        File.WriteAllText(path, """
+            [
+              { "Site": "https://novelfire.net", "Checks": 1, "Careful": true, "LastCheck": "2026-10-03T09:30:49.7185842+05:30" },
+              { "Site": "https://ranobes.top", "Checks": 2, "Careful": true, "LastCheck": "2026-09-27T10:53:14.7001003+05:30" }
+            ]
+            """);
+
+        var paces = new SitePaces(path);
+
+        Assert.False(paces.IsCareful("https://novelfire.net/book/x/chapter-9"));
+        Assert.True(paces.IsCareful("https://ranobes.top/x.html"));
+
+        // One seen by this version is kept.
+        paces.RecordCheck("https://novelfire.net/book/x/chapter-9", DateTimeOffset.Now);
+        Assert.True(new SitePaces(path).IsCareful("https://novelfire.net/book/x/chapter-9"));
+    }
+
+    [Fact]
     public void A_broken_file_is_no_reason_not_to_run()
     {
         var path = Path.Combine(Scratch.Directory(), "paces.json");

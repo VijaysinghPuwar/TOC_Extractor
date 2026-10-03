@@ -126,8 +126,10 @@ public sealed class RobotsPolicy
             return url.Length == 0 ? "/" : url;
         }
 
+        // Path and query, as search engines match them: "Disallow: /*?sort=" is
+        // about the query, and ignoring it allowed what the site refused.
         var path = parsed.AbsolutePath;
-        return path.Length == 0 ? "/" : path;
+        return (path.Length == 0 ? "/" : path) + parsed.Query;
     }
 }
 

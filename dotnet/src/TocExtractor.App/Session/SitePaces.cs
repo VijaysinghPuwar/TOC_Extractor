@@ -9,7 +9,11 @@ namespace TocExtractor.App.Session;
 /// <param name="Checks">How many times it has asked to check the person is human.</param>
 /// <param name="Careful">Read at the careful pace. On once the site has asked; the person can turn it off.</param>
 /// <param name="LastCheck">When it last asked.</param>
-public sealed record SitePace(string Site, int Checks, bool Careful, DateTimeOffset? LastCheck);
+/// <param name="Detector">
+/// Which check detector saw it: 0 for one before 2.6.3, which took a
+/// short chapter saying "just a moment" for a check.
+/// </param>
+public sealed record SitePace(string Site, int Checks, bool Careful, DateTimeOffset? LastCheck, int Detector = 0);
 
 /// <summary>
 /// The sites that have asked visitors to prove they are human, remembered on
@@ -37,6 +41,9 @@ public sealed class SitePaces(string? path)
     /// <summary>One page per this, once the burst is spent.</summary>
     public static readonly TimeSpan CarefulEvery = TimeSpan.FromSeconds(12);
 
+    /// <summary>The check detector this version has; see <see cref="SitePace.Detector"/>.</summary>
+    public const int CurrentDetector = 1;
+
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
     private readonly ConcurrentDictionary<string, SitePace> sites = Load(path);
     private readonly Lock saving = new();
@@ -60,9 +67,9 @@ public sealed class SitePaces(string? path)
             _ =>
             {
                 switched = true;
-                return new SitePace(key, 1, true, when);
+                return new SitePace(key, 1, true, when, CurrentDetector);
             },
-            (_, known) => known with { Checks = known.Checks + 1, LastCheck = when });
+            (_, known) => known with { Checks = known.Checks + 1, LastCheck = when, Detector = CurrentDetector });
         this.Save();
         return switched;
     }
@@ -111,7 +118,11 @@ public sealed class SitePaces(string? path)
             if (path is not null && File.Exists(path)
                 && JsonSerializer.Deserialize<List<SitePace>>(File.ReadAllText(path), Options) is { } list)
             {
-                return new(list.Where(site => !string.IsNullOrWhiteSpace(site.Site)).ToDictionary(site => site.Site, StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
+                // A site the old detector saw ask only once may never have
+                // asked: it slowed novelfire.net to a page every 12s over a
+                // chapter whose story said "just a moment". It starts fast
+                // again; a real check teaches the careful pace once more.
+                return new(list.Where(site => !string.IsNullOrWhiteSpace(site.Site) && (site.Checks > 1 || site.Detector >= CurrentDetector)).ToDictionary(site => site.Site, StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
             }
         }
         catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException)

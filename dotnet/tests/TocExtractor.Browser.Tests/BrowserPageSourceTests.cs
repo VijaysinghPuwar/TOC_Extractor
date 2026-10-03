@@ -212,6 +212,61 @@ public sealed class BrowserPageSourceTests
         Assert.Equal(2, source.OpenTabs);
     }
 
+    [Theory]
+    [InlineData("Her body tensed for just a moment.")]
+    [InlineData("They passed the security check at the gate. Just a moment later, the alarm rang.")]
+    [InlineData("\"Attention required!\" the sergeant barked.")]
+    public async Task A_short_chapter_whose_story_sounds_like_a_check_is_still_a_chapter(string line)
+    {
+        // novelfire.net chapter 8 of a book said "just a moment" in a short
+        // chapter, and saving waited for a person who had nothing to do.
+        using var site = new LocalSite();
+        site.Html("/ch/8", $"""
+            <html><head><title>A Book - Chapter 8: A Second Life - Novel Fire</title></head>
+            <body><h1 class="t">Chapter 8</h1><article class="c"><p>{line}</p></article></body></html>
+            """);
+
+        await using var source = await BrowserPageSource.StartAsync(
+            Guard, new BrowserPageSourceOptions { OperationBudget = TimeSpan.FromSeconds(20) }, Token);
+        var chapter = await source.LoadChapterAsync(site.Url("/ch/8"), ".t", ".c", Token);
+
+        Assert.Equal(line, chapter.Body.Trim());
+    }
+
+    [Fact]
+    public async Task A_page_showing_its_story_is_never_taken_for_a_check()
+    {
+        // Even a story that quotes a check page word for word.
+        var story = "\"Verify you are human,\" the screen said. " + new string('x', 600);
+        using var site = new LocalSite();
+        site.Html("/ch/3", $"""
+            <html><head><title>Just a moment...</title></head>
+            <body><h1 class="t">Chapter 3</h1><article class="c"><p>{story}</p></article></body></html>
+            """);
+
+        await using var source = await BrowserPageSource.StartAsync(
+            Guard, new BrowserPageSourceOptions { OperationBudget = TimeSpan.FromSeconds(20) }, Token);
+        var chapter = await source.LoadChapterAsync(site.Url("/ch/3"), ".t", ".c", Token);
+
+        Assert.Equal(story, chapter.Body.Trim());
+    }
+
+    [Theory]
+    [InlineData("<title>Just a moment...</title>", "")]
+    [InlineData("<title>Attention Required! | Cloudflare</title>", "Sorry, you have been blocked")]
+    [InlineData("<title>novel site</title>", "Verify you are human by completing the action below.")]
+    [InlineData("<title>novel site</title>", "<div class=\"g-recaptcha\" data-sitekey=\"x\"></div>Are you a robot?")]
+    public async Task A_check_page_is_still_recognised(string head, string body)
+    {
+        using var site = new LocalSite();
+        site.Html("/check", $"<html><head>{head}</head><body>{body}</body></html>");
+
+        await using var source = await BrowserPageSource.StartAsync(
+            Guard, new BrowserPageSourceOptions { OperationBudget = TimeSpan.FromSeconds(20) }, Token);
+
+        await Assert.ThrowsAsync<HumanCheckException>(() => source.LoadChapterAsync(site.Url("/check"), ".t", ".c", Token));
+    }
+
     [Fact]
     public async Task A_check_that_says_it_cannot_finish_ends_the_wait_early()
     {

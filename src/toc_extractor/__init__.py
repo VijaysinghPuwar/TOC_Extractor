@@ -1,5 +1,5 @@
 """Extract chapter text from a table-of-contents page using selectors you supply."""
 
-__version__ = "2.6.2"
+__version__ = "2.6.3"
 
 __all__ = ["__version__"]
