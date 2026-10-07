@@ -15,7 +15,8 @@ namespace TocExtractor.Desktop.Tests;
 /// real window's view models, a real Chromium and each site's real
 /// robots.txt. Off unless TOC_LIVE is set: it needs the internet and takes
 /// minutes. TOC_LIVE_SITES, as URLs joined by ";;", replaces the list;
-/// TOC_LIVE_HEADFUL shows the browser, as the app does.
+/// TOC_LIVE_HEADFUL shows the browser, as the app does; TOC_LIVE_FROM saves
+/// from that chapter instead of the first.
 /// </summary>
 public sealed class LiveSitesTests
 {
@@ -78,8 +79,12 @@ public sealed class LiveSitesTests
             var line = $"{new Uri(book).Host}: scan {clock.Elapsed.TotalSeconds:0}s: {(job.ScanReady ? job.ScanSummary : "not ready")} {job.Problem}";
             if (job.ScanReady)
             {
-                job.From = job.FirstChapter;
-                job.To = Math.Min(job.FirstChapter + 4, job.LastChapter);
+                // TOC_LIVE_FROM saves from a later chapter where the book has
+                // it: chapters no list shows are reached another way.
+                var from = int.TryParse(Environment.GetEnvironmentVariable("TOC_LIVE_FROM"), System.Globalization.CultureInfo.InvariantCulture, out var later)
+                    && later > job.FirstChapter && later + 2 <= job.LastChapter ? later : job.FirstChapter;
+                job.From = from;
+                job.To = Math.Min(from + 4, job.LastChapter);
                 clock.Restart();
                 await job.SaveCommand.ExecuteAsync(null);
                 if (job.Stage == Stage.Idle && job.Problem?.Contains("Press Save again", StringComparison.Ordinal) == true)

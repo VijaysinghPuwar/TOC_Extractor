@@ -128,6 +128,7 @@ public sealed partial class NovelScanner(
         await this.ReadListPagesAsync(read, cancellationToken).ConfigureAwait(false);
         await this.ReadFirstChapterAsync(read, cancellationToken).ConfigureAwait(false);
         this.chapters = this.Order();
+        this.ExtendToTotal();
 
         if (this.chapters.Count == 0)
         {
@@ -214,17 +215,22 @@ public sealed partial class NovelScanner(
         var budget = MaxListPages;
         foreach (var pattern in patterns)
         {
-            Queue<string> queue = new(read
+            // Always the lowest page number next. A pager shows only pages
+            // near the one open ("1 2 3 4 5 6 ... 14 15"), so pages 7-13
+            // appear only on later pages: read in the order found, page 15
+            // came before them, then "?page=1" again added nothing and ended
+            // paging, and novelfire's list stopped at 772 of 1,472 chapters.
+            List<string> queue = [.. read
                 .SelectMany(page => page.Probe.Pages)
                 .Where(p => p.Pattern == pattern)
                 .Select(p => p.Url)
-                .Distinct(StringComparer.Ordinal)
-                .OrderBy(PageNumber));
+                .Distinct(StringComparer.Ordinal)];
             var unproductive = 0;
             var any = false;
             while (queue.Count > 0 && budget > 0 && unproductive < UnproductiveLimit)
             {
-                var url = queue.Dequeue();
+                var url = queue.MinBy(PageNumber)!;
+                queue.Remove(url);
                 if (this.visited.Contains(Normalise(url)))
                 {
                     continue;
@@ -250,15 +256,20 @@ public sealed partial class NovelScanner(
                 // A page that loaded and added nothing ends paging: the next
                 // would not either, and on a site that counts visits every
                 // wasted page brings its check closer. A page that failed to
-                // load is only one strike.
-                unproductive = this.links.Count > before ? 0 : UnproductiveLimit;
+                // load is only one strike, and so is a page that repeats an
+                // earlier one ("?page=1" after the list itself) while later
+                // pages are still waiting.
                 foreach (var more in page.Probe.Pages.Where(p => p.Pattern == pattern))
                 {
                     if (!this.visited.Contains(Normalise(more.Url)) && !queue.Contains(more.Url))
                     {
-                        queue.Enqueue(more.Url);
+                        queue.Add(more.Url);
                     }
                 }
+
+                unproductive = this.links.Count > before ? 0
+                    : queue.Any(next => PageNumber(next) > PageNumber(url) && PageNumber(next) != int.MaxValue) ? unproductive + 1
+                    : UnproductiveLimit;
             }
 
             if (any)
@@ -480,7 +491,31 @@ public sealed partial class NovelScanner(
             .Select(link => new ScannedChapter(link.Number, link.Title, link.Url))];
     }
 
-    /// <summary>A title numbered within a part: "Arc 9: Chapter 38", "Book 2: Chapter 1", "1.2: Red Rain".</summary>
+    /// <summary>
+    /// Reach the site's own count of chapters when its list shows only the
+    /// first of them: novellunar lists fifty at a time behind buttons with no
+    /// address, and says "Chapters (1472)". When every listed address follows
+    /// the chapter number, the newest is added by its address, and the range
+    /// planner builds (and checks) the ones between.
+    /// </summary>
+    private void ExtendToTotal()
+    {
+        if (this.positional || this.total is not { } count || count > 100_000 || this.chapters.Count == 0
+            || count <= this.chapters[^1].Number || this.chapters.Count >= 0.9 * count
+            || AddressPattern.Find(this.chapters) is not { } pattern)
+        {
+            return;
+        }
+
+        var listed = this.chapters.Count;
+        var newest = pattern.For(count);
+        this.chapters.Add(new ScannedChapter(count, $"Chapter {count}", newest));
+        this.notes.Add(string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"The site counts {count:N0} chapters and its list shows {listed:N0}; the others are opened by their address, like {newest}."));
+    }
+
+    /// <summary>A title numbered within a part:"Arc 9: Chapter 38", "Book 2: Chapter 1", "1.2: Red Rain".</summary>
     [System.Text.RegularExpressions.GeneratedRegex(
         @"\b(?:arc|book|volume|vol\.?|part|season|act|saga)\s*[#:.\-]?\s*\d+\b.*?\b(?:chapter|chap|ch\.?|episode|ep\.?)\s*[#:.\-]?\s*\d+|^\s*\d+\.\d+\s*[:\-–]",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase)]

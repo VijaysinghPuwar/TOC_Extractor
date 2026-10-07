@@ -540,6 +540,39 @@ nothing is overwritten. The log mentions it.
 
 ## Version history
 
+**2.6.4** (2026-10-07)
+
+From a real session's log on Windows 11 (16 cores, 15.8 GB) and live tests.
+- Fixed: novellunar.com scanned as "Chapters 1 to 1". Its chapter list sits
+  behind a "Chapters (1472)" tab that loads only when pressed. The scan now
+  presses such a tab, reads the site's count from it, and when every listed
+  address follows the chapter number, reaches the chapters past the first
+  fifty by their address (checked before a save relies on them). The book
+  is named from its own heading, not the site's logo (an h1 in the home
+  link), so files are no longer called "Novellunar 1-50.txt".
+- Fixed: a reader who never signed in was shown as "Signed in." on sites
+  built with NextAuth, which gives every visitor `next-auth.csrf-token` and
+  `next-auth.callback-url` cookies; "auth" in the name was taken for a
+  sign-in. Signed in also lets a reader past robots.txt, so this mattered
+  beyond the label. CSRF, callback, PKCE and nonce cookies no longer count.
+  Both implementations.
+- Fixed: novelfire.net listed 772 of 1,472 chapters. Its pager shows pages
+  1-6 and 14-15, and the rest only on later pages; read in the order found,
+  "?page=1" came round again, added nothing and ended paging. List pages are
+  now read lowest first, and a page repeating an earlier one ends paging only
+  when no later page is waiting.
+- Faster: a second or third extraction of the same book within 20 minutes
+  uses the first one's scan instead of reading every list page again. Saving
+  50 chapters at a time in three extractions read the same list three times,
+  the third scan taking six and a half minutes at a careful site's pace and
+  slowing the saves beside it. Pressing Scan again still scans afresh.
+- Live-tested: novellunar.com and novelfire.net now scan whole books and
+  save chapters no list shows (novellunar 60-64 and 120-124, novelfire
+  900-904); ranobes.top, fanmtl.com and mtl-novel.com scan and save;
+  royalroad.com now puts a Cloudflare check in front of automated browsers,
+  as freewebnovel.com and novellive.com do; wtr-lab.com's robots.txt still
+  refuses chapter pages, and the app says so.
+
 **2.6.3** (2026-10-03)
 
 From a real session's log on Windows 11 and live tests on nine sites.

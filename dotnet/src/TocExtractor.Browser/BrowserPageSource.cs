@@ -1632,7 +1632,9 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
     [System.Text.RegularExpressions.GeneratedRegex(@"(?:user_?id|userid|member|logged|login|auth|remember|access_?token|refresh_?token|jwt|wordpress_logged_in|dle_user_id|dle_password|xf_user|ips4_member_id|phpbb\d*_u|bb_userid|sessionid_account)", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
     private static partial System.Text.RegularExpressions.Regex AccountCookie();
 
-    [System.Text.RegularExpressions.GeneratedRegex(@"^(?:_ga|_gid|_gat|_fbp|_ym|__cf|cf_|_cf|_pk|__utm|_hj|viewed|__stripe|phpsessid|laravel_session|ci_session|xsrf-token|csrftoken|__gads|__gpi|_clck|_clsk)", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    // The unanchored part: set for every visitor by sign-in libraries before
+    // anyone signs in (NextAuth: next-auth.csrf-token, next-auth.callback-url).
+    [System.Text.RegularExpressions.GeneratedRegex(@"^(?:_ga|_gid|_gat|_fbp|_ym|__cf|cf_|_cf|_pk|__utm|_hj|viewed|__stripe|phpsessid|laravel_session|ci_session|xsrf-token|csrftoken|__gads|__gpi|_clck|_clsk)|csrf|callback-?url|pkce|nonce", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
     private static partial System.Text.RegularExpressions.Regex AnonymousCookie();
 
     /// <summary>A title is one line. Headings often carry the book name or a date under it.</summary>

@@ -76,6 +76,37 @@ public sealed class ScannerScriptTests
     }
 
     [Fact]
+    public async Task A_chapter_list_behind_a_tab_is_opened_and_the_sites_count_is_read()
+    {
+        // Novellunar: "Synopsis | Chapters (1472)", the list loaded only
+        // when the tab is pressed, fifty at a time.
+        using var site = new LocalSite();
+        site.Html("/novel/a-book", """
+            <header><a href="/"><h1>Localhost</h1></a></header>
+            <h1>A Book</h1>
+            <a href="/novel/a-book/chapter/1">Read Now</a>
+            <aside><a href="/novel/other/chapter/291">Chapter 291</a><a href="/novel/third/chapter/370">Chapter 370</a>
+            <a href="/novel/fourth/chapter/12">Chapter 12</a></aside>
+            <div><button id="syn">Synopsis</button><button id="tab">Chapters (1472)</button></div>
+            <div id="body"><p>A synopsis.</p></div>
+            <script>
+              document.getElementById('tab').addEventListener('click', () => setTimeout(() => {
+                let html = '';
+                for (let n = 1; n <= 50; n++) html += `<a href="/novel/a-book/chapter/${n}">Chapter ${n} - Part</a>`;
+                document.getElementById('body').innerHTML = html + '<button>1</button><button>2</button>';
+              }, 600));
+            </script>
+            """);
+
+        await using var source = await StartAsync();
+        var (_, json) = await source.ProbeAsync(site.Url("/novel/a-book"), FindChapters, TimeSpan.FromSeconds(8), Token);
+
+        Assert.Equal(Enumerable.Range(1, 50), Chapters(json).Select(c => c.Number).Order());
+        Assert.Equal(1472, JsonDocument.Parse(json).RootElement.GetProperty("total").GetInt32());
+        Assert.Equal("A Book", JsonDocument.Parse(json).RootElement.GetProperty("title").GetString());
+    }
+
+    [Fact]
     public async Task The_next_link_is_not_a_button_that_only_shares_its_style()
     {
         using var site = new LocalSite();

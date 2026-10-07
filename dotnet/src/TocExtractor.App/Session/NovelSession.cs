@@ -133,10 +133,20 @@ public sealed class NovelSession : INovelService
         this.robots = this.PrepareRobots(url, log);
         this.report = log;
 
-        var scanner = new NovelScanner(
-            (IPageProbe)source, this.host.Guard, this.robots.Policy, this.robots.Limiter,
-            this.SignedIn, log, this.WaitForPersonAsync);
-        var scan = await scanner.ScanAsync(url, cancellationToken).ConfigureAwait(false);
+        ScanResult scan;
+        if (this.host.RecentScan(url, this.SignedIn, this, DateTimeOffset.UtcNow) is { } recent)
+        {
+            log?.Invoke("scan: another extraction scanned this book a few minutes ago; using its scan instead of reading the list again");
+            scan = recent;
+        }
+        else
+        {
+            var scanner = new NovelScanner(
+                (IPageProbe)source, this.host.Guard, this.robots.Policy, this.robots.Limiter,
+                this.SignedIn, log, this.WaitForPersonAsync);
+            scan = await scanner.ScanAsync(url, cancellationToken).ConfigureAwait(false);
+            this.host.KeepScan(url, this.SignedIn, this, scan, DateTimeOffset.UtcNow);
+        }
 
         // A site that lists its chapters but closes the chapter pages
         // themselves to tools: only a signed-in reader can go on.
