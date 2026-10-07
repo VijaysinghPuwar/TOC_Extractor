@@ -1,4 +1,4 @@
-The chapters you choose are the chapters you get: a range of 1-50 no longer turns into 1-2 by itself. A chapter whose story says "just a moment" no longer stops saving to wait for a check that is not there, and a site that one such false check slowed to a page every 12 seconds is fast again. Also in this release, from 2.6.2: a site that is briefly busy no longer costs chapters.
+Whole books from novellunar.com and novelfire.net: novellunar scanned as "Chapters 1 to 1" and novelfire listed only 772 of 1,472 chapters; both now scan the whole book. A second extraction of the same book reuses the first one's scan, so it starts saving at once instead of re-reading the chapter list. Also in this release, from 2.6.3: the chosen range is kept, and a story that says "just a moment" no longer stops saving.
 
 ## Download
 
@@ -14,7 +14,18 @@ Download only the file for your computer; "Source code" is for developers.
 
 **Windows:** run the setup and follow the steps; no administrator needed. It adds TOC Extractor to the Start menu. If SmartScreen appears, choose More info, then Run anyway.
 
-## What is new in 2.6.3
+## What is new in 2.6.4
+
+From a real session's log on Windows 11 (16 cores, 15.8 GB) and live tests on thirteen books.
+
+- **Fixed: novellunar.com found one chapter.** Its chapter list sits behind a "Chapters (1472)" tab that loads only when pressed. The scan now presses it, reads the site's count, and reaches the chapters past the first fifty by their address. The book is also named from its own title rather than the site's logo, so files are no longer called "Novellunar 1-50.txt".
+- **Fixed: novelfire.net listed 772 of 1,472 chapters** of End of the Magic Era. Its page buttons show 1-6 and 14-15 and the rest only on later pages; a repeat of page 1 ended the reading early. Every list page is now read, lowest first.
+- **Faster: extractions of the same book share their scan.** Saving 1-50, 51-100 and 101-150 in three extractions read the same list three times; the third scan took six and a half minutes and slowed the other two saves. Now the second and third start saving straight away (within 20 minutes of the first scan). Pressing Scan again still scans afresh.
+- **Fixed: "Signed in." on sites where nobody signed in.** Sites built with NextAuth give every visitor cookies with "auth" in their names, which the app took for a sign-in.
+
+Tested on this release: novellunar.com, novelfire.net, ranobes.top, fanmtl.com and mtl-novel.com scan and save; royalroad.com, freewebnovel.com and novellive.com put a Cloudflare check in front of automated browsers, which you may be able to pass in the app's browser window; wtr-lab.com does not allow tools like this app.
+
+## New in 2.6.3
 
 From a real session's log on Windows 11 and live tests on nine sites.
 

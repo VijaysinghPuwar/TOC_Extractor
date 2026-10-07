@@ -863,3 +863,24 @@ public sealed class BrowserPageSourceTests
             chapters.Select(c => c.Title).Order());
     }
 }
+
+public sealed class AccountCookieTests
+{
+    [Theory]
+    // NextAuth sets these for every visitor; novellunar.com showed "Signed
+    // in." to a reader who never signed in.
+    [InlineData("__Host-next-auth.csrf-token")]
+    [InlineData("__Secure-next-auth.callback-url")]
+    [InlineData("next-auth.pkce.code_verifier")]
+    [InlineData("_ga")]
+    [InlineData("cf_clearance")]
+    public void Cookies_every_visitor_gets_are_not_a_sign_in(string name) =>
+        Assert.False(BrowserPageSource.IsAccountCookie(name));
+
+    [Theory]
+    [InlineData("__Secure-next-auth.session-token")]
+    [InlineData("wordpress_logged_in_abc")]
+    [InlineData("remember_web_59ba")]
+    public void Sign_in_cookies_still_count(string name) =>
+        Assert.True(BrowserPageSource.IsAccountCookie(name));
+}

@@ -104,6 +104,36 @@ async () => {
     const keys = [...new Set(stems)].map(stem => url.hostname + '/' + folder + '|' + stem);
     candidates.push({ url: href, number, title: text || tip, keys });
   };
+  // A chapter list behind a tab that loads only when pressed (novellunar:
+  // "Synopsis | Chapters (1472)"): press it once, and give the list a few
+  // seconds to arrive.
+  const listTab = /^(?:all\s+)?(?:chapters?(?:\s+list)?|chapter\s+index|table of contents|contents|toc)\s*(?:[(\[]\s*[\d,]+\s*[)\]])?$/i;
+  const numberedLinks = () => [...document.querySelectorAll('a[href]')]
+    .filter(a => numberIn(clean(a.innerText || a.textContent)) !== null).length;
+  // Other books' "latest chapter" links can already be on the page, so the
+  // tab is pressed whenever there is one, and the list counts as arrived
+  // once more numbered links show than before.
+  // A press before the page's own script is ready does nothing (a Next.js
+  // page wires its buttons up after load), so wait for load, and press again
+  // on a later pass, up to three times, while nothing has arrived.
+  if (window.__tocExtractorTabFor !== location.href) {
+    window.__tocExtractorTabFor = location.href;
+    window.__tocExtractorTabPresses = 0;
+  }
+  const tab = window.__tocExtractorTabPresses < 3
+    && [...document.querySelectorAll('button, [role=tab], a[href^="#"], a:not([href])')]
+      .find(el => listTab.test(clean(el.innerText || el.textContent)));
+  if (tab) {
+    for (let i = 0; i < 20 && document.readyState !== 'complete'; i++) await new Promise(r => setTimeout(r, 250));
+    window.__tocExtractorTabPresses++;
+    const before = numberedLinks();
+    try { tab.click(); } catch (e) { /* not pressable */ }
+    for (let i = 0; i < 12 && numberedLinks() < before + 2; i++) await new Promise(r => setTimeout(r, 250));
+    if (numberedLinks() >= before + 2) window.__tocExtractorTabPresses = 3;
+    // A button that folds away a list already showing: put it back.
+    else if (numberedLinks() < before) { try { tab.click(); } catch (e) { /* as it is */ } window.__tocExtractorTabPresses = 3; }
+  }
+
   for (const a of document.querySelectorAll('a[href]')) consider(a);
 
   // A list the page pages through by itself (numbered buttons with no
@@ -162,7 +192,14 @@ async () => {
   const meta = document.querySelector('meta[property="og:title"]');
   // The first line of the heading: sites list alternative names under it.
   const firstLine = (s) => clean((s || '').split('\n').find(line => clean(line).length > 0));
-  const title = firstLine((document.querySelector('h1') || {}).innerText)
+  // Not a logo: novellunar's site name is an h1 inside the home link,
+  // before the book's own.
+  const siteName = here.hostname.replace(/^www\./, '').split('.')[0].toLowerCase();
+  const heading = [...document.querySelectorAll('h1')]
+    .find(h => !h.closest('nav, footer, a') && clean(h.innerText).length > 0
+      && clean(h.innerText).toLowerCase().replace(/[^a-z0-9]/g, '') !== siteName.replace(/[^a-z0-9]/g, ''))
+    || document.querySelector('h1');
+  const title = firstLine((heading || {}).innerText)
     || clean(meta && meta.getAttribute('content'))
     || clean(document.title).replace(/\s+[-|–]\s+[^-|–]+$/, '');
   // Page titles wrap the name in site words: "Read <name> RAW English Translation".
@@ -183,6 +220,14 @@ async () => {
   } catch (e) { /* no such data */ }
   if (total === null) {
     const said = [...text.matchAll(/translated\s*[:：]?\s*(\d[\d,]{0,6})\s*chapters?/gi)]
+      .map(m => Number(m[1].replace(/,/g, '')));
+    if (new Set(said).size === 1) total = said[0];
+  }
+  if (total === null) {
+    // A tab or heading that is only the count: "Chapters (1472)".
+    const said = [...document.querySelectorAll('button, [role=tab], a, li, span, h2, h3, h4')]
+      .map(el => clean(el.textContent).match(/^chapters?\s*[(\[]\s*(\d[\d,]{0,6})\s*[)\]]$/i))
+      .filter(Boolean)
       .map(m => Number(m[1].replace(/,/g, '')));
     if (new Set(said).size === 1) total = said[0];
   }

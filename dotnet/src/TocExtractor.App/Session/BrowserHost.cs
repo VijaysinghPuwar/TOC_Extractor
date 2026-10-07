@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using TocExtractor.App.Scanning;
 using TocExtractor.Browser;
 using TocExtractor.Core.Pages;
 using TocExtractor.Core.Politeness;
@@ -38,6 +39,39 @@ public sealed class BrowserHost(NovelEnvironment environment) : IAsyncDisposable
     public static bool EarlierBrowserStillOpen(string message) =>
         message.Contains("ProcessSingleton", StringComparison.Ordinal)
         || message.Contains("Opening in existing browser session", StringComparison.Ordinal);
+
+    /// <summary>How long a finished scan is lent to other extractions of the same book.</summary>
+    public static readonly TimeSpan ScanKeptFor = TimeSpan.FromMinutes(20);
+
+    // Ready scans by book address and sign-in. Saving 50 chapters at a time
+    // in three extractions read the same eight list pages three times, at
+    // the careful pace of a site shared with the saves already running: the
+    // third scan took six and a half minutes and slowed the other two.
+    private readonly ConcurrentDictionary<(string Url, bool SignedIn), (ScanResult Scan, object Owner, DateTimeOffset When)> scans = new();
+
+    /// <summary>A ready scan of this book another extraction made in the last <see cref="ScanKeptFor"/>, or null.</summary>
+    /// <remarks>An extraction scanning again gets a fresh scan: that is how it looks for new chapters.</remarks>
+    public ScanResult? RecentScan(string url, bool signedIn, object asker, DateTimeOffset now)
+    {
+        return this.scans.TryGetValue((url, signedIn), out var kept)
+            && !ReferenceEquals(kept.Owner, asker) && now - kept.When < ScanKeptFor && kept.Scan.Ready
+            ? kept.Scan
+            : null;
+    }
+
+    /// <summary>Keep a ready scan for other extractions of the same book.</summary>
+    public void KeepScan(string url, bool signedIn, object owner, ScanResult scan, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(scan);
+        if (scan.Ready)
+        {
+            this.scans[(url, signedIn)] = (scan, owner, now);
+        }
+        else
+        {
+            this.scans.TryRemove((url, signedIn), out _);
+        }
+    }
 
     private readonly SemaphoreSlim starting = new(1, 1);
     private readonly ConcurrentDictionary<string, RateLimiter> limiters = new(StringComparer.OrdinalIgnoreCase);

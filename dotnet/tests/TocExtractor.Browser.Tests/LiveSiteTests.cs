@@ -41,6 +41,7 @@ public sealed class LiveSiteTests
         await Task.Delay(6000, Token);
         var json = await page.EvaluateAsync<string>(
             "() => JSON.stringify({ title: document.title, check: (" + BrowserPageSource.HumanCheckScript + ")(), length: (document.body ? document.body.innerText.length : 0), widgets: [...document.querySelectorAll('iframe[src*=\"challenges.cloudflare.com\"], .cf-turnstile, #challenge-form, #cf-challenge-running, .g-recaptcha, .h-captcha, [data-sitekey]')].map(e => e.outerHTML.slice(0, 300)), text: (document.body ? document.body.innerText.slice(0, 800) : '') })");
-        await File.WriteAllTextAsync(Path.Combine(Path.GetTempPath(), "toc-probe.json"), $"{response?.Status} {page.Url}\n{json}", Token);
+        var cookies = string.Join(", ", (await page.Context.CookiesAsync()).Select(c => c.Domain + ":" + c.Name));
+        await File.WriteAllTextAsync(Path.Combine(Path.GetTempPath(), "toc-probe.json"), $"{response?.Status} {page.Url}\ncookies: {cookies}\n{json}", Token);
     }
 }

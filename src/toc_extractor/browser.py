@@ -622,11 +622,14 @@ _ACCOUNT_COOKIE = re.compile(
 )
 _ANONYMOUS_COOKIE = re.compile(
     r"^(?:_ga|_gid|_gat|_fbp|_ym|__cf|cf_|_cf|_pk|__utm|_hj|viewed|__stripe|phpsessid"
-    r"|laravel_session|ci_session|xsrf-token|csrftoken|__gads|__gpi|_clck|_clsk)",
+    r"|laravel_session|ci_session|xsrf-token|csrftoken|__gads|__gpi|_clck|_clsk)"
+    # Set for every visitor by sign-in libraries before anyone signs in
+    # (NextAuth: next-auth.csrf-token, next-auth.callback-url).
+    r"|csrf|callback-?url|pkce|nonce",
     re.IGNORECASE,
 )
 
 
 def is_account_cookie(name: str) -> bool:
     """A cookie name that sign-in sets, as opposed to analytics or a visitor id."""
-    return not _ANONYMOUS_COOKIE.match(name) and bool(_ACCOUNT_COOKIE.search(name))
+    return not _ANONYMOUS_COOKIE.search(name) and bool(_ACCOUNT_COOKIE.search(name))
