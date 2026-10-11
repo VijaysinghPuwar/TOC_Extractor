@@ -76,6 +76,11 @@ Per the ruling on defect 6, the silent URL stripping stays exactly as it is;
 what v2 adds is a count of how many URLs were removed, reported in the log and
 the JSONL manifest. A count is new output, not changed output, so every
 clean_text case above is PINNED.
+
+From 2.6.6, removing ad markers also removes broken characters (U+FFFD) and
+look-alike site-name watermarks at the end of a paragraph. No case above
+contains either, so they stay PINNED; the new rule has its own shared corpus,
+watermarks.json, read by both test suites.
 """
 
 

@@ -272,3 +272,24 @@ def test_dedup_marker_does_not_push_component_over_byte_limit() -> None:
     assert second.deduplicated
     for name in (first.name, second.name):
         assert len(name.encode("utf-8")) <= NAME_MAX_BYTES
+
+
+# Look-alike site watermarks, shared with the C# suite so both agree.
+_WATERMARKS = json.loads(
+    (Path(__file__).parent / "golden" / "watermarks.json").read_text(encoding="utf-8")
+)
+
+
+@pytest.mark.parametrize(("raw", "expected"), _WATERMARKS["strip"])
+def test_clean_text_strips_lookalike_watermarks(raw: str, expected: str) -> None:
+    assert clean_text(raw).text == expected
+
+
+@pytest.mark.parametrize("raw", _WATERMARKS["keep"])
+def test_clean_text_keeps_ordinary_endings(raw: str) -> None:
+    assert clean_text(raw).text == raw
+
+
+def test_watermarks_are_kept_when_ads_are_kept() -> None:
+    raw = _WATERMARKS["strip"][0][0]
+    assert clean_text(raw, strip_ads=False).text == raw
