@@ -30,7 +30,7 @@
                        IsVisible="{Binding RunningText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             <Border Classes="notice" Padding="10,8" IsVisible="{Binding HasOtherNeedsPerson}">
               <TextBlock x:Name="OtherNeedsPersonText" Text="{Binding OtherNeedsPerson}" TextWrapping="Wrap"
-                         FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Ink}" />
+                         MaxLines="4" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding OtherNeedsPerson}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Ink}" />
             </Border>
           </StackPanel>
 
@@ -46,7 +46,8 @@
                   <Button Grid.Column="1" Classes="close" Content="×" Command="{Binding CloseCommand}"
                           ToolTip.Tip="Close this extraction" AutomationProperties.Name="Close extraction" />
                   <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Classes="hint" Text="{Binding RailStatus}"
-                             TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" Margin="0,2,0,0" />
+                             TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" Margin="0,2,0,0"
+                             ToolTip.Tip="{Binding RailStatus}" />
                   <ProgressBar Grid.Row="2" Grid.ColumnSpan="2" Classes="thin" Value="{Binding ProgressPercent}"
                                Maximum="100" Margin="0,8,0,0" IsVisible="{Binding HasProgress}" />
                 </Grid>
@@ -68,6 +69,7 @@
       <Border x:Name="AttentionBar" Background="{DynamicResource Ink}" Padding="24,12" IsVisible="{Binding NeedsAttention}">
         <Grid ColumnDefinitions="*,Auto">
           <TextBlock x:Name="AttentionText" Text="{Binding Attention}" TextWrapping="Wrap" FontWeight="SemiBold"
+                     MaxLines="3" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Attention}"
                      Foreground="{DynamicResource Paper}" VerticalAlignment="Center" />
           <Button Grid.Column="1" x:Name="ShowCheckButton" Content="Show me" Command="{Binding ShowCheckCommand}"
                   Margin="16,0,0,0" Background="{DynamicResource Paper}" Foreground="{DynamicResource Ink}"
@@ -153,21 +155,19 @@
                   </Grid>
                   <CheckBox Content="Start over" IsChecked="{Binding StartOver}" IsEnabled="{Binding !FormLocked}"
                             ToolTip.Tip="Ignore chapters saved earlier for this book" />
-                  <Grid ColumnDefinitions="*,8,Auto" Margin="0,8,0,0">
+                  <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,0">
                     <Button x:Name="SaveButton" Classes="primary" Content="Save" Command="{Binding SaveCommand}"
                             HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-                    <Button Grid.Column="2" x:Name="StopButton" Classes="quiet" Content="Stop" Command="{Binding StopCommand}"
-                            IsVisible="{Binding IsBusy}" />
+                    <Button Grid.Column="1" x:Name="StopButton" Classes="quiet" Content="Stop" Command="{Binding StopCommand}"
+                            Margin="8,0,0,0" IsVisible="{Binding IsBusy}" />
                   </Grid>
-                  <TextBlock Classes="hint" TextWrapping="Wrap" IsVisible="{Binding IsBusy}"
-                             Text="You can start another book with New extraction while this one runs." />
                 </StackPanel>
               </StackPanel>
             </ScrollViewer>
           </Border>
 
           <!-- Progress and what happened -->
-          <Grid Grid.Column="1" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" Margin="32,24,32,24">
+          <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*" Margin="32,24,32,24">
 
             <Grid ColumnDefinitions="Auto,*,Auto,*,Auto">
               <StackPanel Orientation="Horizontal">
@@ -192,37 +192,47 @@
               </StackPanel>
             </Grid>
 
-            <TextBlock Grid.Row="1" x:Name="StatusText" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,20,0,0"
-                       Foreground="{DynamicResource Muted}" FontSize="13"
-                       IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <!-- What happened. A long message scrolls inside its own box rather than push the chapters away. -->
+            <StackPanel Grid.Row="1">
+            <ScrollViewer MaxHeight="100" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                          Margin="0,20,0,0"
+                          IsVisible="{Binding StatusShown, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+              <TextBlock x:Name="StatusText" Text="{Binding StatusShown}" TextWrapping="Wrap"
+                         Foreground="{DynamicResource Muted}" FontSize="13" />
+            </ScrollViewer>
 
-            <Border Grid.Row="2" x:Name="PersonNotice" Classes="notice" Margin="0,16,0,0" IsVisible="{Binding PersonNeeded}">
+            <Border x:Name="PersonNotice" Classes="notice" Margin="0,16,0,0" IsVisible="{Binding PersonNeeded}">
               <TextBlock x:Name="PersonText" Text="{Binding PersonMessage}" TextWrapping="Wrap" FontWeight="SemiBold"
                          Foreground="{DynamicResource Ink}" />
             </Border>
 
-            <Border Grid.Row="3" Classes="notice" Margin="0,16,0,0" IsVisible="{Binding HasProblem}">
+            <Border Classes="notice" Margin="0,16,0,0" IsVisible="{Binding HasProblem}">
               <Grid ColumnDefinitions="*,Auto">
-                <SelectableTextBlock x:Name="ProblemText" Text="{Binding Problem}" TextWrapping="Wrap"
-                                     Foreground="{DynamicResource Ink}" VerticalAlignment="Center" />
+                <ScrollViewer MaxHeight="120" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                              VerticalAlignment="Center">
+                  <SelectableTextBlock x:Name="ProblemText" Text="{Binding Problem}" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource Ink}" Margin="0,0,12,0" />
+                </ScrollViewer>
                 <Button Grid.Column="1" Classes="quiet" Content="Dismiss" Command="{Binding DismissProblemCommand}"
-                        Margin="12,0,0,0" />
+                        Margin="4,0,0,0" VerticalAlignment="Center" />
               </Grid>
             </Border>
 
-            <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,16,0,0" IsVisible="{Binding HasOutput}">
+            <Grid ColumnDefinitions="*,Auto" Margin="0,16,0,0" IsVisible="{Binding HasOutput}">
               <ItemsControl ItemsSource="{Binding Files}" VerticalAlignment="Center">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="x:String">
-                    <TextBlock Classes="hint mono" Text="{Binding}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Classes="hint mono" Text="{Binding}" TextWrapping="NoWrap"
+                               TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding}" />
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
               <Button Grid.Column="1" Classes="quiet" Content="Open folder" Command="{Binding OpenFolderCommand}"
                       Margin="12,0,0,0" />
             </Grid>
+            </StackPanel>
 
-            <Grid Grid.Row="5" RowDefinitions="Auto,*" Margin="0,24,0,0">
+            <Grid Grid.Row="2" RowDefinitions="Auto,*" Margin="0,24,0,0">
               <Border BorderBrush="{DynamicResource Rule}" BorderThickness="0,0,0,1">
                 <StackPanel Orientation="Horizontal">
                   <Button Classes="tab" Classes.selected="{Binding ShowChapters}" Content="Chapters"
@@ -236,9 +246,9 @@
 
               <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*" IsVisible="{Binding ShowChapters}" Margin="0,16,0,0">
                 <TextBlock x:Name="ProgressLine" Text="{Binding ProgressLine}" FontWeight="SemiBold"
-                           Foreground="{DynamicResource Ink}" />
+                           Foreground="{DynamicResource Ink}" IsVisible="{Binding HasProgress}" />
                 <StackPanel Grid.Row="1" Spacing="6" Margin="0,8,0,16">
-                  <ProgressBar Value="{Binding ProgressPercent}" Maximum="100" />
+                  <ProgressBar Value="{Binding ProgressPercent}" Maximum="100" IsVisible="{Binding HasProgress}" />
                   <TextBlock x:Name="PaceNoteText" Classes="hint" Text="{Binding PaceNote}" TextWrapping="Wrap"
                              IsVisible="{Binding HasPaceNote}" />
                 </StackPanel>
@@ -246,13 +256,14 @@
                          SelectedItem="{Binding SelectedChapter}" Background="Transparent">
                   <ListBox.ItemTemplate>
                     <DataTemplate x:DataType="vm:ChapterRow">
-                      <Grid ColumnDefinitions="28,64,*,Auto">
+                      <Grid ColumnDefinitions="28,56,*,Auto">
                         <TextBlock Text="{Binding Symbol}" FontSize="14" VerticalAlignment="Center" />
                         <TextBlock Grid.Column="1" Classes="mono hint" Text="{Binding Number}" VerticalAlignment="Center" />
                         <TextBlock Grid.Column="2" Text="{Binding Heading}" TextTrimming="CharacterEllipsis"
-                                   VerticalAlignment="Center" Foreground="{DynamicResource Ink}" />
+                                   VerticalAlignment="Center" Foreground="{DynamicResource Ink}"
+                                   ToolTip.Tip="{Binding Heading}" />
                         <TextBlock Grid.Column="3" Classes="hint" Text="{Binding StatusText}" Margin="16,0,0,0"
-                                   VerticalAlignment="Center" MaxWidth="340" TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" MaxWidth="180" TextTrimming="CharacterEllipsis"
                                    TextWrapping="NoWrap" ToolTip.Tip="{Binding StatusText}" />
                       </Grid>
                     </DataTemplate>
@@ -264,8 +275,10 @@
                 <TextBlock Classes="hint" IsVisible="{Binding !HasReaderChapter}" Text="Pick a saved chapter to read it." />
                 <Grid RowDefinitions="Auto,*" IsVisible="{Binding HasReaderChapter}">
                   <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock x:Name="ReaderTitle" Classes="title" Text="{Binding ReaderTitle}" TextWrapping="Wrap" />
-                    <Button Grid.Column="1" Classes="quiet" Content="Copy text" Command="{Binding CopyChapterCommand}" />
+                    <TextBlock x:Name="ReaderTitle" Classes="title" Text="{Binding ReaderTitle}" TextWrapping="Wrap"
+                               MaxLines="2" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ReaderTitle}" />
+                    <Button Grid.Column="1" Classes="quiet" Content="Copy text" Command="{Binding CopyChapterCommand}"
+                            Margin="12,0,0,0" VerticalAlignment="Top" />
                   </Grid>
                   <ScrollViewer Grid.Row="1" Margin="0,16,0,0">
                     <SelectableTextBlock Text="{Binding ReaderText}" TextWrapping="Wrap" FontSize="15" LineHeight="26"
@@ -301,7 +314,7 @@
                          VerticalAlignment="Center" />
             </Grid>
             <TextBlock Classes="hint" TextWrapping="Wrap"
-                       Text="Changes are saved as you make them and apply to extractions started after this. Extractions already running keep going in the background." />
+                       Text="Changes save as you make them and apply to extractions started after this." />
 
             <StackPanel Spacing="8">
               <TextBlock Classes="label" Text="Appearance" />
@@ -317,7 +330,7 @@
               <TextBlock Classes="label" Text="Logs" />
               <CheckBox x:Name="KeepLogBox" Content="Keep a detailed log (CSV) of every extraction" IsChecked="{Binding KeepLog}" />
               <TextBlock Classes="hint" TextWrapping="Wrap"
-                         Text="Every step is written as it happens: each page opened, retries, checks, errors with their details. If something goes wrong or the app closes, the log shows why." />
+                         Text="Each page, retry, check and error, written as it happens, so the log shows why anything went wrong." />
               <Grid ColumnDefinitions="Auto,12,*" Margin="0,4,0,0">
                 <Button x:Name="OpenLogFolderButton" Classes="quiet" Content="Open log folder"
                         Command="{Binding OpenLogFolderCommand}" IsEnabled="{Binding HasLogFolder}" />
@@ -342,23 +355,25 @@
                 </Grid>
               </Grid>
               <TextBlock Classes="hint" TextWrapping="Wrap"
-                         Text="For each chapter in every extraction. Extractions from the same site share one pace, so running two never asks more of that site than one would." />
+                         Text="Extractions from the same site share one pace, so two at once never ask more of it than one." />
             </StackPanel>
 
             <StackPanel Spacing="8">
               <TextBlock Classes="label" Text="Sites" />
               <TextBlock Classes="hint" TextWrapping="Wrap"
-                         Text="Every site is read fast. One that asks to check you're a person is then read carefully, now and on later visits: a page every 12 seconds, which in testing kept the checks away. Turn Careful off for a site to go at full speed and click the odd check instead." />
+                         Text="A site that asks to check you're a person is read carefully from then on: a page every 12 seconds. Turn Careful off to go at full speed and click the odd check yourself." />
               <TextBlock Classes="hint" FontStyle="Italic" Text="No site has asked for a check yet." IsVisible="{Binding !HasSites}" />
               <ItemsControl x:Name="SitesList" ItemsSource="{Binding Sites}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:SitePaceRow">
                     <Grid ColumnDefinitions="*,Auto,8,Auto" Margin="0,4">
                       <StackPanel VerticalAlignment="Center">
-                        <TextBlock Classes="label" Text="{Binding Host}" />
+                        <TextBlock Classes="label" Text="{Binding Host}" TextWrapping="NoWrap"
+                                   TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Host}" />
                         <TextBlock Classes="hint" Text="{Binding Detail}" />
                       </StackPanel>
-                      <CheckBox Grid.Column="1" Content="Careful" IsChecked="{Binding Careful}" VerticalAlignment="Center" />
+                      <CheckBox Grid.Column="1" Content="Careful" IsChecked="{Binding Careful}" VerticalAlignment="Center"
+                                Margin="12,0,0,0" />
                       <Button Grid.Column="3" Classes="quiet small" Content="Forget" Command="{Binding ForgetCommand}"
                               ToolTip.Tip="Start this site fast again" VerticalAlignment="Center" />
                     </Grid>
@@ -378,11 +393,11 @@
               <CheckBox x:Name="LeaveOutHeadingsBox" Content="Leave out chapter numbers and titles"
                         IsChecked="{Binding LeaveOutHeadings}" />
               <TextBlock Classes="hint" TextWrapping="Wrap" Margin="28,0,0,4"
-                         Text="In the TXT and PDF books and in Copy text, so a voice goes straight into the story. Each chapter still starts on a new page of the PDF." />
+                         Text="In the TXT, the PDF and Copy text. Each chapter still starts a new PDF page." />
               <CheckBox x:Name="ForSpeechBox" Content="Remove symbols a voice would read aloud"
                         IsChecked="{Binding ForSpeech}" />
               <TextBlock Classes="hint" TextWrapping="Wrap" Margin="28,0,0,0"
-                         Text="Lines like ===== or -----, and stray # _ = * ~ | &lt; &gt;. Words and punctuation are kept; well-known keeps its hyphen. Press Save again to rebuild a book with these; nothing is downloaded again." />
+                         Text="Lines like ===== and stray # _ = * ~ | &lt; &gt;. Words and punctuation stay. Press Save again to rebuild a book; nothing is downloaded again." />
             </StackPanel>
         </StackPanel>
       </ScrollViewer>
@@ -390,10 +405,12 @@
 
     <!-- First run: the browser download -->
     <Border Background="{DynamicResource Paper}" IsVisible="{Binding !BrowserReady}">
-      <StackPanel Width="440" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14">
+      <StackPanel MaxWidth="440" Margin="24" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14">
         <Image Source="/Assets/app-icon.png" Width="88" Height="88" HorizontalAlignment="Left" />
         <TextBlock Classes="title" Text="Downloading the browser" />
-        <TextBlock x:Name="InstallMessage" Classes="hint" Text="{Binding InstallMessage}" />
+        <ScrollViewer MaxHeight="200" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <TextBlock x:Name="InstallMessage" Classes="hint" Text="{Binding InstallMessage}" />
+        </ScrollViewer>
         <ProgressBar Value="{Binding InstallPercent}" Maximum="100" IsIndeterminate="{Binding InstallIndeterminate}" />
         <TextBlock Classes="hint" Text="{Binding InstallPercentText}" IsVisible="{Binding ShowInstallPercent}" />
         <Button Classes="primary" Content="Try again" Command="{Binding InstallBrowserCommand}"

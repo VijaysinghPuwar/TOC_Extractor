@@ -237,7 +237,7 @@ are kept. Ads, menus, comments and "next chapter" links are left out.
 ### Settings
 
 Press **Settings** at the bottom left. It opens a full settings screen in the
-same window; press **Back** to return. Changes are saved as you make them.
+same window; press **Back** to return. Changes save as you make them.
 
 - **Appearance**: match the computer, or always light, or always dark.
 - **Logs**: keep a detailed log (CSV) of every extraction, and **Open log
@@ -539,6 +539,36 @@ nothing is overwritten. The log mentions it.
   address check. Closing that needs control the browser does not offer.
 
 ## Version history
+
+**2.6.5** (2026-10-11)
+
+A tidier window, checked at every supported size in light and dark with the
+longest titles, errors, file names and site names a run can produce.
+- Fixed: the progress bar of each extraction in the list on the left ran
+  past its card (Fluent asks for 200 pixels; the list is 173 wide).
+- Fixed: a long error message pushed the chapter list off the window. Long
+  status and error text now scrolls inside its own box, and Open folder
+  stays in view.
+- Fixed: a long failure reason left no room for the chapter's title. The
+  reason is capped and shown in full on hover.
+- Fixed: long file names, site names, chapter titles and the reader's
+  heading were clipped with no way to read them; each ends in "..." and
+  shows in full on hover. Notices naming a book are capped at a few lines.
+- The status no longer repeats the count shown right under it: "Done. 9 of
+  9 saved." over "9 of 9 saved" is now "Done.". Before any chapters are
+  chosen, the empty progress bar and its "Scan a novel, choose chapters,
+  then save." line are gone; the steps at the top already say it.
+- Shorter hints in Settings, and the Save button lines up with the boxes
+  above it.
+- New tests: the window is filled with worst-case text at 940 x 600,
+  1280 x 820 and 1920 x 1080 and fails if any control ends outside its box,
+  if the chapter list or the reader is squeezed below 100 px, or if a
+  chapter's title is left with no room.
+- Stress tested before release on an Apple M5 Mac: 40 extractions of 50
+  chapters at once through the desktop app's view models and real
+  Chromium, all 2,000 chapters saved in 1 min 52 s, then 101-150 of ten
+  books in 54 s; and 40 command line processes of 50 chapters each, all
+  2,000 files verified, in 40 s. The screenshots in this guide are new.
 
 **2.6.4** (2026-10-07)
 

@@ -189,6 +189,11 @@
     <Setter Property="CornerRadius" Value="3" />
   </Style>
 
+  <!-- Fluent asks for 200 when horizontal, wider than the list of extractions -->
+  <Style Selector="ProgressBar:horizontal">
+    <Setter Property="MinWidth" Value="0" />
+  </Style>
+
   <Style Selector="ProgressBar.thin">
     <Setter Property="MinHeight" Value="4" />
     <Setter Property="Height" Value="4" />

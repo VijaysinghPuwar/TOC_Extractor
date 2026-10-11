@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using TocExtractor.App.Pipeline;
 using TocExtractor.App.Scanning;
 using TocExtractor.App.Session;
@@ -320,6 +321,24 @@ internal sealed class Harness
         {
             Dispatcher.UIThread.RunJobs();
         }
+    }
+
+    /// <summary>
+    /// Show each Details arrow at rest. With no screen the theme's turning
+    /// animation never finishes, and pictures caught the arrow half turned.
+    /// </summary>
+    public static void SettleArrows(Avalonia.Controls.Window window)
+    {
+        foreach (var expander in window.GetVisualDescendants().OfType<Avalonia.Controls.Expander>())
+        {
+            foreach (var part in expander.GetVisualDescendants().OfType<Avalonia.Visual>().Where(v => v.RenderTransform is not null))
+            {
+                part.Transitions = null;
+                part.RenderTransform = null;
+            }
+        }
+
+        Pump();
     }
 
     public static string Scratch()
