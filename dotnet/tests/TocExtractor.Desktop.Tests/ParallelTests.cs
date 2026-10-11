@@ -485,6 +485,7 @@ public sealed class ParallelTests
         var directory = Environment.GetEnvironmentVariable("TOC_SCREENSHOTS")
             ?? Path.Combine(AppContext.BaseDirectory, "screenshots");
         Directory.CreateDirectory(directory);
+        Harness.SettleArrows(window);
         window.CaptureRenderedFrame()?.Save(Path.Combine(directory, name + ".png"), Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
     }
 }

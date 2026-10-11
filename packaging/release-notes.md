@@ -1,4 +1,4 @@
-Whole books from novellunar.com and novelfire.net: novellunar scanned as "Chapters 1 to 1" and novelfire listed only 772 of 1,472 chapters; both now scan the whole book. A second extraction of the same book reuses the first one's scan, so it starts saving at once instead of re-reading the chapter list. Also in this release, from 2.6.3: the chosen range is kept, and a story that says "just a moment" no longer stops saving.
+A tidier window: long book titles, error messages, file names and site names no longer spill out of their boxes or push the chapter list off screen, and the progress bars in the list of extractions sit inside their cards. Also in this release, from 2.6.4: whole books from sites that hide their chapter list behind a tab or spread it over many pages, and a second extraction of the same book reuses the first one's scan.
 
 ## Download
 
@@ -14,7 +14,20 @@ Download only the file for your computer; "Source code" is for developers.
 
 **Windows:** run the setup and follow the steps; no administrator needed. It adds TOC Extractor to the Start menu. If SmartScreen appears, choose More info, then Run anyway.
 
-## What is new in 2.6.4
+## What is new in 2.6.5
+
+Every part of the window was rendered at the smallest supported size (940 x 600) and at 1280 x 820 and 1920 x 1080, in light and dark, filled with the longest text a site or a failure can produce. A new test fails if any control ends outside the box it sits in.
+
+- **Fixed: the progress bar in each extraction on the left ran past its card.** It asked for 200 pixels in a list 173 wide.
+- **Fixed: a long error pushed the chapter list off the window.** Long messages now scroll inside their own box, and Open folder stays in view.
+- **Fixed: a long failure reason squeezed the chapter's title to nothing.** Titles keep their room; the reason is cut short, with the whole of it on hover.
+- **Fixed: long file names, site names and chapter titles** were cut off with no way to read them. Each one now ends in "..." and shows in full on hover.
+- **Less repetition.** The line above the progress said "Done. 9 of 9 saved." right over "9 of 9 saved". It now says "Done.", and while saving it gives only what the progress line does not. Before a save there is no empty progress bar or "Scan a novel, choose chapters, then save." line under the steps that already say so.
+- **Shorter text in Settings**, and the Save button lines up with the boxes above it when Stop is hidden.
+
+Stress tested before release: 40 extractions of 50 chapters at once in the app, all 2,000 chapters saved in under two minutes.
+
+## New in 2.6.4
 
 From a real session's log on Windows 11 (16 cores, 15.8 GB) and live tests on thirteen books.
 

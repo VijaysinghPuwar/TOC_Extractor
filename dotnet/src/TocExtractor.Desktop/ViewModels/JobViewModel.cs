@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using TocExtractor.App;
@@ -120,7 +121,28 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
     // -- status ---------------------------------------------------------------
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusShown))]
     public partial string Status { get; set; } = "";
+
+    /// <summary>
+    /// The status as shown above the tabs, without the count the progress
+    /// line under it already gives: "Done. 9 of 9 saved." reads "Done.". On
+    /// the other tabs that line is hidden, so the count stays.
+    /// </summary>
+    public string StatusShown
+    {
+        get
+        {
+            if (this.Chapters.Count == 0 || !this.ShowChapters)
+            {
+                return this.Status;
+            }
+
+            // Whole numbers only: "0 of 10 saved" is not the count in "10 of 10 saved".
+            var repeated = new Regex(@"(?<![\d,])" + Regex.Escape(this.ProgressLine) + @"(?![\d,])\.?\s*", RegexOptions.CultureInvariant);
+            return repeated.Replace(this.Status, "", 1).Trim();
+        }
+    }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasProblem))]
@@ -148,7 +170,7 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
     public bool IsSigningIn => this.Stage == Stage.SigningIn;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowChapters), nameof(ShowReader), nameof(ShowActivity))]
+    [NotifyPropertyChangedFor(nameof(ShowChapters), nameof(ShowReader), nameof(ShowActivity), nameof(StatusShown))]
     public partial Tab CurrentTab { get; set; } = Tab.Chapters;
 
     public bool ShowChapters => this.CurrentTab == Tab.Chapters;
@@ -283,7 +305,7 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
         : 100.0 * (this.SavedCount + this.FailedCount) / this.Chapters.Count;
 
     public string ProgressLine => this.Chapters.Count == 0
-        ? "Scan a novel, choose chapters, then save."
+        ? ""
         : string.Create(CultureInfo.InvariantCulture, $"{this.SavedCount} of {this.Chapters.Count} saved")
             + (this.FailedCount > 0 ? string.Create(CultureInfo.InvariantCulture, $", {this.FailedCount} failed") : "");
 
@@ -1043,6 +1065,7 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
         this.OnPropertyChanged(nameof(this.FailedCount));
         this.OnPropertyChanged(nameof(this.ProgressPercent));
         this.OnPropertyChanged(nameof(this.ProgressLine));
+        this.OnPropertyChanged(nameof(this.StatusShown));
         this.OnPropertyChanged(nameof(this.Step));
         this.OnPropertyChanged(nameof(this.IsStep1));
         this.OnPropertyChanged(nameof(this.IsStep2));
