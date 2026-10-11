@@ -1,0 +1,77 @@
+{
+ "_comment": "Look-alike site watermarks, from a real saved book. Read by tests/test_text.py and TocExtractor.Core.Tests/Text/WatermarkTests.cs, so both implementations are held to the same answers.",
+ "strip": [
+  [
+   "Use your advantages to do what needs to be done!\" \ud835\udc11\ud835\ude22\u2115\u0150\u0392\u00ca\u015e",
+   "Use your advantages to do what needs to be done!\""
+  ],
+  [
+   "Her breakthroughs were reasonable. \ua7a6\u0386\ud800\udf3d\u014e\uff22\u0401\u015a",
+   "Her breakthroughs were reasonable."
+  ],
+  [
+   "It was engulfed by the power of the void. R\u0410\ud835\udc0d\u041e\ud835\udc1b\u00ca\u1e68",
+   "It was engulfed by the power of the void."
+  ],
+  [
+   "They waited in silence. \u0280\ud835\udc00\u014a\u041e\u16d2\u011a\u0160",
+   "They waited in silence."
+  ],
+  [
+   "The array held. R\u1f08\u2115\u1ed1\u0e3f\u00cbS",
+   "The array held."
+  ],
+  [
+   "You must pay a hefty price too!\" \u0212",
+   "You must pay a hefty price too!\""
+  ],
+  [
+   "Would that not happen in reality? \u211e",
+   "Would that not happen in reality?"
+  ],
+  [
+   "It changed over the years. \ud835\ude19\ud835\udc1a",
+   "It changed over the years."
+  ],
+  [
+   "He reversed time. \u0211\u00c2",
+   "He reversed time."
+  ],
+  [
+   "It reached the Leviathan-Roc.] R\u0303",
+   "It reached the Leviathan-Roc.]"
+  ],
+  [
+   "Why would you not be considered a dragon?\"] R",
+   "Why would you not be considered a dragon?\"]"
+  ],
+  [
+   "The injuries were severe. \uff32\ufffd",
+   "The injuries were severe."
+  ],
+  [
+   "Saint realm experts would target you. \ufffd",
+   "Saint realm experts would target you."
+  ],
+  [
+   "First line. \ud835\udc11\ud835\ude22\u2115\nSecond line.",
+   "First line.\nSecond line."
+  ]
+ ],
+ "keep": [
+  "She ordered coffee at the caf\u00e9.",
+  "She smiled at him. Zo\u00eb",
+  "\"Thank you.\" Se\u00f1or",
+  "The old man nodded. J\u00f3",
+  "He nodded. L\u00fc",
+  "He said it twice. Ra",
+  "It was over. No",
+  "They read the R\u00e9sum\u00e9 aloud.",
+  "\u0421\u0435\u0440\u0433\u0435\u0439 \u0441\u043a\u0430\u0437\u0430\u043b. \u0414\u0430",
+  "Plan B was ready. R2",
+  "The total was \u00a35. \u20ac",
+  "The sign read \u2115 for natural numbers",
+  "\u4ed6\u8bf4\u3002\u597d",
+  "The note said it all. Caf\u00e9-bar"
+ ]
+}

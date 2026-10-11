@@ -251,7 +251,9 @@ same window; press **Back** to return. Changes save as you make them.
   then on, a page every 12 seconds. Turn Careful off for a site to go at the
   normal pace (you click any check yourself), or press Forget to start it
   fresh.
-- **Text**: keep links in the text, and remove ad markers.
+- **Text**: keep links in the text, and remove ad markers. Removing ad markers
+  also removes the site-name watermarks some sites hide at the end of a
+  paragraph in look-alike letters, and broken characters (shown as �).
 - **For audiobooks (text to speech)**: leave chapter numbers and titles out
   of the TXT and PDF books and **Copy text**, so a voice goes straight into
   the story (a title the site repeats at the top of the text goes too); and
@@ -539,6 +541,26 @@ nothing is overwritten. The log mentions it.
   address check. Closing that needs control the browser does not offer.
 
 ## Version history
+
+**2.6.6** (2026-10-11)
+
+From checking a real 429-chapter book word for word against its site.
+- Fixed: some sites tag chapters copied from another site with that site's
+  name spelled in look-alike letters from other alphabets (a bold R, a Greek
+  A, a double-struck N), added after the last sentence of a paragraph and
+  often cut to one or two letters. 94 of the book's 429 chapters carried one,
+  and a text-to-speech voice reads them out. With Remove ad markers on (the
+  default), they are now removed. The tag is recognised by its shape rather
+  than its spelling: a last "word" after a finished sentence, in a line of
+  English text, that is one or two unusual letters or mixes alphabets. Real
+  words, accented ones included, are kept.
+- Fixed: broken characters (U+FFFD, shown as a question mark in a box) that
+  sites leave in their text are removed with the ad markers.
+- Both implementations apply the same rule and read one shared set of test
+  cases, including endings that must be kept, such as "Zoë", "Jó" and a
+  price in euros. On the real book the C# and Python output is identical.
+- Chapters already saved keep their text. Tick Start over and save again to
+  get them without the tags.
 
 **2.6.5** (2026-10-11)
 

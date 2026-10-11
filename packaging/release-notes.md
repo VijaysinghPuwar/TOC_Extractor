@@ -1,4 +1,4 @@
-A tidier window: long book titles, error messages, file names and site names no longer spill out of their boxes or push the chapter list off screen, and the progress bars in the list of extractions sit inside their cards. Also in this release, from 2.6.4: whole books from sites that hide their chapter list behind a tab or spread it over many pages, and a second extraction of the same book reuses the first one's scan.
+Cleaner text: the hidden site-name tags some sites add to copied chapters, spelled in look-alike letters such as a bold R or a Greek A, are now removed, along with broken characters. Also in this release, from 2.6.5: long titles, errors and file names no longer spill out of their boxes, and the window repeats less.
 
 ## Download
 
@@ -14,7 +14,15 @@ Download only the file for your computer; "Source code" is for developers.
 
 **Windows:** run the setup and follow the steps; no administrator needed. It adds TOC Extractor to the Start menu. If SmartScreen appears, choose More info, then Run anyway.
 
-## What is new in 2.6.5
+## What is new in 2.6.6
+
+A 429-chapter book was checked word for word against its site: every chapter matched. That check found text the site itself carries that no reader wants.
+
+- **Fixed: hidden site-name tags in the text.** Some sites tag chapters copied from another site with that site's name in look-alike letters from other alphabets, after the last sentence of a paragraph, often cut to one or two letters. 94 of the book's chapters had one, and a text-to-speech voice reads them aloud. With Remove ad markers on (the default) they are now removed. Ordinary words, accented ones included, are kept.
+- **Fixed: broken characters** (a question mark in a box) that sites leave in their text are removed too.
+- Chapters you saved before keep their text. To get a book without the tags, tick Start over and press Save.
+
+## New in 2.6.5
 
 Every part of the window was rendered at the smallest supported size (940 x 600) and at 1280 x 820 and 1920 x 1080, in light and dark, filled with the longest text a site or a failure can produce. A new test fails if any control ends outside the box it sits in.
 

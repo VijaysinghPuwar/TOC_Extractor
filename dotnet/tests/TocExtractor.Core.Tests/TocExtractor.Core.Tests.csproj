@@ -18,6 +18,8 @@
              CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../../tests/golden/v1_golden.json" Link="golden/v1_golden.json"
              CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../../tests/golden/watermarks.json" Link="golden/watermarks.json"
+             CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../../tests/golden/robots_conformance.json"
              Link="golden/robots_conformance.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
