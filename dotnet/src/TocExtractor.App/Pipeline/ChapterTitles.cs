@@ -19,6 +19,22 @@ public static partial class ChapterTitles
     public static string Tidy(string title, string? body = null)
     {
         ArgumentNullException.ThrowIfNull(title);
+
+        // "Lu Yun&#039;s" as some sites send it: a voice reads the entity aloud.
+        if (title.Contains('&', StringComparison.Ordinal))
+        {
+            title = System.Net.WebUtility.HtmlDecode(title);
+        }
+
+        // A heading with no number at all that is really a stray sentence
+        // ("After chatting for a few minutes, Xu Ning took his leave...")
+        // while the story opens with its own "Chapter 34: Discussing the
+        // National Situation": the story's line is the chapter's title.
+        if (body is not null && !title.Any(char.IsDigit) && TitleLine().Match(body) is { Success: true } own)
+        {
+            return own.Value.Trim();
+        }
+
         var page = BarePage().Match(title);
         if (!page.Success || body is null)
         {
@@ -37,6 +53,10 @@ public static partial class ChapterTitles
 
     [GeneratedRegex(@"\A\s*chapter[ \t]*(\d{1,6})\b", RegexOptions.IgnoreCase)]
     private static partial Regex OpeningChapter();
+
+    /// <summary>A first line that is a chapter's whole title: "Chapter 34: Discussing the National Situation".</summary>
+    [GeneratedRegex(@"\A[ \t]*chapter[ \t]*\d{1,6}\b[^\n]{0,140}?(?=[ \t]*(?:\r?\n|\z))", RegexOptions.IgnoreCase)]
+    private static partial Regex TitleLine();
 }
 
 /// <summary>A page source whose chapter titles are tidied on the way out.</summary>

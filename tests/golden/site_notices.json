@@ -1,0 +1,90 @@
+{
+ "_comment": "Notices reading sites write into chapters (NovelFire, and pandanovel.co, whose chapters are NovelFire's), from real saved books. Read by tests/test_text.py and TocExtractor.Core.Tests/Text/SiteNoticeTests.cs, so both implementations are held to the same answers.",
+ "strip": [
+  [
+   "She smiled.\nThis tale has been pilfered from NovelFire. If found on Amazon, kindly file a report.\nHe left.",
+   "She smiled.\nHe left."
+  ],
+  [
+   "A.\nYou might be reading a stolen copy. Visit NovelFire for the authentic version.\nB.",
+   "A.\nB."
+  ],
+  [
+   "A.\nUnauthorized duplication: this narrative has been taken without consent. Report sightings.\nB.",
+   "A.\nB."
+  ],
+  [
+   "A.\nThe genuine version of this novel can be found on another site. Support the author by reading it there.\nB.",
+   "A.\nB."
+  ],
+  [
+   "A.\nThis book was originally published on NovelFire. Check it out there for the real experience.\nB.",
+   "A.\nB."
+  ],
+  [
+   "A.\nStolen novel; please report.\nB.",
+   "A.\nB."
+  ],
+  [
+   "A.\nThis story is posted elsewhere by the author. Help them out by reading the authentic version.\nB.",
+   "A.\nB."
+  ],
+  [
+   "A.\nIf you\u2019re reading this on another site, please read it on NovelFire, where the author originally posts it, to support them.\nB.",
+   "A.\nB."
+  ],
+  [
+   "She clenched her fists as her breathing grew heavier. NovelFire",
+   "She clenched her fists as her breathing grew heavier."
+  ],
+  [
+   "He chewed. View the correct content at NovelFire",
+   "He chewed."
+  ],
+  [
+   "\"Bold words. But can you back them up?\" View the correct content at NovelFire.",
+   "\"Bold words. But can you back them up?\""
+  ],
+  [
+   "Ngrrrrrh~ Correct content is on NovelFire",
+   "Ngrrrrrh~"
+  ],
+  [
+   "He sighed and turned away. This tale has been unlawfully lifted from NovelFire. If you spot it on Amazon, please report it.",
+   "He sighed and turned away."
+  ],
+  [
+   "Wendy is a girl who loves reading NovelFires.",
+   "Wendy is a girl who loves reading novels."
+  ],
+  [
+   "She knew the world was based on a NovelFire.",
+   "She knew the world was based on a novel."
+  ],
+  [
+   "The NovelFire I\u2019d been reading was called The Dance of Power.",
+   "The novel I\u2019d been reading was called The Dance of Power."
+  ],
+  [
+   "A.\nLove this story? Find the genuine version on the author's preferred platform and support their work!\nB.",
+   "A.\nB."
+  ],
+  [
+   "A.\nHelp support creative writers by finding and reading their stories on the original site.\nB.",
+   "A.\nB."
+  ]
+ ],
+ "keep": [
+  "With the original manual stolen, the attention on her would lessen, diverting everyone\u2019s focus elsewhere.",
+  "This made everyone at the sect frown, and Shen Wuyou immediately headed to the headquarters to report the situation.",
+  "Students leaving without permission.",
+  "So, even SSS-rank abilities could be stolen!",
+  "\"Seeking immortals without permission, die!\"",
+  "[Damn! Though the kills are fake, identity privileges can actually be stolen!]",
+  "An interesting note: NovelFire made an animated trailer for the book; I posted the video for anyone interested.",
+  "I believe this was called the amazon position back in my old World.",
+  "Tang Piaomiao had no doubt about the authenticity of the technique.",
+  "While preparing to report the situation to Lin Ling for instructions,",
+  "Were it not for their persuasion, he would have reported that matter to the Ancestral Land, since leaving the fort without permission at a critical time was not a trivial matter, and he could not take such responsibility."
+ ]
+}

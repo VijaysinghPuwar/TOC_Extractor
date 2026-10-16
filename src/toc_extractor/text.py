@@ -117,6 +117,179 @@ def strip_watermarks(text: str) -> str:
     return _WATERMARK_TAIL.sub(_drop_watermark, text)
 
 
+# Notices a reading site writes into its chapters ("This tale has been
+# pilfered from NovelFire. If found on Amazon, kindly file a report."), in
+# endless variations, so recognised by what they are made of rather than
+# matched against a list. Kept identical to TextCleaner.cs; see
+# strip_site_notices.
+_SITE_NAME = (
+    r"(?-i:(?:[A-Z][a-z]+)*Novel(?:[A-Z][a-z]+)+|(?:[A-Z][a-z]+)+Novel\b"
+    r"|\b[a-z]*novel[a-z]*\.(?:com|net|org|co|me|io)\b)"
+)
+_NOTICE_WHERE = re.compile(
+    r"\bamazon\b|\boriginal (?:site|version|source|platform|website|translation)\b"
+    r"|\bauthentic version\b|\bgenuine (?:story|version)\b|\breal experience\b|" + _SITE_NAME,
+    re.IGNORECASE,
+)
+# A vaguer "where", which counts only beside a call to read or report.
+_NOTICE_ELSEWHERE = re.compile(
+    r"\belsewhere\b|\banother (?:site|website)\b|\bother (?:sites|websites)\b", re.IGNORECASE
+)
+_NOTICE_THEFT = re.compile(
+    r"\b(?:stolen|steal\w*|pilfer\w*|purloin\w*|unlawful\w*|illicit\w*|misappropriat\w*"
+    r"|lifted|unauthori[sz]ed|theft|infringement|violation)\b|\btaken without\b"
+    r"|\bwithout (?:the author['\u2019]?s? )?(?:consent|permission|approval|authori[sz]ation)\b",
+    re.IGNORECASE,
+)
+_NOTICE_ACTION = re.compile(
+    r"\b(?:report\w*|visit\w*|support\w*|check it out|head to|help (?:the author|them|out)"
+    r"|ensure the author|read(?:ing)? (?:it|this|the|their|on|from))\b",
+    re.IGNORECASE,
+)
+_NOTICE_SUBJECT = re.compile(
+    r"\b(?:story|stories|tale|narrative|novel|content|book|chapter|text|work|translation)\b",
+    re.IGNORECASE,
+)
+# A site's tag after the last sentence of a paragraph: " NovelFire",
+# " View the correct content at NovelFire".
+_SITE_TAIL = re.compile(
+    '(?<=[.!?~\u2026"\'\u201d\u2019\\])])[ \\t]+((?:[^.!?\\n"\u201c\u201d]{0,60}?[ \\t])?)'
+    + _SITE_NAME
+    + r"\.?[ \t]*$",
+    re.MULTILINE,
+)
+_SITE_TAIL_WORDS = re.compile(
+    r"\b(?:content|read|visit|view|find|chapter|version|latest|available|exclusive|update|on|at)\b",
+    re.IGNORECASE,
+)
+# The site's name put in place of the word "novel": "who loves reading NovelFires".
+_SITE_FOR_NOVEL = re.compile(
+    r"\b([A-Za-z][a-z'\u2019]*)([ \t]+)((?:[A-Z][a-z]+)*Novel(?:[A-Z][a-z]+?)+)(s?)\b"
+)
+# Words before a site's name that mean the site itself ("on NovelFire").
+_SITE_ITSELF = frozenset(
+    {"on", "at", "from", "to", "via", "by", "visit", "visiting", "and", "or", "with", "for"}
+)
+# A sentence's first word that makes the name after it a thing, not the site.
+_DETERMINERS = frozenset(
+    {
+        "The",
+        "A",
+        "An",
+        "This",
+        "That",
+        "These",
+        "Those",
+        "My",
+        "His",
+        "Her",
+        "Their",
+        "Your",
+        "Our",
+        "Its",
+        "Every",
+        "Each",
+        "Some",
+    }
+)
+_SENTENCE_BREAK = re.compile('[.!?\u2026~]["\'\u201d\u2019)\\]]*[ \\t]+(?=[A-Z\u201c"])')
+
+
+def is_site_notice(text: str) -> bool:
+    """Whether one sentence or paragraph is a reading site's notice."""
+    if (
+        not 15 <= len(text) <= 260
+        or any(q in text for q in '"\u201c\u201d')
+        or text[0] in "[\u3010'"
+        or len(text.split()) > 45
+    ):
+        return False
+    theft = bool(_NOTICE_THEFT.search(text))
+    action = bool(_NOTICE_ACTION.search(text))
+    return (
+        (bool(_NOTICE_WHERE.search(text)) and (theft or action))
+        or (action and bool(_NOTICE_ELSEWHERE.search(text)) and bool(_NOTICE_SUBJECT.search(text)))
+        or (theft and action and len(text) <= 160 and bool(_NOTICE_SUBJECT.search(text)))
+    )
+
+
+def _notice_signal(text: str) -> bool:
+    """Whether a sentence carries any part of a notice: a site, elsewhere, taking, or a call to act.
+
+    A short lead-in about the story itself ("Love this story?") belongs to the
+    notice after it.
+    """
+    return bool(
+        _NOTICE_WHERE.search(text)
+        or _NOTICE_ELSEWHERE.search(text)
+        or _NOTICE_THEFT.search(text)
+        or _NOTICE_ACTION.search(text)
+        or (len(text.strip()) <= 40 and _NOTICE_SUBJECT.search(text))
+    )
+
+
+def _cut_trailing_notice(line: str) -> str:
+    breaks = list(_SENTENCE_BREAK.finditer(line))
+    for found in breaks[max(0, len(breaks) - 2) :]:
+        head = line[: found.end()].rstrip()
+        if head and is_site_notice(line[found.end() :].strip()):
+            return head
+    return line
+
+
+def _drop_site_tail(match: re.Match[str]) -> str:
+    lead = match.group(1)
+    return "" if not lead or _SITE_TAIL_WORDS.search(lead) else match.group(0)
+
+
+def _novel_for_site(match: re.Match[str]) -> str:
+    word = match.group(1)
+    common = word.lower() not in _SITE_ITSELF if word[0].islower() else word in _DETERMINERS
+    return word + match.group(2) + "novel" + match.group(4) if common else match.group(0)
+
+
+def strip_site_notices(text: str) -> str:
+    """Remove the notices a reading site writes into its chapters.
+
+    "This tale has been pilfered from NovelFire. If found on Amazon, kindly
+    file a report.", "Visit NovelFire for the authentic version.", a bare
+    "NovelFire" after a paragraph's last sentence, and the site's name put in
+    place of the word "novel". A notice is a short sentence with no dialogue
+    that names where to read or who took the text together with taking or a
+    call to read or report it; or says the story was taken and asks for a
+    report. It goes whether it is a paragraph of its own or was added to the
+    end of one. Mirrors TextCleaner.StripSiteNotices.
+    """
+    if not (
+        "novel" in text.lower()
+        or _NOTICE_WHERE.search(text)
+        or _NOTICE_ELSEWHERE.search(text)
+        or _NOTICE_THEFT.search(text)
+    ):
+        return text
+    kept: list[str] = []
+    for raw in text.split("\n"):
+        carriage = raw.endswith("\r")
+        line = raw[:-1] if carriage else raw
+        # Notice sentences after the story go first, so a story sentence
+        # sharing their paragraph is kept; then a paragraph that is all
+        # notice goes whole.
+        whole = line
+        for _ in range(3):
+            cut = _cut_trailing_notice(line)
+            if cut == line:
+                break
+            line = cut
+        if is_site_notice(line.strip()) or (
+            line != whole and is_site_notice(whole.strip()) and _notice_signal(line)
+        ):
+            continue
+        line = _SITE_TAIL.sub(_drop_site_tail, line)
+        line = _SITE_FOR_NOVEL.sub(_novel_for_site, line)
+        kept.append(line + "\r" if carriage else line)
+    return "\n".join(kept)
+
+
 _URL_RE = re.compile(r"https?://\S+")
 _WS_BEFORE_NL = re.compile(r"\s+\n")
 _WS_AFTER_NL = re.compile(r"\n\s+")
@@ -159,6 +332,7 @@ def clean_text(text: str, *, remove_links: bool = True, strip_ads: bool = True) 
     if strip_ads:
         for pattern in _AD_PATTERNS:
             text = pattern.sub("", text)
+        text = strip_site_notices(text)
         text = strip_watermarks(text)
 
     stripped_urls = 0

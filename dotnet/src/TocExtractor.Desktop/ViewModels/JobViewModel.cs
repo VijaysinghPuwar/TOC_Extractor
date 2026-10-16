@@ -1037,6 +1037,25 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
             }
         }
 
+        // In the book but not fetched this time: saved by an earlier run, or
+        // printed by the site on the page before it ("Chapter 31/32"), with
+        // no page of its own. Either way it is not still to come.
+        if (!result.Stopped && result.Outcome != PipelineOutcome.Refused)
+        {
+            var missing = result.Missing.ToHashSet();
+            foreach (var row in this.Chapters)
+            {
+                if (row.State is not (ChapterState.Saved or ChapterState.AlreadySaved or ChapterState.Failed) && !missing.Contains(row.Number))
+                {
+                    row.State = ChapterState.AlreadySaved;
+                    if (this.rowsByNumber.TryGetValue(row.Number - 1, out var before) && before.State == ChapterState.Saved)
+                    {
+                        row.Detail = "On the same page as the chapter before it, and saved with it.";
+                    }
+                }
+            }
+        }
+
         this.RefreshProgress();
     }
 

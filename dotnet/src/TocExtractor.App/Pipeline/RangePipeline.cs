@@ -115,16 +115,25 @@ public static class RangePipeline
             if (book.Checkpoint is null)
             {
                 var loaded = Checkpoint.Load(chaptersFolder, observer.Log);
-                if (loaded is not null && (request.Force || loaded.Fingerprint != fingerprint))
+                if (loaded is not null && request.Force)
                 {
-                    if (!request.Force)
+                    loaded.Discard();
+                    loaded = null;
+                }
+                else if (loaded is not null && loaded.Fingerprint != fingerprint)
+                {
+                    if (!SharedBook.SameNovel(loaded.TocUrl, request.Scan.NovelUrl))
                     {
-                        observer.Log($"refusing to resume: {folder} holds progress for a different book or layout. Use Start over.");
+                        observer.Log($"refusing to resume: {folder} holds progress for a different book. Use Start over.");
                         return new RangeResult(PipelineOutcome.Refused, null, [], []);
                     }
 
-                    loaded.Discard();
-                    loaded = null;
+                    // The same book, scanned again: the scan read its title
+                    // from another element, or the book was opened from its
+                    // chapter list rather than its own page. The chapters saved
+                    // before are this book's chapters all the same, and
+                    // refusing them sent people to a new folder each time.
+                    loaded = Adopt(loaded, fingerprint, request.Scan.NovelUrl, layout);
                 }
 
                 book.Checkpoint = loaded ?? new Checkpoint
@@ -139,11 +148,6 @@ public static class RangePipeline
                     },
                 };
             }
-            else if (book.Checkpoint.Fingerprint != fingerprint)
-            {
-                observer.Log($"refusing: another extraction is saving a different layout of this book into {folder} right now.");
-                return new RangeResult(PipelineOutcome.Refused, null, [], []);
-            }
             else if (request.Force)
             {
                 // Throwing away progress another extraction is adding to
@@ -152,6 +156,20 @@ public static class RangePipeline
             }
 
             checkpoint = book.Checkpoint;
+        }
+
+        // A chapter recorded as saved whose file is gone (the folder was
+        // deleted or tidied by hand) is fetched again, not counted as saved:
+        // otherwise it stayed "not saved" however often Save was pressed.
+        int vanished;
+        lock (book.Gate)
+        {
+            vanished = BookFiles.ForgetVanished(checkpoint, chaptersFolder, request.From, request.To).Count;
+        }
+
+        if (vanished > 0)
+        {
+            observer.Log($"{vanished} chapter(s) saved before have no file any more, so they are fetched again.");
         }
 
         // A walk starts from the nearest chapter saved before, as the
@@ -238,7 +256,7 @@ public static class RangePipeline
             }
         }
 
-        using var fetcher = new Fetcher(
+        Fetcher NewFetcher() => new(
             new TidyTitles(source), guard, sink, request.Fetch, limiter, robots,
             onRecord: Persist, onFailure: observer.Failure, onHumanCheck: onHumanCheck, onTrace: observer.Trace);
 
@@ -254,18 +272,45 @@ public static class RangePipeline
         {
             try
             {
-                result = await fetcher.FetchRangeAsync(
-                request.Scan.NovelUrl,
-                request.Plan.Direct,
-                request.Plan.Walks,
-                selectors,
-                IsDone,
-                // A book numbered by place: a walked page is the next place,
-                // whatever its title says.
-                request.Scan.PositionalNumbers ? null : page => ChapterNumbers.FromTitle(page.Title),
-                SavedStepOf,
-                book.Loads,
-                cancellationToken).ConfigureAwait(false);
+                using (var fetcher = NewFetcher())
+                {
+                    result = await fetcher.FetchRangeAsync(
+                        request.Scan.NovelUrl,
+                        request.Plan.Direct,
+                        request.Plan.Walks,
+                        selectors,
+                        IsDone,
+                        // A book numbered by place: a walked page is the next place,
+                        // whatever its title says.
+                        request.Scan.PositionalNumbers ? null : page => ChapterNumbers.FromTitle(page.Title),
+                        SavedStepOf,
+                        book.Loads,
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                // The book's folder deleted or moved while it was saving:
+                // the chapters written before that are gone with it. They
+                // are fetched once more, so the book is whole, rather than
+                // reported missing with no way to get them back.
+                List<NumberedLink> lost;
+                lock (book.Gate)
+                {
+                    var gone = BookFiles.ForgetVanished(checkpoint, chaptersFolder, request.From, request.To).ToHashSet();
+                    lost = [.. request.Plan.Direct.Where(link => gone.Contains(link.Number))];
+                }
+
+                if (lost.Count > 0)
+                {
+                    observer.Log($"{lost.Count} chapter file(s) disappeared while saving (was the folder deleted or moved?); fetching them again.");
+                    using var again = NewFetcher();
+                    var retried = await again.FetchRangeAsync(
+                        request.Scan.NovelUrl, lost, [], selectors, IsDone, null, SavedStepOf, book.Loads, cancellationToken).ConfigureAwait(false);
+                    result = result with
+                    {
+                        Completed = [.. result.Completed, .. retried.Completed],
+                        Failed = [.. result.Failed.Where(f => lost.All(l => l.Number != f.Index)), .. retried.Failed],
+                    };
+                }
             }
             finally
             {
@@ -308,9 +353,18 @@ public static class RangePipeline
 
         // The combined files, from the chapter files, for exactly this range.
         // Not cancellable: after a Stop, these are exactly what should still happen.
+        // A site that put two chapters on one page ("Chapter 31/32") has no
+        // page of its own for the second: it is saved, inside the first.
+        var covered = BookFiles.Covered(saved);
         var missing = Enumerable.Range(request.From, request.To - request.From + 1)
-            .Where(n => !saved.ContainsKey(n)).ToList();
+            .Where(n => !covered.Contains(n)).ToList();
         List<string> files = [];
+
+        // The folder may have been deleted since the chapters were saved.
+        if ((request.WriteText || request.WritePdf) && saved.Count > 0)
+        {
+            Directory.CreateDirectory(folder);
+        }
 
         // The book file only ever holds an unbroken run of chapters, and is
         // named for exactly that run. Asked for 1-50 with chapter 27 failed,
@@ -394,6 +448,35 @@ public static class RangePipeline
 
         var outcome = stopped || result is null || result.Failed.Count > 0 || missing.Count > 0 ? PipelineOutcome.Failed : PipelineOutcome.Ok;
         return new RangeResult(outcome, result, files, missing, stopped) { SameText = sameText };
+    }
+
+    /// <summary>The same book's progress, carried over to the layout this scan found.</summary>
+    private static Checkpoint Adopt(Checkpoint old, string fingerprint, string novelUrl, ChapterLayout layout)
+    {
+        var adopted = new Checkpoint
+        {
+            Path = old.Path,
+            TocUrl = novelUrl,
+            Fingerprint = fingerprint,
+            LinkSet = [.. old.LinkSet],
+            Selectors = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["title"] = layout.TitleSelector,
+                ["content"] = layout.ContentSelector,
+            },
+        };
+
+        foreach (var (url, done) in old.Completed)
+        {
+            adopted.Completed[url] = done;
+        }
+
+        foreach (var (url, failed) in old.Failed)
+        {
+            adopted.Failed[url] = failed;
+        }
+
+        return adopted;
     }
 }
 
@@ -552,8 +635,8 @@ public static partial class BookFiles
 
             var text = File.ReadAllText(path).Replace("\r\n", "\n", StringComparison.Ordinal);
             var split = text.IndexOf("\n\n", StringComparison.Ordinal);
-            var heading = split > 0 ? text[..split].Trim() : done.Title;
             var body = split > 0 ? text[(split + 2)..].Trim() : text.Trim();
+            var heading = ChapterTitles.Tidy(split > 0 ? text[..split].Trim() : done.Title, body);
 
             // Two pages saved under one number: a site's first-chapter link
             // can lead to a cast list or a roster before "Chapter 1". The
@@ -586,10 +669,102 @@ public static partial class BookFiles
             }
 
             run[number] = chapter;
-            last = number;
+            last = Math.Max(number, LastCovered(chapter));
         }
 
         return run;
+    }
+
+    /// <summary>Every chapter number the saved chapters hold, those sharing a page with another included.</summary>
+    public static HashSet<int> Covered(SortedDictionary<int, SavedChapter> saved)
+    {
+        ArgumentNullException.ThrowIfNull(saved);
+        HashSet<int> covered = [];
+        foreach (var (number, chapter) in saved)
+        {
+            for (var n = number; n <= Math.Max(number, LastCovered(chapter)); n++)
+            {
+                covered.Add(n);
+            }
+        }
+
+        return covered;
+    }
+
+    /// <summary>The most chapters one page is taken to hold.</summary>
+    private const int MostOnOnePage = 5;
+
+    /// <summary>
+    /// The last chapter a saved chapter holds: its own number, or a later one
+    /// when the site put several on one page.
+    /// </summary>
+    /// <remarks>
+    /// Read from the heading ("Chapter 31/32", "Chapters 31-32", "Chapter 31
+    /// and 32") or from the story itself, which on such a page starts each
+    /// chapter with its own title line ("Chapter 32: Passing the Imperial
+    /// Examination"). Only a few chapters past its own number count, so a
+    /// story mentioning "chapter 200" of something is never taken for one.
+    /// </remarks>
+    public static int LastCovered(SavedChapter chapter)
+    {
+        ArgumentNullException.ThrowIfNull(chapter);
+        var last = chapter.Number;
+        var span = HeadingSpan().Match(chapter.Heading);
+        if (span.Success
+            && int.TryParse(span.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture, out var a)
+            && int.TryParse(span.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture, out var b)
+            && a == chapter.Number && b > a && b <= a + MostOnOnePage)
+        {
+            last = b;
+        }
+
+        foreach (var line in chapter.Body.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.Length is 0 or > 150)
+            {
+                continue;
+            }
+
+            var opening = TitleOpening().Match(trimmed);
+            if (opening.Success
+                && int.TryParse(opening.Groups[1].Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n)
+                && n > last && n <= chapter.Number + MostOnOnePage && n == last + 1)
+            {
+                last = n;
+            }
+        }
+
+        return last;
+    }
+
+    /// <summary>"Chapter 31/32", "Chapters 31-32", "Chapter 31 &amp; 32", "Ch. 31 and 32".</summary>
+    [System.Text.RegularExpressions.GeneratedRegex(@"^\W*(?:chapters?|chap\.?|ch\.?)\s*(\d{1,6})\s*(?:/|-|–|&|\+|and)\s*(?:chapter\s*)?(\d{1,6})(?!\d)", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex HeadingSpan();
+
+    /// <summary>
+    /// Chapters recorded as saved in <paramref name="from"/>-<paramref name="to"/>
+    /// whose text file is no longer there, taken out of the record so they are
+    /// fetched again. Returns their numbers.
+    /// </summary>
+    public static IReadOnlyList<int> ForgetVanished(Checkpoint checkpoint, string chaptersFolder, int from, int to)
+    {
+        ArgumentNullException.ThrowIfNull(checkpoint);
+        List<int> gone = [];
+        foreach (var (url, done) in checkpoint.Completed.ToList())
+        {
+            if (done.Index < from || done.Index > to
+                || !done.Outputs.TryGetValue(TextExporter.FormatName, out var output)
+                || File.Exists(Path.Combine(chaptersFolder, output.Name)))
+            {
+                continue;
+            }
+
+            checkpoint.Completed.Remove(url);
+            gone.Add(done.Index);
+        }
+
+        return gone;
     }
 
     /// <summary>
@@ -823,9 +998,25 @@ internal sealed class SharedBook : IDisposable
         return null;
     }
 
-    /// <summary>One novel page however it was typed: scheme, "www.", case and a trailing slash aside.</summary>
+    /// <summary>
+    /// One novel however it was opened: scheme, "www.", case and a trailing
+    /// slash aside, and its page or its chapter list alike
+    /// ("/book/x", "/book/x/chapters?page=2&amp;sort_by=new", "/book/x?tab=toc").
+    /// </summary>
     internal static bool SameNovel(string a, string b) =>
         string.Equals(Identity(a), Identity(b), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Query keys that choose a view of one list, never which book it is.</summary>
+    private static readonly HashSet<string> ListViewKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "tab", "page", "sort", "sort_by", "sortby", "order", "orderby", "order_by", "dir",
+    };
+
+    /// <summary>A last path segment that is a book's chapter list rather than the book.</summary>
+    private static readonly HashSet<string> ListSegments = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "chapters", "chapter-list", "chapterlist", "toc", "contents", "all-chapters", "catalog",
+    };
 
     private static string Identity(string url)
     {
@@ -835,7 +1026,17 @@ internal sealed class SharedBook : IDisposable
         }
 
         var host = uri.Host.StartsWith("www.", StringComparison.OrdinalIgnoreCase) ? uri.Host[4..] : uri.Host;
-        return host + uri.PathAndQuery.TrimEnd('/');
+        var path = uri.AbsolutePath.TrimEnd('/');
+        var cut = path.LastIndexOf('/');
+        if (cut > 0 && ListSegments.Contains(path[(cut + 1)..]))
+        {
+            path = path[..cut];
+        }
+
+        var query = string.Join('&', uri.Query.TrimStart('?')
+            .Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Where(pair => !ListViewKeys.Contains(pair.Split('=')[0])));
+        return host + path + (query.Length > 0 ? "?" + query : "");
     }
 
     public void Dispose()

@@ -21,9 +21,29 @@ internal static class Program
             return SelfTest();
         }
 
-        WatchForCrashes();
-        return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        try
+        {
+            Instance = SingleInstance.Claim(AppPaths.DataDirectory);
+        }
+        catch (AlreadyRunningException)
+        {
+            // The copy already open has been asked to show itself.
+            return 0;
+        }
+
+        try
+        {
+            WatchForCrashes();
+            return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        }
+        finally
+        {
+            Instance?.Dispose();
+        }
     }
+
+    /// <summary>This copy's claim to be the one open, on Windows.</summary>
+    internal static SingleInstance? Instance { get; private set; }
 
     /// <summary>
     /// Anything no code caught goes to the app's log with its stack trace, so

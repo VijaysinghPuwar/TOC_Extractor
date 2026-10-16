@@ -587,7 +587,19 @@ public sealed class Fetcher : IDisposable
                         return null;
                     }
 
+                    // A page that never loaded waits longer than the pace
+                    // between pages: on a connection that drops ("read
+                    // ECONNRESET", "connect ETIMEDOUT") a retry a second later
+                    // met the same drop, and the chapter was given up on.
+                    // Jittered within its upper half, so chapters that failed
+                    // together do not come back together.
                     var backoff = this.Backoff(attempt);
+                    var network = NetworkBackoff(attempt) * (0.5 + (0.5 * this.rng.NextDouble()));
+                    if (backoff < network)
+                    {
+                        backoff = network;
+                    }
+
                     this.Trace("retry", index, url, string.Create(
                         System.Globalization.CultureInfo.InvariantCulture,
                         $"attempt {attempt} failed after {clock.Elapsed.TotalSeconds:0.0}s ({exception.GetType().Name}: {exception.Message}); trying again in {backoff.TotalSeconds:0.0}s"));
@@ -654,6 +666,10 @@ public sealed class Fetcher : IDisposable
 
         return page;
     }
+
+    /// <summary>The least wait before loading a page again after it failed to load: 2s, 4s, 8s, up to 20s.</summary>
+    internal static TimeSpan NetworkBackoff(int attempt) =>
+        TimeSpan.FromSeconds(Math.Min(20, 2 * Math.Pow(2, Math.Max(0, attempt - 1))));
 
     /// <summary>Exponential backoff with full jitter, capped at the maximum delay.</summary>
     /// <remarks>

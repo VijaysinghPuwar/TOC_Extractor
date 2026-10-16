@@ -26,7 +26,12 @@ public sealed record SessionSettings
 
     public int Concurrency { get; init; } = 3;
 
-    public int Retries { get; init; } = 2;
+    /// <summary>
+    /// Tries after the first at a chapter that would not load. Four: on a
+    /// connection that drops for half a minute at a time, two retries a few
+    /// seconds apart left chapters unsaved that a third or fourth would get.
+    /// </summary>
+    public int Retries { get; init; } = 4;
 
     public double MinDelaySeconds { get; init; } = 1.2;
 

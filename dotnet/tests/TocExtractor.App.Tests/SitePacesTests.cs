@@ -94,10 +94,11 @@ public sealed class SitePacesTests
     }
 
     [Fact]
-    public void A_single_check_seen_by_the_old_detector_is_forgotten()
+    public void Checks_seen_by_the_old_detector_are_forgotten()
     {
         // What 2.6.2 wrote: novelfire once, over a chapter that said "just a
-        // moment"; ranobes twice.
+        // moment"; ranobes twice. On a real machine novelfire was recorded
+        // twice that way and stayed at a page every 12s for weeks.
         var path = Path.Combine(Scratch.Directory(), "paces.json");
         File.WriteAllText(path, """
             [
@@ -109,7 +110,7 @@ public sealed class SitePacesTests
         var paces = new SitePaces(path);
 
         Assert.False(paces.IsCareful("https://novelfire.net/book/x/chapter-9"));
-        Assert.True(paces.IsCareful("https://ranobes.top/x.html"));
+        Assert.False(paces.IsCareful("https://ranobes.top/x.html"));
 
         // One seen by this version is kept.
         paces.RecordCheck("https://novelfire.net/book/x/chapter-9", DateTimeOffset.Now);
