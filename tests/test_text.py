@@ -293,3 +293,24 @@ def test_clean_text_keeps_ordinary_endings(raw: str) -> None:
 def test_watermarks_are_kept_when_ads_are_kept() -> None:
     raw = _WATERMARKS["strip"][0][0]
     assert clean_text(raw, strip_ads=False).text == raw
+
+
+# Notices reading sites write into chapters, shared with the C# suite so both agree.
+_NOTICES = json.loads(
+    (Path(__file__).parent / "golden" / "site_notices.json").read_text(encoding="utf-8")
+)
+
+
+@pytest.mark.parametrize(("raw", "expected"), _NOTICES["strip"])
+def test_clean_text_strips_site_notices(raw: str, expected: str) -> None:
+    assert clean_text(raw).text == expected
+
+
+@pytest.mark.parametrize("raw", _NOTICES["keep"])
+def test_clean_text_keeps_story_lines_that_mention_theft_or_sites(raw: str) -> None:
+    assert clean_text(raw).text == raw
+
+
+def test_site_notices_are_kept_when_ads_are_kept() -> None:
+    raw = _NOTICES["strip"][0][0]
+    assert clean_text(raw, strip_ads=False).text == raw

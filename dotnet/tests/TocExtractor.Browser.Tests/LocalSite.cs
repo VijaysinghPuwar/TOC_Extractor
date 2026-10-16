@@ -14,6 +14,7 @@ internal sealed class LocalSite : IDisposable
     private readonly HttpListener listener = new();
     private readonly Dictionary<string, Response> routes = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource stopping = new();
+    private readonly List<HttpListenerContext> hanging = [];
 
     internal LocalSite()
     {
@@ -41,6 +42,13 @@ internal sealed class LocalSite : IDisposable
     internal LocalSite Answer(string path, int status, string body)
     {
         this.routes[path] = new Response(status, "text/html; charset=utf-8", body, null);
+        return this;
+    }
+
+    /// <summary>Take the request and never answer it, as a server whose connection hangs does.</summary>
+    internal LocalSite Hang(string path)
+    {
+        this.routes[path] = new Response(-1, "text/plain", "", null);
         return this;
     }
 
@@ -82,6 +90,17 @@ internal sealed class LocalSite : IDisposable
             var response = this.routes.TryGetValue(path, out var found)
                 ? found
                 : new Response(404, "text/plain", "not found", null);
+
+            if (response.Status < 0)
+            {
+                // Held open, unanswered, until the site is disposed.
+                lock (this.hanging)
+                {
+                    this.hanging.Add(context);
+                }
+
+                continue;
+            }
 
             context.Response.StatusCode = response.Status;
             context.Response.ContentType = response.ContentType;

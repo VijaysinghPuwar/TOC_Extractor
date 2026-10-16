@@ -301,11 +301,41 @@ public sealed class FetcherTests
 
         await fetcher.RunAsync(Toc, Selectors, Token);
 
-        // Two backoffs, ceilings of 1s and 2s; full jitter keeps each within its own.
+        // Two backoffs after a page that did not load. Each waits at least as
+        // long as a dropped connection needs (2s, then 4s, jittered within
+        // the upper half of that), not just the pace between pages.
         var backoffs = clock.Sleeps;
         Assert.Equal(2, backoffs.Count);
-        Assert.InRange(backoffs[0], TimeSpan.Zero, TimeSpan.FromSeconds(1));
-        Assert.InRange(backoffs[1], TimeSpan.Zero, TimeSpan.FromSeconds(2));
+        Assert.InRange(backoffs[0], TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2));
+        Assert.InRange(backoffs[1], TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(4));
+        Assert.NotEqual(backoffs[0] * 2, backoffs[1]);
+    }
+
+    [Fact]
+    public async Task A_dropped_connection_is_retried_after_seconds_not_at_the_page_pace()
+    {
+        // From a real log: "read ECONNRESET" retried a second later, three
+        // times, and the chapter was given up while the connection was still down.
+        var pages = Book(1);
+        pages["https://e.com/ch/1"] = new StubPage
+        {
+            Title = "One",
+            Body = "B",
+            FailTimes = 4,
+            Failure = url => new PageException($"{url}: read ECONNRESET"),
+        };
+        var clock = new FakeClock();
+        var stub = new StubPageSource(pages, clock.Read, maxConcurrent: 1);
+        var options = new FetchOptions { Concurrency = 1, Retries = 4, WaitAfterLoad = TimeSpan.Zero, MinDelay = TimeSpan.FromSeconds(1), MaxDelay = TimeSpan.FromSeconds(2) };
+        using var fetcher = new Fetcher(
+            stub, PermissiveGuard.Instance, new NullSink(), options,
+            new RateLimiter(TimeSpan.Zero, clock.Read, clock.SleepAsync),
+            rng: new Random(7), sleep: clock.SleepAsync);
+
+        var result = await fetcher.RunAsync(Toc, Selectors, Token);
+
+        Assert.Single(result.Completed);
+        Assert.True(clock.Sleeps.Sum(s => s.TotalSeconds) >= 15, $"waited {clock.Sleeps.Sum(s => s.TotalSeconds)}s in all");
     }
 
     // -- politeness composition ----------------------------------------------

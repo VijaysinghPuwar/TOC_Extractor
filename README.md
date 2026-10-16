@@ -253,7 +253,10 @@ same window; press **Back** to return. Changes save as you make them.
   fresh.
 - **Text**: keep links in the text, and remove ad markers. Removing ad markers
   also removes the site-name watermarks some sites hide at the end of a
-  paragraph in look-alike letters, and broken characters (shown as �).
+  paragraph in look-alike letters, broken characters (shown as �), and the
+  notices sites write into chapters ("This tale has been pilfered from
+  NovelFire. If found on Amazon, kindly file a report.", "Visit NovelFire for
+  the authentic version.", a bare "NovelFire" after a sentence).
 - **For audiobooks (text to speech)**: leave chapter numbers and titles out
   of the TXT and PDF books and **Copy text**, so a voice goes straight into
   the story (a title the site repeats at the top of the text goes too); and
@@ -541,6 +544,48 @@ nothing is overwritten. The log mentions it.
   address check. Closing that needs control the browser does not offer.
 
 ## Version history
+
+**2.6.7** (2026-10-16)
+
+From a month of a real Windows 11 machine's log (23,879 rows, 2.4.0 to
+2.6.6) and every chapter it saved (4,229 files).
+- Fixed: the notices NovelFire writes into chapters ("This tale has been
+  pilfered from NovelFire. If found on Amazon, kindly file a report.", and
+  dozens of rewordings) are removed with the ad markers, whether a paragraph
+  of their own or added after a story sentence, along with a bare
+  "NovelFire" after a paragraph's last sentence and "View the correct
+  content at NovelFire". Where the site put its own name for the word
+  "novel" ("who loves reading NovelFires") the word is put back. pandanovel.co
+  serves NovelFire's chapters, so it is covered too. Recognised by what a
+  notice is made of, not by a list: on the 4,229 chapters every notice went
+  and no story line did. Both implementations give byte-identical text.
+- Fixed: saving more chapters of a book into the folder that already held
+  some of it could fail. A rescan that read the title from another element
+  was refused ("This folder holds another book's progress"); the same book
+  opened from its chapter list (`/chapters?page=&sort_by=`) went into a
+  second folder; chapters whose files were deleted by hand stayed "not
+  saved" however often Save was pressed; and deleting the book's folder while
+  it was saving stopped the save with "Could not find a part of the path".
+  Each now saves into the same folder, fetches what is missing, and makes a
+  deleted folder again.
+- Fixed: a site that put two chapters on one page ("Chapter 31/32") made the
+  book file stop at 31, with the 18 chapters after it left out. Such a page
+  now counts for both.
+- Fixed: on a connection that drops now and then, chapters and whole scans
+  were lost. A page that does not answer no longer hangs until it times out
+  (and no longer leaves "unobserved" errors in the log); chapters are tried
+  five times, seconds apart rather than one; the novel page and list pages
+  are tried three times (a 2,443-chapter book had listed 601).
+- Fixed: a book waiting on a check when the browser was replaced crashed
+  ("Cannot access a disposed object").
+- Fixed: chapter titles showed `&#039;` and `&quot;`, which a voice reads
+  aloud; a title that was a stray sentence is replaced by the chapter's own
+  "Chapter 34: ..." line.
+- Faster: novelfire.net was read at a page every 12 seconds for weeks because
+  of two checks the pre-2.6.3 detector imagined. Such records are forgotten;
+  a real check teaches the careful pace again.
+- Opening the app a second time brings the open window forward instead of
+  starting a copy that cannot use the browser.
 
 **2.6.6** (2026-10-11)
 

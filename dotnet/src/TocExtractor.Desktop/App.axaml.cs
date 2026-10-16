@@ -32,6 +32,18 @@ public sealed partial class App : Application
             UseTheme(viewModel.Theme);
             window.DataContext = viewModel;
             desktop.MainWindow = window;
+
+            // Opened again from the Start menu: this window comes forward.
+            Program.Instance?.Listen(() => Dispatcher.UIThread.Post(() =>
+            {
+                if (window.WindowState == Avalonia.Controls.WindowState.Minimized)
+                {
+                    window.WindowState = Avalonia.Controls.WindowState.Normal;
+                }
+
+                window.Show();
+                window.Activate();
+            }));
             desktop.ShutdownRequested += (_, _) => viewModel.Shutdown();
             desktop.Exit += (_, _) => AppLog.Close();
             _ = Autopilot.Plan() is { } plan

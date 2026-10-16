@@ -65,7 +65,18 @@ public sealed class TextExporter(
 
         var body = header + record.Text + "\n";
         var path = Path.Combine(outputDirectory, allocated.Name);
-        await File.WriteAllTextAsync(path, body, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await File.WriteAllTextAsync(path, body, cancellationToken).ConfigureAwait(false);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            // The folder was deleted or moved while chapters were being saved
+            // into it. Made again, so the run carries on instead of stopping
+            // with every remaining chapter unsaved.
+            Directory.CreateDirectory(outputDirectory);
+            await File.WriteAllTextAsync(path, body, cancellationToken).ConfigureAwait(false);
+        }
 
         if (keepForMerge)
         {

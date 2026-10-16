@@ -56,8 +56,46 @@ public sealed partial class NovelScanner(
     private static readonly string FindChapters = Script("find-chapters.js");
     private static readonly string FindContent = Script("find-content.js");
 
+    /// <summary>Tries at a page that fails to load for a reason that passes (a reset or a timeout).</summary>
+    internal const int LoadAttempts = 3;
+
     private readonly HashSet<string> visited = new(StringComparer.Ordinal);
     private readonly List<string> notes = [];
+    private Func<TimeSpan, CancellationToken, Task> delay = Task.Delay;
+
+    /// <summary>How the scan waits before trying a page again; replaced in tests.</summary>
+    internal Func<TimeSpan, CancellationToken, Task> Delay
+    {
+        get => this.delay;
+        init => this.delay = value;
+    }
+
+    /// <summary>Where the novel page sent the scan when it lives on another site, or null.</summary>
+    public string? MovedTo { get; private set; }
+
+    /// <summary>The page reached, when it is on another site than the one asked for ("www." aside).</summary>
+    internal static string? MovedSite(string asked, string reached)
+    {
+        if (!Uri.TryCreate(asked, UriKind.Absolute, out var from) || !Uri.TryCreate(reached, UriKind.Absolute, out var to)
+            || to.Scheme is not ("http" or "https"))
+        {
+            return null;
+        }
+
+        static string Bare(Uri uri) => uri.Host.StartsWith("www.", StringComparison.OrdinalIgnoreCase) ? uri.Host[4..] : uri.Host;
+        return string.Equals(Bare(from), Bare(to), StringComparison.OrdinalIgnoreCase) ? null : to.AbsoluteUri;
+    }
+
+    /// <summary>A failure that trying again can get past: a timeout, or a dropped or refused connection.</summary>
+    internal static bool IsTransient(PageException failure) =>
+        failure is PageTimeoutException
+        || (failure.GetType() == typeof(PageException)
+            && !failure.Message.Contains("browser was closed", StringComparison.OrdinalIgnoreCase)
+            && !failure.Message.Contains("has been closed", StringComparison.OrdinalIgnoreCase)
+            && !failure.Message.Contains("not started", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>A few seconds, then longer: long enough for a dropped connection to come back.</summary>
+    internal static TimeSpan TransientWait(int attempt) => TimeSpan.FromSeconds(attempt == 1 ? 3 : 8);
 
     // Keyed by address, not number: a site can give two chapters one number.
     private readonly Dictionary<string, ChapterLink> links = new(StringComparer.Ordinal);
@@ -87,6 +125,17 @@ public sealed partial class NovelScanner(
                 : this.robotsRefused
                     ? this.Result(novelUrl, "", RobotsRefused)
                     : this.Result(novelUrl, "", problem: "The novel page could not be read. See the activity log for why.");
+        }
+
+        // pandanovel.co answers every book page with a redirect to the same
+        // book on novelfire.net. The page then shows under the address asked
+        // for while every link on it is to the other site, so only one
+        // chapter of 68 was found. The book is that site's: the session
+        // scans it there, with that site's robots.txt and pace.
+        if (MovedSite(novelUrl, first.FinalUrl) is { } moved)
+        {
+            this.MovedTo = moved;
+            return this.Result(novelUrl, first.Probe.Title, $"This book is on {new Uri(moved).Host}: {moved}");
         }
 
         if (first.Probe.Challenge || first.Probe.SignIn)
@@ -152,17 +201,24 @@ public sealed partial class NovelScanner(
     {
         try
         {
-            try
+            for (var attempt = 1; ; attempt++)
             {
-                return await probe.ProbeAsync(url, script, settle, cancellationToken).ConfigureAwait(false);
-            }
-            catch (PageTimeoutException slow)
-            {
-                // A chapter that times out is tried again, and the novel page
-                // deserves the same: in a 25-book run a site took 30 seconds
-                // once, and the whole book was lost to one slow page.
-                log?.Invoke($"scan: {url} was slow ({slow.Message}); trying once more");
-                return await probe.ProbeAsync(url, script, settle, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    return await probe.ProbeAsync(url, script, settle, cancellationToken).ConfigureAwait(false);
+                }
+                catch (PageException failed) when (attempt < LoadAttempts && IsTransient(failed))
+                {
+                    // A chapter that fails to load is tried again, and the
+                    // novel page and list pages deserve the same: in a 25-book
+                    // run a site took 30 seconds once, and on a connection that
+                    // drops now and then ("read ECONNRESET", "connect
+                    // ETIMEDOUT") one reset lost the whole book, or left a
+                    // 2,443-chapter book listing 601.
+                    var wait = TransientWait(attempt);
+                    log?.Invoke($"scan: could not read {url} ({failed.Message.Split('\n')[0].Trim()}); trying again in {wait.TotalSeconds:0}s");
+                    await this.delay(wait, cancellationToken).ConfigureAwait(false);
+                }
             }
         }
         catch (HumanCheckException first) when (onHumanCheck is not null)
@@ -338,7 +394,7 @@ public sealed partial class NovelScanner(
             var added = this.locked is null ? 0 : this.Merge(found);
             log?.Invoke($"scan: read {url}: {found.Chapters.Count} chapter link(s)"
                 + (this.locked is null ? "" : $", {added} new"));
-            return new ListPage(url, found);
+            return new ListPage(url, found, finalUrl);
         }
         catch (HumanCheckException)
         {
@@ -724,7 +780,7 @@ public sealed partial class NovelScanner(
         PositionalNumbers = this.positional,
     };
 
-    private sealed record ListPage(string Url, ListProbe Probe);
+    private sealed record ListPage(string Url, ListProbe Probe, string FinalUrl = "");
 
     internal sealed record ListProbe
     {

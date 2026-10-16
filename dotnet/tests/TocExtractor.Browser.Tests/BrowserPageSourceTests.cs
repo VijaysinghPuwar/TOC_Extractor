@@ -212,6 +212,77 @@ public sealed class BrowserPageSourceTests
         Assert.Equal(2, source.OpenTabs);
     }
 
+    [Fact]
+    public async Task A_book_waiting_for_a_person_when_the_browser_is_replaced_ends_without_a_crash()
+    {
+        // From a real log: the browser was replaced while a book waited on a
+        // check, and handing the check's tab back to the old pool released a
+        // disposed semaphore, crashing the save.
+        using var site = new LocalSite();
+        site.Html("/check", """
+            <html><head><title>Just a moment...</title></head>
+            <body><div class="cf-turnstile"></div>Verify you are human</body></html>
+            """);
+        var source = await BrowserPageSource.StartAsync(
+            Guard,
+            new BrowserPageSourceOptions { MaxPages = 1, GrowTo = 4, OperationBudget = TimeSpan.FromSeconds(20) },
+            Token);
+        await Assert.ThrowsAsync<HumanCheckException>(() => source.LoadChapterAsync(site.Url("/check"), ".t", ".c", Token));
+
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Token);
+        var waiting = source.WaitForPersonAsync(TimeSpan.FromMinutes(1), stop.Token);
+        await Task.Delay(500, Token);
+        await source.DisposeAsync();
+        await stop.CancelAsync();
+
+        var ended = await Record.ExceptionAsync(() => waiting);
+        Assert.True(ended is null or OperationCanceledException, $"ended with {ended}");
+    }
+
+    [Fact]
+    public async Task A_server_that_never_answers_fails_the_page_and_leaves_no_unobserved_exception()
+    {
+        // From a real log: "Timeout 25000ms exceeded" fifteen times as
+        // unobserved task exceptions, each with a page hung until its own
+        // navigation gave up.
+        using var site = new LocalSite();
+        site.Hang("/hang");
+        List<AggregateException> unobserved = [];
+        void Collect(object? sender, UnobservedTaskExceptionEventArgs e)
+        {
+            lock (unobserved)
+            {
+                unobserved.Add(e.Exception);
+            }
+        }
+
+        TaskScheduler.UnobservedTaskException += Collect;
+        try
+        {
+            await using (var source = await BrowserPageSource.StartAsync(
+                Guard, new BrowserPageSourceOptions { MaxPages = 1, OperationBudget = TimeSpan.FromSeconds(4) }, Token))
+            {
+                await Assert.ThrowsAnyAsync<PageException>(() => source.LoadChapterAsync(site.Url("/hang"), ".t", ".c", Token));
+                await Task.Delay(TimeSpan.FromSeconds(6), Token);
+            }
+
+            for (var i = 0; i < 3; i++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+
+            lock (unobserved)
+            {
+                Assert.DoesNotContain(unobserved, e => e.Flatten().InnerExceptions.Any(inner => inner is TimeoutException || inner.Message.Contains("Timeout", StringComparison.Ordinal)));
+            }
+        }
+        finally
+        {
+            TaskScheduler.UnobservedTaskException -= Collect;
+        }
+    }
+
     [Theory]
     [InlineData("Her body tensed for just a moment.")]
     [InlineData("They passed the security check at the gate. Just a moment later, the alarm rang.")]

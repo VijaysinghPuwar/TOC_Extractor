@@ -118,11 +118,13 @@ public sealed class SitePaces(string? path)
             if (path is not null && File.Exists(path)
                 && JsonSerializer.Deserialize<List<SitePace>>(File.ReadAllText(path), Options) is { } list)
             {
-                // A site the old detector saw ask only once may never have
-                // asked: it slowed novelfire.net to a page every 12s over a
-                // chapter whose story said "just a moment". It starts fast
-                // again; a real check teaches the careful pace once more.
-                return new(list.Where(site => !string.IsNullOrWhiteSpace(site.Site) && (site.Checks > 1 || site.Detector >= CurrentDetector)).ToDictionary(site => site.Site, StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
+                // What the old detector saw may never have been a check: it
+                // slowed novelfire.net to a page every 12s over chapters whose
+                // story said "just a moment", once and then again, and the
+                // second sighting kept the site slow for weeks after (every
+                // 50 chapters taking ten minutes instead of two). Such a site
+                // starts fast again; a real check teaches the careful pace once more.
+                return new(list.Where(site => !string.IsNullOrWhiteSpace(site.Site) && site.Detector >= CurrentDetector).ToDictionary(site => site.Site, StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
             }
         }
         catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException)

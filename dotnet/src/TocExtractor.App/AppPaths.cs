@@ -13,7 +13,15 @@ public static class AppPaths
     public const string AppName = "TOC Extractor";
 
     /// <summary>The per-user application folder.</summary>
-    public static string DataDirectory => DataDirectoryFor(OperatingSystem.IsMacOS());
+    /// <remarks>
+    /// TOC_EXTRACTOR_HOME, when set, moves it and the browser profile
+    /// elsewhere, so an end-to-end test of a build runs beside the person's own
+    /// copy of the app without sharing its log, settings or open browser.
+    /// </remarks>
+    public static string DataDirectory => Home ?? DataDirectoryFor(OperatingSystem.IsMacOS());
+
+    private static string? Home =>
+        Environment.GetEnvironmentVariable("TOC_EXTRACTOR_HOME") is { Length: > 0 } home ? Path.GetFullPath(home) : null;
 
     /// <summary>
     /// Where the browser and its profile live: the data folder, except on
@@ -29,7 +37,7 @@ public static class AppPaths
     public static string MachineDirectory => MachineDirectoryFor(OperatingSystem.IsWindows());
 
     /// <summary>The persistent browser profile, which keeps a sign-in between runs.</summary>
-    public static string BrowserProfile => Path.Combine(MachineDirectory, "browser-profile");
+    public static string BrowserProfile => Path.Combine(Home ?? MachineDirectory, "browser-profile");
 
     /// <summary>Where Chromium is downloaded on first launch.</summary>
     public static string Browsers => Path.Combine(MachineDirectory, "browsers");
@@ -76,8 +84,13 @@ public static class AppPaths
     /// does not download Chromium again. Does nothing once moved, and nothing
     /// off Windows.
     /// </summary>
-    public static void MoveMachineFilesOutOfRoaming() =>
-        MoveMachineFiles(DataDirectory, MachineDirectory);
+    public static void MoveMachineFilesOutOfRoaming()
+    {
+        if (Home is null)
+        {
+            MoveMachineFiles(DataDirectory, MachineDirectory);
+        }
+    }
 
     internal static void MoveMachineFiles(string from, string to)
     {

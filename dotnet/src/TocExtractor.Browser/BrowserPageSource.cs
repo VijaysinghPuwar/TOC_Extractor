@@ -154,6 +154,11 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
     private int people;
     private volatile bool closed;
 
+    // Set first thing when the source is torn down: a book still waiting on a
+    // person, or a page still loading, hands its tab back afterwards, and the
+    // pool's semaphore is gone by then.
+    private volatile bool disposed;
+
     // The site being read, for telling its own cookies from ad networks'.
     private string? siteUrl;
     private IBrowser? browser;
@@ -233,7 +238,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                     await popup.CloseAsync().ConfigureAwait(false);
                 }
             }
-            catch (PlaywrightException)
+            catch (Exception ignored) when (ignored is PlaywrightException or TimeoutException)
             {
                 // Already gone.
             }
@@ -324,7 +329,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             {
                 await slot.Page.CloseAsync().ConfigureAwait(false);
             }
-            catch (PlaywrightException)
+            catch (Exception ignored) when (ignored is PlaywrightException or TimeoutException)
             {
                 // Crashed tabs can refuse to close; it is out of the pool either way.
             }
@@ -348,6 +353,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
 
     public async ValueTask DisposeAsync()
     {
+        this.disposed = true;
         await this.stopTidying.CancelAsync().ConfigureAwait(false);
         try
         {
@@ -370,7 +376,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             {
                 await closable.DisposeAsync().ConfigureAwait(false);
             }
-            catch (PlaywrightException)
+            catch (Exception ignored) when (ignored is PlaywrightException or TimeoutException)
             {
                 // Teardown must not mask whatever caused it.
             }
@@ -396,6 +402,34 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
     // -- routing -------------------------------------------------------------
 
     private async Task HandleRouteAsync(PageSlot slot, IRoute route)
+    {
+        // Playwright never awaits a route handler's task, so anything thrown
+        // here was only ever reported by the finalizer, as an unobserved
+        // exception, while the request it held hung. Every failure ends the
+        // request instead.
+        try
+        {
+            await this.RouteAsync(slot, route).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is PlaywrightException or TimeoutException or ObjectDisposedException or InvalidOperationException)
+        {
+            if (IsMainFrame(route.Request) && slot.Navigation is { } nav)
+            {
+                nav.TransportError ??= exception.Message;
+            }
+
+            try
+            {
+                await route.AbortAsync("failed").ConfigureAwait(false);
+            }
+            catch (Exception again) when (again is PlaywrightException or TimeoutException or ObjectDisposedException or InvalidOperationException)
+            {
+                // Already answered, or the tab is gone: nothing is waiting on it.
+            }
+        }
+    }
+
+    private async Task RouteAsync(PageSlot slot, IRoute route)
     {
         var request = route.Request;
         var verdict = this.screen.Check(request.Url);
@@ -451,7 +485,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         {
             return request.Frame.ParentFrame is null;
         }
-        catch (PlaywrightException)
+        catch (Exception ignored) when (ignored is PlaywrightException or TimeoutException)
         {
             // No frame to ask (a worker's request): not the page itself.
             return false;
@@ -477,8 +511,13 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                 response = await route.FetchAsync(
                     new RouteFetchOptions { Url = url, MaxRedirects = 0 }).ConfigureAwait(false);
             }
-            catch (PlaywrightException exception)
+            catch (Exception exception) when (exception is PlaywrightException or TimeoutException)
             {
+                // A fetch that never answers ends in System.TimeoutException,
+                // not a PlaywrightException. Uncaught, the route was left
+                // unanswered, so the page sat until its own navigation timed
+                // out, and the exception surfaced later as an unobserved task.
+                //
                 // The connection was refused, reset, or never answered. That is
                 // a transport failure, not a policy one, and the difference
                 // decides whether the chapter is retried: a blocked page never
@@ -642,8 +681,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
 
         slot.HeldForPerson = false;
         slot.IdleSince = Environment.TickCount64;
-        this.pool.Add(slot);
-        this.available.Release();
+        this.Return(slot);
     }
 
     // -- tidying ------------------------------------------------------------
@@ -660,7 +698,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             {
                 await this.TidyAsync(closeAfter, cancellationToken).ConfigureAwait(false);
             }
-            catch (PlaywrightException)
+            catch (Exception ignored) when (ignored is PlaywrightException or TimeoutException)
             {
                 // A tab or the browser went away mid-tidy; the next look starts over.
             }
@@ -719,7 +757,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                     {
                         await slot.Page.CloseAsync().ConfigureAwait(false);
                     }
-                    catch (PlaywrightException)
+                    catch (Exception ignored) when (ignored is PlaywrightException or TimeoutException)
                     {
                         // Already gone.
                     }
@@ -731,10 +769,10 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                 {
                     try
                     {
-                        await slot.Page.GotoAsync("about:blank").ConfigureAwait(false);
+                        await slot.Page.GotoAsync("about:blank", new PageGotoOptions { Timeout = 5000 }).ConfigureAwait(false);
                         slot.Emptied = true;
                     }
-                    catch (PlaywrightException)
+                    catch (Exception ignored) when (ignored is PlaywrightException or TimeoutException)
                     {
                         // A tab that cannot be emptied is healed when it is next used.
                     }
@@ -750,8 +788,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             // Back in the order they came, with their idle times kept.
             foreach (var slot in idle)
             {
-                this.pool.Add(slot);
-                this.available.Release();
+                this.Return(slot);
             }
 
             this.growing.Release();
@@ -816,8 +853,31 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         foreach (var slot in back)
         {
             slot.HeldForPerson = false;
-            this.pool.Add(slot);
+            this.Return(slot);
+        }
+    }
+
+    /// <summary>Put a tab back in the pool, unless the source has been torn down.</summary>
+    /// <remarks>
+    /// Measured on a real run: the browser was replaced while a book waited
+    /// for a check, the wait then handed its tab back, and releasing the old
+    /// pool's disposed semaphore crashed that book's save.
+    /// </remarks>
+    private void Return(PageSlot slot)
+    {
+        if (this.disposed)
+        {
+            return;
+        }
+
+        this.pool.Add(slot);
+        try
+        {
             this.available.Release();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Torn down between the check and the release: nothing to return to.
         }
     }
 
@@ -846,7 +906,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                 "(sel) => { try { const el = document.querySelector(sel); return !!el && (el.innerText || '').trim().length >= 500; } catch { return false; } }",
                 selector).ConfigureAwait(false);
         }
-        catch (PlaywrightException)
+        catch (Exception ignored) when (ignored is PlaywrightException or TimeoutException)
         {
             return false;
         }
@@ -1023,7 +1083,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                     await page.BringToFrontAsync().ConfigureAwait(false);
                     return true;
                 }
-                catch (PlaywrightException)
+                catch (Exception ignored) when (ignored is PlaywrightException or TimeoutException)
                 {
                     // Gone as it was found; look at the next.
                 }
@@ -1082,7 +1142,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                         await page.BringToFrontAsync().ConfigureAwait(false);
                         shown = true;
                     }
-                    catch (PlaywrightException)
+                    catch (Exception ignored) when (ignored is PlaywrightException or TimeoutException)
                     {
                         // Closed as it was found; the next look shows another.
                     }
@@ -1118,7 +1178,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         {
             return await page.EvaluateAsync<bool>(LockedScript).ConfigureAwait(false);
         }
-        catch (PlaywrightException)
+        catch (Exception ignored) when (ignored is PlaywrightException or TimeoutException)
         {
             return false;
         }
@@ -1147,7 +1207,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                 {
                     await page.BringToFrontAsync().ConfigureAwait(false);
                 }
-                catch (PlaywrightException)
+                catch (Exception ignored) when (ignored is PlaywrightException or TimeoutException)
                 {
                     // Closed as it was found; the wait itself still stands.
                 }
@@ -1177,7 +1237,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         {
             return await page.EvaluateAsync<bool>(script).ConfigureAwait(false);
         }
-        catch (PlaywrightException)
+        catch (Exception ignored) when (ignored is PlaywrightException or TimeoutException)
         {
             return false;
         }
@@ -1189,7 +1249,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         {
             return await page.EvaluateAsync<bool>(HumanCheckScript).ConfigureAwait(false);
         }
-        catch (PlaywrightException)
+        catch (Exception ignored) when (ignored is PlaywrightException or TimeoutException)
         {
             // Mid-navigation, which is what passing a check looks like.
             return false;
@@ -1215,7 +1275,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             var cookies = await this.context.CookiesAsync([siteUrl]).ConfigureAwait(false);
             return cookies.Any(cookie => IsAccountCookie(cookie.Name));
         }
-        catch (PlaywrightException)
+        catch (Exception ignored) when (ignored is PlaywrightException or TimeoutException)
         {
             // The browser was closed.
             return false;
@@ -1474,7 +1534,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                 ? href
                 : null;
         }
-        catch (PlaywrightException)
+        catch (Exception ignored) when (ignored is PlaywrightException or TimeoutException)
         {
             // An invalid selector is the person's to fix; the preview says so.
             return null;
@@ -1490,7 +1550,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                 "selector => { const box = document.querySelector(selector); return box ? box.innerText : null; }",
                 selector).ConfigureAwait(false);
         }
-        catch (PlaywrightException)
+        catch (Exception ignored) when (ignored is PlaywrightException or TimeoutException)
         {
             // The check is skipped for this chapter; the chapter itself is not.
             return null;
@@ -1530,7 +1590,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             {
                 return FirstLine(await page.TitleAsync().ConfigureAwait(false));
             }
-            catch (PlaywrightException)
+            catch (Exception ignored) when (ignored is PlaywrightException or TimeoutException)
             {
                 return "";
             }

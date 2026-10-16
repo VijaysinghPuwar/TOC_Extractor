@@ -160,6 +160,170 @@ public static partial class TextCleaner
         return "block-" + (rune.Value >> 7).ToString(CultureInfo.InvariantCulture);
     }
 
+    /// <summary>A reading site's name as it brands itself: NovelFire, PandaNovel, LightNovelPub, novelfire.net.</summary>
+    private const string SiteName =
+        @"(?-i:(?:[A-Z][a-z]+)*Novel(?:[A-Z][a-z]+)+|(?:[A-Z][a-z]+)+Novel\b|\b[a-z]*novel[a-z]*\.(?:com|net|org|co|me|io)\b)";
+
+    /// <summary>Where a notice sends the reader, or names as the thief.</summary>
+    [GeneratedRegex(@"\bamazon\b|\boriginal (?:site|version|source|platform|website|translation)\b|\bauthentic version\b|\bgenuine (?:story|version)\b|\breal experience\b|" + SiteName, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex NoticeWhere { get; }
+
+    /// <summary>A vaguer "where", which counts only beside a call to read or report.</summary>
+    [GeneratedRegex(@"\belsewhere\b|\banother (?:site|website)\b|\bother (?:sites|websites)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex NoticeElsewhere { get; }
+
+    [GeneratedRegex(@"\b(?:stolen|steal\w*|pilfer\w*|purloin\w*|unlawful\w*|illicit\w*|misappropriat\w*|lifted|unauthori[sz]ed|theft|infringement|violation)\b|\btaken without\b|\bwithout (?:the author['’]?s? )?(?:consent|permission|approval|authori[sz]ation)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex NoticeTheft { get; }
+
+    [GeneratedRegex(@"\b(?:report\w*|visit\w*|support\w*|check it out|head to|help (?:the author|them|out)|ensure the author|read(?:ing)? (?:it|this|the|their|on|from))\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex NoticeAction { get; }
+
+    [GeneratedRegex(@"\b(?:story|stories|tale|narrative|novel|content|book|chapter|text|work|translation)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex NoticeSubject { get; }
+
+    /// <summary>A site's tag after the last sentence of a paragraph: " NovelFire", " View the correct content at NovelFire".</summary>
+    [GeneratedRegex(@"(?<=[.!?~…""'”’\])])[ \t]+((?:[^.!?\n""“”]{0,60}?[ \t])?)" + SiteName + @"\.?[ \t]*$", RegexOptions.Multiline | RegexOptions.CultureInvariant)]
+    private static partial Regex SiteTail { get; }
+
+    [GeneratedRegex(@"\b(?:content|read|visit|view|find|chapter|version|latest|available|exclusive|update|on|at)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex SiteTailWords { get; }
+
+    /// <summary>The site's name put in place of the word "novel": "who loves reading NovelFires".</summary>
+    [GeneratedRegex(@"\b([A-Za-z][a-z'’]*)([ \t]+)((?:[A-Z][a-z]+)*Novel(?:[A-Z][a-z]+?)+)(s?)\b", RegexOptions.CultureInvariant)]
+    private static partial Regex SiteForNovel { get; }
+
+    /// <summary>Words before a site's name that mean the site itself is meant ("on NovelFire"), not a novel.</summary>
+    private static readonly HashSet<string> SiteItself = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "on", "at", "from", "to", "via", "by", "visit", "visiting", "and", "or", "with", "for",
+    };
+
+    /// <summary>A sentence's first word that makes the name after it a thing, not the site: "The NovelFire I'd been reading".</summary>
+    private static readonly HashSet<string> Determiners = new(StringComparer.Ordinal)
+    {
+        "The", "A", "An", "This", "That", "These", "Those", "My", "His", "Her", "Their", "Your", "Our", "Its", "Every", "Each", "Some",
+    };
+
+    /// <summary>Where a sentence ends and the next begins, inside one paragraph.</summary>
+    [GeneratedRegex(@"[.!?…~][""'”’)\]]*[ \t]+(?=[A-Z“""])", RegexOptions.CultureInvariant)]
+    private static partial Regex SentenceBreak { get; }
+
+    /// <summary>
+    /// Removes the notices a reading site writes into its chapters: "This tale
+    /// has been pilfered from NovelFire. If found on Amazon, kindly file a
+    /// report.", "Visit NovelFire for the authentic version.", a bare
+    /// "NovelFire" after a paragraph's last sentence, and the site's name put
+    /// in place of the word "novel".
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The notices are written in endless variations (stolen, pilfered,
+    /// purloined, unlawfully lifted, misappropriated...), a new one every few
+    /// chapters, so they are recognised by what they are made of, not matched
+    /// against a list. A notice is a short sentence with no dialogue in it that
+    /// names where to read or who took the text (Amazon, the original site, a
+    /// "...Novel..." site name) together with taking or a call to read or
+    /// report it; or that says the story was taken and asks for a report.
+    /// Story sentences that only mention something stolen, or only a report,
+    /// have one of those and not both.
+    /// </para>
+    /// <para>
+    /// A notice is removed whether it is a paragraph of its own or was added to
+    /// the end of one. Mirrors text.py.
+    /// </para>
+    /// </remarks>
+    public static string StripSiteNotices(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        if (!(text.Contains("novel", StringComparison.OrdinalIgnoreCase)
+            || NoticeWhere.IsMatch(text)
+            || NoticeElsewhere.IsMatch(text)
+            || NoticeTheft.IsMatch(text)))
+        {
+            return text;
+        }
+
+        var lines = text.Split('\n');
+        var kept = new List<string>(lines.Length);
+        foreach (var raw in lines)
+        {
+            var carriage = raw.EndsWith('\r');
+            var line = carriage ? raw[..^1] : raw;
+
+            // Notice sentences after the story go first, so a story sentence
+            // sharing their paragraph is kept; then a paragraph that is all
+            // notice goes whole.
+            var whole = line;
+            for (var i = 0; i < 3; i++)
+            {
+                var cut = CutTrailingNotice(line);
+                if (cut == line)
+                {
+                    break;
+                }
+
+                line = cut;
+            }
+
+            if (IsSiteNotice(line.Trim())
+                || (line != whole && IsSiteNotice(whole.Trim()) && NoticeSignal(line)))
+            {
+                continue;
+            }
+
+            line = SiteTail.Replace(line, match =>
+                match.Groups[1].Length == 0 || SiteTailWords.IsMatch(match.Groups[1].Value) ? string.Empty : match.Value);
+            line = SiteForNovel.Replace(line, match =>
+                (char.IsLower(match.Groups[1].Value[0]) ? !SiteItself.Contains(match.Groups[1].Value) : Determiners.Contains(match.Groups[1].Value))
+                    ? match.Groups[1].Value + match.Groups[2].Value + "novel" + match.Groups[4].Value
+                    : match.Value);
+            kept.Add(carriage ? line + "\r" : line);
+        }
+
+        return string.Join('\n', kept);
+    }
+
+    /// <summary>Whether one sentence or paragraph is a site's notice. See <see cref="StripSiteNotices"/>.</summary>
+    internal static bool IsSiteNotice(string text)
+    {
+        if (text.Length is < 15 or > 260
+            || text.IndexOfAny(['"', '“', '”']) >= 0
+            || text[0] is '[' or '【' or '\''
+            || text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length > 45)
+        {
+            return false;
+        }
+
+        var theft = NoticeTheft.IsMatch(text);
+        var action = NoticeAction.IsMatch(text);
+        return (NoticeWhere.IsMatch(text) && (theft || action))
+            || (action && NoticeElsewhere.IsMatch(text) && NoticeSubject.IsMatch(text))
+            || (theft && action && text.Length <= 160 && NoticeSubject.IsMatch(text));
+    }
+
+    /// <summary>Whether a sentence carries any part of a notice: a site, elsewhere, taking, or a call to act.</summary>
+    /// <remarks>A short lead-in about the story itself ("Love this story?") belongs to the notice after it.</remarks>
+    private static bool NoticeSignal(string text) =>
+        NoticeWhere.IsMatch(text) || NoticeElsewhere.IsMatch(text) || NoticeTheft.IsMatch(text) || NoticeAction.IsMatch(text)
+        || (text.Trim().Length <= 40 && NoticeSubject.IsMatch(text));
+
+    /// <summary>The paragraph without a notice added after its story: the last sentence or two, when they are one.</summary>
+    private static string CutTrailingNotice(string line)
+    {
+        var breaks = SentenceBreak.Matches(line);
+        for (var k = Math.Max(0, breaks.Count - 2); k < breaks.Count; k++)
+        {
+            var at = breaks[k].Index + breaks[k].Length;
+            var head = line[..at].TrimEnd();
+            if (head.Length > 0 && IsSiteNotice(line[at..].Trim()))
+            {
+                return head;
+            }
+        }
+
+        return line;
+    }
+
     /// <param name="text">Raw text as read out of the page.</param>
     /// <param name="removeLinks">
     /// When true (the default), URLs are deleted from the prose and counted.
@@ -173,6 +337,7 @@ public static partial class TextCleaner
         {
             text = AdsBy.Replace(text, string.Empty);
             text = SponsoredContent.Replace(text, string.Empty);
+            text = StripSiteNotices(text);
             text = StripWatermarks(text);
         }
 

@@ -126,7 +126,10 @@ public sealed class NovelSession : INovelService
     public SessionSettings Pace { get; set; } = new() { Concurrency = 1, MinDelaySeconds = 2, MaxDelaySeconds = 4 };
 
     /// <summary>Find the book's chapters from its page. Opens the browser the first time.</summary>
-    public async Task<ScanResult> ScanAsync(string novelUrl, Action<string>? log, CancellationToken cancellationToken = default)
+    public Task<ScanResult> ScanAsync(string novelUrl, Action<string>? log, CancellationToken cancellationToken = default) =>
+        this.ScanAsync(novelUrl, log, followMove: true, cancellationToken);
+
+    private async Task<ScanResult> ScanAsync(string novelUrl, Action<string>? log, bool followMove, CancellationToken cancellationToken)
     {
         var url = Normalise(novelUrl);
         var source = await this.EnsureSourceAsync(url, cancellationToken).ConfigureAwait(false);
@@ -145,6 +148,17 @@ public sealed class NovelSession : INovelService
                 (IPageProbe)source, this.host.Guard, this.robots.Policy, this.robots.Limiter,
                 this.SignedIn, log, this.WaitForPersonAsync);
             scan = await scanner.ScanAsync(url, cancellationToken).ConfigureAwait(false);
+
+            // The book lives on another site (pandanovel.co sends every
+            // book to novelfire.net): scan it there, once, so its own
+            // robots.txt, pace and chapter list are the ones used.
+            if (followMove && scanner.MovedTo is { } moved)
+            {
+                log?.Invoke($"scan: {new Uri(url).Host} sends this book to {new Uri(moved).Host}; scanning it there");
+                var there = await this.ScanAsync(moved, log, followMove: false, cancellationToken).ConfigureAwait(false);
+                return there with { Notes = [$"{new Uri(url).Host} sends this book to {moved}, so it is read and saved from there.", .. there.Notes] };
+            }
+
             this.host.KeepScan(url, this.SignedIn, this, scan, DateTimeOffset.UtcNow);
         }
 

@@ -170,20 +170,64 @@ public sealed class ScanCheckTests
     }
 
     [Fact]
-    public async Task A_novel_page_slow_twice_is_given_up_on()
+    public async Task A_novel_page_slow_every_time_is_given_up_on()
     {
-        var probe = new SlowFirst(new OnlyTheNovelPage(), slowTimes: 2);
+        var probe = new SlowFirst(new OnlyTheNovelPage(), slowTimes: 3);
+        List<TimeSpan> waits = [];
         var scanner = new Scanning.NovelScanner(
             probe, new Core.Politeness.UrlGuard(resolver: new PublicResolver()),
-            Core.Politeness.RobotsPolicy.Missing("https://e.com"), new Core.Politeness.RateLimiter(TimeSpan.Zero));
+            Core.Politeness.RobotsPolicy.Missing("https://e.com"), new Core.Politeness.RateLimiter(TimeSpan.Zero))
+        {
+            Delay = (wait, _) =>
+            {
+                waits.Add(wait);
+                return Task.CompletedTask;
+            },
+        };
 
         var scan = await scanner.ScanAsync("https://e.com/novel", Token);
 
         Assert.Empty(scan.Chapters);
-        Assert.Equal(2, probe.NovelPageTries);
+        Assert.Equal(3, probe.NovelPageTries);
+        Assert.Equal([TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(8)], waits);
     }
 
-    private sealed class SlowFirst(Core.Pages.IPageProbe inner, int slowTimes) : Core.Pages.IPageProbe
+    [Fact]
+    public async Task A_novel_page_whose_connection_drops_twice_is_still_read()
+    {
+        // From a real log: "connect ETIMEDOUT" once on the novel page, and the
+        // whole book failed with "The novel page could not be read".
+        var probe = new SlowFirst(new OnlyTheNovelPage(), slowTimes: 2, failure: url => new Core.Pages.PageException($"{url}: connect ETIMEDOUT 104.21.29.216:443"));
+        var scanner = new Scanning.NovelScanner(
+            probe, new Core.Politeness.UrlGuard(resolver: new PublicResolver()),
+            Core.Politeness.RobotsPolicy.Missing("https://e.com"), new Core.Politeness.RateLimiter(TimeSpan.Zero))
+        {
+            Delay = (_, _) => Task.CompletedTask,
+        };
+
+        var scan = await scanner.ScanAsync("https://e.com/novel", Token);
+
+        Assert.Equal(3, probe.NovelPageTries);
+        Assert.DoesNotContain("could not be read", scan.Problem ?? "", StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_closed_browser_is_not_tried_again()
+    {
+        var probe = new SlowFirst(new OnlyTheNovelPage(), slowTimes: 5, failure: url => new Core.Pages.PageException($"{url}: could not inspect the page: Target page, context or browser has been closed"));
+        var scanner = new Scanning.NovelScanner(
+            probe, new Core.Politeness.UrlGuard(resolver: new PublicResolver()),
+            Core.Politeness.RobotsPolicy.Missing("https://e.com"), new Core.Politeness.RateLimiter(TimeSpan.Zero))
+        {
+            Delay = (_, _) => Task.CompletedTask,
+        };
+
+        await scanner.ScanAsync("https://e.com/novel", Token);
+
+        Assert.Equal(1, probe.NovelPageTries);
+    }
+
+    private sealed class SlowFirst(Core.Pages.IPageProbe inner, int slowTimes, Func<string, Core.Pages.PageException>? failure = null) : Core.Pages.IPageProbe
     {
         public int NovelPageTries { get; private set; }
 
@@ -191,7 +235,7 @@ public sealed class ScanCheckTests
         {
             if (url == "https://e.com/novel" && ++this.NovelPageTries <= slowTimes)
             {
-                throw new Core.Pages.PageTimeoutException($"{url}: navigation timed out");
+                throw failure?.Invoke(url) ?? new Core.Pages.PageTimeoutException($"{url}: navigation timed out");
             }
 
             return inner.ProbeAsync(url, script, settle, cancellationToken);

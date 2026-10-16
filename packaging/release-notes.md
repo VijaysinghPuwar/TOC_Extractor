@@ -1,4 +1,4 @@
-Cleaner text: the hidden site-name tags some sites add to copied chapters, spelled in look-alike letters such as a bold R or a Greek A, are now removed, along with broken characters. Also in this release, from 2.6.5: long titles, errors and file names no longer spill out of their boxes, and the window repeats less.
+Cleaner books and steadier saving, from a month of one Windows 11 machine's log and every chapter it saved: the "stolen from NovelFire, report it on Amazon" notices are gone from the text, saving more chapters into a book's folder works every time, and a connection that drops no longer costs chapters.
 
 ## Download
 
@@ -14,7 +14,22 @@ Download only the file for your computer; "Source code" is for developers.
 
 **Windows:** run the setup and follow the steps; no administrator needed. It adds TOC Extractor to the Start menu. If SmartScreen appears, choose More info, then Run anyway.
 
-## What is new in 2.6.6
+## What is new in 2.6.7
+
+From a real Windows 11 machine (16 cores, 15.8 GB): its log of 23,879 rows from 2.4.0 to 2.6.6, and the 4,229 chapters it saved.
+
+- **Fixed: "This tale has been pilfered from NovelFire. If found on Amazon, kindly file a report."** NovelFire writes notices like this into its chapters, reworded every few chapters (stolen, purloined, unlawfully lifted, misappropriated...), and a voice reads them aloud. With Remove ad markers on (the default) they are now removed, whether a paragraph of their own or added after a story sentence, along with a bare "NovelFire" after a paragraph and "View the correct content at NovelFire". Where the site put its own name in place of the word "novel" ("who loves reading NovelFires") the word is put back. pandanovel.co serves NovelFire's chapters, so its books are cleaned the same way. On the machine's 4,229 saved chapters: 54 kinds of notice removed, not one line of story.
+- **Fixed: saving more chapters of a book into the same folder.** Four ways it went wrong, all from the log and the folders on disk: a rescan that found the title in another place on the page was refused ("This folder holds another book's progress"); the same book opened from its chapter list went into a second folder; chapters whose files had been deleted stayed "not saved" however often Save was pressed; and deleting the book's folder while it saved stopped both saves with "Could not find a part of the path". Each now saves into the folder, fetches what is missing, and makes a deleted folder again.
+- **Fixed: a page holding two chapters ("Chapter 31/32") cut the book short.** The book file stopped at chapter 31 and left the 18 chapters after it out. Such a page now counts for both chapters.
+- **Fixed: a connection that drops now and then cost chapters and whole scans.** A page whose server never answered hung until its time limit and left "unobserved" errors in the log; it now fails at once and is tried again. Chapters are tried five times, seconds apart instead of one. The novel page and its list pages are tried three times: one dropped connection had failed a whole scan, and a 2,443-chapter book had listed only 601.
+- **Fixed: a crash when the browser was replaced while a book waited on a check** ("Cannot access a disposed object").
+- **Fixed: titles like "Lu Yun&#039;s crazy outburst!"**, which a voice reads as "ampersand hash"; and a title that was really a stray sentence is replaced by the chapter's own "Chapter 34: ..." line.
+- **Faster on novelfire.net:** it had been read at a page every 12 seconds for weeks, 10 minutes for 50 chapters, because of two checks the old (before 2.6.3) detector imagined. Those records are forgotten; a real check teaches the careful pace again.
+- **Opening the app twice** brings the open window forward, instead of starting a second copy that cannot use the browser.
+
+Tested before release: 3,048 automated tests, with new ones for each fault above (those for the crashes and the same-folder saves were first run against 2.6.6, and failed there with the errors from the log); the stress test of 40 extractions of 50 chapters at once, then 10 more ranges, three times, all saved and checked (3 min 53 s, against 4 min 59 s for 2.6.6 on the same machine minutes apart); and live saves from pandanovel.co (68 of 68 chapters found, where 2.6.6 found 1), novelfire.net (a 2,452-chapter book listed in full) and fanmtl.com. royalroad.com and freewebnovel.com put a Cloudflare check in front of automated browsers, which you can pass in the app's browser window; wtr-lab.com does not allow tools like this app.
+
+## New in 2.6.6
 
 A 429-chapter book was checked word for word against its site: every chapter matched. That check found text the site itself carries that no reader wants.
 
