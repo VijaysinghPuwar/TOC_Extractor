@@ -15,8 +15,10 @@ namespace TocExtractor.Desktop.Tests;
 /// real window's view models, a real Chromium and each site's real
 /// robots.txt. Off unless TOC_LIVE is set: it needs the internet and takes
 /// minutes. TOC_LIVE_SITES, as URLs joined by ";;", replaces the list;
-/// TOC_LIVE_HEADFUL shows the browser, as the app does; TOC_LIVE_FROM saves
-/// from that chapter instead of the first.
+/// an entry "url@from-to" saves that range; TOC_LIVE_PARALLEL saves them all
+/// at once; TOC_LIVE_HEADFUL shows the browser, as the app does; TOC_LIVE_FROM saves
+/// from that chapter instead of the first, TOC_LIVE_COUNT that many chapters
+/// instead of five, and TOC_LIVE_OUT into that folder.
 /// </summary>
 public sealed class LiveSitesTests
 {
@@ -45,7 +47,7 @@ public sealed class LiveSitesTests
         var headful = Environment.GetEnvironmentVariable("TOC_LIVE_HEADFUL") is { Length: > 0 };
 
         var scratch = Harness.Scratch();
-        var output = Path.Combine(scratch, "books");
+        var output = Environment.GetEnvironmentVariable("TOC_LIVE_OUT") is { Length: > 0 } into ? into : Path.Combine(scratch, "books");
         var environment = NovelEnvironment.Default(_ => { }) with
         {
             StartSource = async (guard, options, token) =>
@@ -65,12 +67,18 @@ public sealed class LiveSitesTests
             log: log);
         await viewModel.StartAsync();
 
-        var report = new StringBuilder();
-        foreach (var book in books)
+        // An entry can name its own range, "url@from-to"; TOC_LIVE_PARALLEL
+        // saves every book at once, as a person running several does.
+        var parallel = Environment.GetEnvironmentVariable("TOC_LIVE_PARALLEL") is { Length: > 0 };
+        var lines = new string[books.Length];
+        async Task RunAsync(int index, JobViewModel job)
         {
-            var job = viewModel.Jobs.Count == 1 && viewModel.SelectedJob!.NovelUrl.Length == 0
-                ? viewModel.SelectedJob
-                : NewJob(viewModel);
+            var entry = books[index];
+            var at = entry.LastIndexOf('@');
+            var range = at > 0 && entry[(at + 1)..].Split('-') is [var a, var b]
+                && int.TryParse(a, System.Globalization.CultureInfo.InvariantCulture, out var first)
+                && int.TryParse(b, System.Globalization.CultureInfo.InvariantCulture, out var last) ? (first, last) : ((int, int)?)null;
+            var book = range is null ? entry : entry[..at];
             job.OutputDirectory = output;
             job.Text = true;
             job.NovelUrl = book;
@@ -81,10 +89,15 @@ public sealed class LiveSitesTests
             {
                 // TOC_LIVE_FROM saves from a later chapter where the book has
                 // it: chapters no list shows are reached another way.
-                var from = int.TryParse(Environment.GetEnvironmentVariable("TOC_LIVE_FROM"), System.Globalization.CultureInfo.InvariantCulture, out var later)
-                    && later > job.FirstChapter && later + 2 <= job.LastChapter ? later : job.FirstChapter;
+                var from = range?.Item1 ?? (int.TryParse(Environment.GetEnvironmentVariable("TOC_LIVE_FROM"), System.Globalization.CultureInfo.InvariantCulture, out var later)
+                    && later > job.FirstChapter && later + 2 <= job.LastChapter ? later : job.FirstChapter);
                 job.From = from;
-                job.To = Math.Min(from + 4, job.LastChapter);
+
+                // TOC_LIVE_COUNT saves that many instead of five, to check a
+                // long run's text chapter by chapter.
+                var count = int.TryParse(Environment.GetEnvironmentVariable("TOC_LIVE_COUNT"), System.Globalization.CultureInfo.InvariantCulture, out var asked)
+                    && asked > 0 ? asked : 5;
+                job.To = Math.Min(range?.Item2 ?? (from + count - 1), job.LastChapter);
                 clock.Restart();
                 await job.SaveCommand.ExecuteAsync(null);
                 if (job.Stage == Stage.Idle && job.Problem?.Contains("Press Save again", StringComparison.Ordinal) == true)
@@ -95,8 +108,33 @@ public sealed class LiveSitesTests
                 line += $" | save {job.From}-{job.To} in {clock.Elapsed.TotalSeconds:0}s: {job.Status} {job.Problem}";
             }
 
-            report.AppendLine(line.Replace('\n', ' '));
+            lines[index] = line.Replace('\n', ' ');
             Console.WriteLine("live: " + line);
+        }
+
+        List<Task> running = [];
+        for (var index = 0; index < books.Length; index++)
+        {
+            var job = viewModel.Jobs.Count == 1 && viewModel.SelectedJob!.NovelUrl.Length == 0
+                ? viewModel.SelectedJob
+                : NewJob(viewModel);
+            var work = RunAsync(index, job);
+            if (parallel)
+            {
+                running.Add(work);
+                await Task.Delay(500);
+            }
+            else
+            {
+                await work;
+            }
+        }
+
+        await Task.WhenAll(running);
+        var report = new StringBuilder();
+        foreach (var line in lines)
+        {
+            report.AppendLine(line);
         }
 
         var path = Environment.GetEnvironmentVariable("TOC_LIVE_REPORT") is { Length: > 0 } named ? named : Path.Combine(scratch, "live report.txt");

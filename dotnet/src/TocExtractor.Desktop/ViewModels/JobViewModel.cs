@@ -616,6 +616,10 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
                 {
                     PipelineOutcome.Ok => string.Create(CultureInfo.InvariantCulture, $"Done. {saved} of {total} saved."),
                     PipelineOutcome.Refused => "This folder holds another book's progress. Tick Start over, or choose another folder.",
+                    _ when result.NotOnSite.Count > 0 && result.NotOnSite.Count == result.Missing.Count => string.Create(CultureInfo.InvariantCulture,
+                        $"{saved} of {total} saved. The site has no page for chapter(s) {BookFiles.Ranges(result.NotOnSite)}."),
+                    _ when result.NotOnSite.Count > 0 => string.Create(CultureInfo.InvariantCulture,
+                        $"{saved} of {total} saved, {result.Missing.Count} not. The site has no page for chapter(s) {BookFiles.Ranges(result.NotOnSite)}; press Save again to retry the rest."),
                     _ => string.Create(CultureInfo.InvariantCulture,
                         $"{saved} of {total} saved, {result.Missing.Count} not. Press Save again to retry the rest."),
                 };

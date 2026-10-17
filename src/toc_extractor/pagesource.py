@@ -58,6 +58,16 @@ class ChapterLocked(PageError):
     """
 
 
+class PageNotFound(PageError):
+    """The site answered that it has no page at the address (HTTP 404 or 410).
+
+    Never read as a chapter. fanmtl's "not found" page goes back a page in
+    the tab's history three seconds later, and with tabs shared between
+    books that was another book's chapter: it was saved as this one. Tried
+    once more, as a busy site can answer wrongly once, then reported missing.
+    """
+
+
 class SelectorNotFound(PageError):
     """A selector matched nothing on an otherwise healthy page.
 

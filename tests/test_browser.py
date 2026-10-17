@@ -27,6 +27,7 @@ from toc_extractor.pagesource import (
     ChapterLocked,
     PageBlocked,
     PageError,
+    PageNotFound,
     SelectorNotFound,
 )
 from toc_extractor.politeness import RejectionReason, UrlGuard, UrlVerdict
@@ -164,6 +165,27 @@ class Handler(BaseHTTPRequestHandler):
             self._html("<html><body>slow down</body></html>", status=429)
         elif self.path == "/gone":
             self._html("<html><body>not here</body></html>", status=404)
+        elif self.path == "/other-book/210":
+            self._html(
+                '<h1 class="t">Chapter 210 Dragon Beard Needle</h1>'
+                '<article class="c"><p>Another book.</p></article>'
+            )
+        elif self.path == "/bounces-back":
+            self._html(
+                "<title>Message hint</title><h1>:(</h1>"
+                "<script>setTimeout(() => history.go(-1), 300);</script>",
+                status=404,
+            )
+        elif self.path == "/goes-elsewhere":
+            self._html(
+                '<h1 class="t">Chapter 7</h1>'
+                "<script>setTimeout(() => { location.href = '/other-book/210'; }, 300);</script>"
+            )
+        elif self.path == "/rewrites-address":
+            self._html(
+                '<h1 class="t">Chapter 8</h1><article class="c"><p>Eight.</p></article>'
+                "<script>history.replaceState(null, '', '/rewrites-address/the-gate');</script>"
+            )
         elif self.path == "/with-broken-ad":
             self._html(CHAPTER_WITH_BROKEN_AD_HTML)
         elif self.path == "/ad-frame":
@@ -638,13 +660,48 @@ async def test_a_busy_site_is_retryable_not_a_missing_selector(server: str, path
     assert time.monotonic() - started < 10, "the busy page waited out the selector timeout"
 
 
-async def test_a_missing_page_is_still_a_missing_selector(server: str) -> None:
-    """Only "try again later" statuses are retryable. A 404 stays what it was."""
-    async with BrowserPageSource(guard=loopback_permitted(), navigation_timeout_ms=1_000) as source:
-        with pytest.raises(SelectorNotFound):
+async def test_a_missing_page_is_reported_missing_not_busy(server: str) -> None:
+    """Only "try again later" statuses are busy. A 404 says the site has no
+    page there, at once, without waiting out the selector timeout."""
+    async with BrowserPageSource(
+        guard=loopback_permitted(), navigation_timeout_ms=20_000
+    ) as source:
+        started = time.monotonic()
+        with pytest.raises(PageNotFound):
             await source.load_chapter(
                 f"{server}/gone", title_selector="h1.t", content_selector="article.c"
             )
+    assert time.monotonic() - started < 10, "the missing page waited out the selector timeout"
+
+
+async def test_a_not_found_page_that_goes_back_is_not_saved_as_the_chapter(server: str) -> None:
+    """fanmtl: no chapter 206, and its "not found" page goes back a page after
+    a moment. The tab had just shown another book's chapter 210, and that was
+    saved as this book's."""
+    async with BrowserPageSource(guard=loopback_permitted(), max_pages=1) as source:
+        await source.load_chapter(
+            f"{server}/other-book/210", title_selector="h1.t", content_selector="article.c"
+        )
+        with pytest.raises(PageNotFound, match="HTTP 404"):
+            await source.load_chapter(
+                f"{server}/bounces-back", title_selector="h1.t", content_selector="article.c"
+            )
+
+
+async def test_a_page_that_goes_elsewhere_while_it_is_read_is_not_saved(server: str) -> None:
+    async with BrowserPageSource(guard=loopback_permitted(), max_pages=1) as source:
+        with pytest.raises(PageError, match="went on to"):
+            await source.load_chapter(
+                f"{server}/goes-elsewhere", title_selector="h1.t", content_selector="article.c"
+            )
+
+
+async def test_a_page_that_only_rewrites_its_address_still_loads(server: str) -> None:
+    async with BrowserPageSource(guard=loopback_permitted()) as source:
+        page = await source.load_chapter(
+            f"{server}/rewrites-address", title_selector="h1.t", content_selector="article.c"
+        )
+    assert page.body.strip() == "Eight."
 
 
 async def test_a_refused_ad_frame_does_not_fail_its_chapter(server: str) -> None:

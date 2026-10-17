@@ -211,6 +211,28 @@ public sealed class FetcherTests
         Assert.Equal(1, result.Failed[0].Attempts);
     }
 
+    /// <summary>
+    /// A site that says it has no page is asked once more, as a busy site can
+    /// answer wrongly once, then the chapter is reported missing, never saved.
+    /// </summary>
+    [Fact]
+    public async Task A_page_the_site_does_not_have_is_tried_once_more_then_reported_missing()
+    {
+        var pages = Book(3);
+        pages["https://e.com/ch/2"] = new StubPage { FailTimes = 99, Failure = message => new PageNotFoundException(message) };
+        pages["https://e.com/ch/3"] = new StubPage { Title = "Chapter 3", Body = "Three.", FailTimes = 1, Failure = message => new PageNotFoundException(message) };
+        var (fetcher, _, _) = Build(pages, new FetchOptions { Concurrency = 1, WaitAfterLoad = TimeSpan.Zero, Retries = 5 });
+        using var _guard = fetcher;
+
+        var result = await fetcher.RunAsync(Toc, Selectors, Token);
+
+        var missing = Assert.Single(result.Failed);
+        Assert.Equal(2, missing.Index);
+        Assert.Equal(2, missing.Attempts);
+        Assert.Equal("not_found", missing.Reason);
+        Assert.Equal([1, 3], result.Completed.Select(c => c.Index));
+    }
+
     /// <summary>The page loaded fine; retrying spends attempts on a certainty.</summary>
     [Fact]
     public async Task Selector_not_found_is_not_retried()

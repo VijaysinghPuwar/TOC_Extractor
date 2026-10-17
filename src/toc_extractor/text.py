@@ -20,9 +20,11 @@ NAME_MAX_CHARS = 150
 # component that the filesystem rejects.
 NAME_MAX_BYTES = 255
 
+# Whole words only: inside a word it took "ads by example" out of "who leads
+# by example", and "heads by", "roads by" and "threads by" with it.
 _AD_PATTERNS = (
-    re.compile(r"Ads by\s+\w+", re.IGNORECASE),
-    re.compile(r"Sponsored\s+Content", re.IGNORECASE),
+    re.compile(r"\bAds by\s+\w+", re.IGNORECASE),
+    re.compile(r"\bSponsored\s+Content\b", re.IGNORECASE),
 )
 # Some sites tag copied chapters with the source site's name spelled in
 # look-alike characters from other alphabets (a bold R, a Greek A, a
@@ -84,6 +86,18 @@ def _family(ch: str) -> str:
     return f"block-{cp >> 7}"
 
 
+def _is_cjk(char: str) -> bool:
+    code = ord(char)
+    return (
+        0x3040 <= code <= 0x30FF
+        or 0x3400 <= code <= 0x4DBF
+        or 0x4E00 <= code <= 0x9FFF
+        or 0xAC00 <= code <= 0xD7AF
+        or 0xF900 <= code <= 0xFAFF
+        or 0x20000 <= code <= 0x2FFFF
+    )
+
+
 def _is_watermark(token: str, before: str) -> bool:
     if token in _WATERMARK_WORDS:
         return True
@@ -94,6 +108,10 @@ def _is_watermark(token: str, before: str) -> bool:
         return False
     shapes = _graphemes(token)
     if any(not (s[0].isalpha() or unicodedata.category(s[0]) in _SYMBOLS) for s in shapes):
+        return False
+    # Chinese, Japanese and Korean cannot pass for Latin letters, so they are
+    # never a look-alike tag: "Won't say who. \u51f8" is the author's.
+    if any(_is_cjk(s[0]) for s in shapes):
         return False
     # At least one letter. The letterlike block (U+2100-214F) holds
     # look-alikes such as a prescription R, so it counts as letters here.
@@ -135,14 +153,25 @@ _NOTICE_WHERE = re.compile(
 _NOTICE_ELSEWHERE = re.compile(
     r"\belsewhere\b|\banother (?:site|website)\b|\bother (?:sites|websites)\b", re.IGNORECASE
 )
+# "Lifted" alone is a story's eyes and hands ("she lifted her eyes"), and
+# "head to" a turned head: with "reading the book" they removed story
+# sentences. A notice's taking is "lifted from", its call "head to" a site.
 _NOTICE_THEFT = re.compile(
     r"\b(?:stolen|steal\w*|pilfer\w*|purloin\w*|unlawful\w*|illicit\w*|misappropriat\w*"
-    r"|lifted|unauthori[sz]ed|theft|infringement|violation)\b|\btaken without\b"
+    r"|unauthori[sz]ed|theft|infringement|violation)\b|\b(?:taken|lifted) (?:without|from)\b"
     r"|\bwithout (?:the author['\u2019]?s? )?(?:consent|permission|approval|authori[sz]ation)\b",
     re.IGNORECASE,
 )
+# A notice asks: "kindly file a report", "please report it", "if found on Amazon".
+_NOTICE_REQUEST = re.compile(
+    r"\b(?:please|kindly)\b|\bif (?:you )?(?:found|find|see|seen|spot|spotted"
+    r"|encounter\w*|come across|came across)\b",
+    re.IGNORECASE,
+)
 _NOTICE_ACTION = re.compile(
-    r"\b(?:report\w*|visit\w*|support\w*|check it out|head to|help (?:the author|them|out)"
+    r"\b(?:report\w*|visit\w*|support\w*|check it out"
+    r"|(?<!\bhis )(?<!\bher )(?<!\btheir )(?<!\bits )(?<!\bmy )(?<!\byour )(?<!\bour )"
+    r"(?<!\bthe )(?<!\ba )head to|help (?:the author|them|out)"
     r"|ensure the author|read(?:ing)? (?:it|this|the|their|on|from))\b",
     re.IGNORECASE,
 )
@@ -206,8 +235,17 @@ def is_site_notice(text: str) -> bool:
         return False
     theft = bool(_NOTICE_THEFT.search(text))
     action = bool(_NOTICE_ACTION.search(text))
+    # Amazon is a rainforest as well as a shop, and a report is news as well
+    # as a request: "a report given by 'One'... an SS+ dungeon in the south of
+    # Amazon" was a story paragraph, and it was removed. Named alone, Amazon
+    # counts beside taking, or a call that asks.
+    where = [m.group(0) for m in _NOTICE_WHERE.finditer(text)]
+    only_amazon = all(w.lower() == "amazon" for w in where)
     return (
-        (bool(_NOTICE_WHERE.search(text)) and (theft or action))
+        (
+            bool(where)
+            and (theft or (action and (not only_amazon or bool(_NOTICE_REQUEST.search(text)))))
+        )
         or (action and bool(_NOTICE_ELSEWHERE.search(text)) and bool(_NOTICE_SUBJECT.search(text)))
         or (theft and action and len(text) <= 160 and bool(_NOTICE_SUBJECT.search(text)))
     )
@@ -322,6 +360,67 @@ class CleanedText:
     stripped_urls: int
 
 
+# An HTML entity left in the text as letters: "know&#8230;" as a site
+# double-escaped it. A fixed set, so both implementations decode the same.
+_LITERAL_ENTITY = re.compile(
+    r"&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|nbsp|amp|quot|lt|gt|apos|hellip|mdash|ndash"
+    r"|lsquo|rsquo|ldquo|rdquo);"
+)
+# A formatting tag shown as letters: "<em>Almost there,</em>". Only bare tags,
+# so "<The Authority...>" stays.
+_LITERAL_TAG = re.compile(r"</?(?:em|i|b|strong|u|s|br|p)[ \t]*/?>", re.IGNORECASE)
+# A line that is only "&nbsp;": a site's empty paragraph, escaped once too often.
+_ENTITY_ONLY_LINE = re.compile(r"^[ \t]*(?:&(?:amp;)*nbsp;[ \t]*)+(?:\n|$)", re.MULTILINE)
+_NAMED_ENTITIES = {
+    "&nbsp;": " ",
+    "&amp;": "&",
+    "&quot;": '"',
+    "&lt;": "<",
+    "&gt;": ">",
+    "&apos;": "'",
+    "&hellip;": "\u2026",
+    "&mdash;": "\u2014",
+    "&ndash;": "\u2013",
+    "&lsquo;": "\u2018",
+    "&rsquo;": "\u2019",
+    "&ldquo;": "\u201c",
+    "&rdquo;": "\u201d",
+}
+
+
+def _entity(match: re.Match[str]) -> str:
+    entity = match.group(0)
+    if entity in _NAMED_ENTITIES:
+        return _NAMED_ENTITIES[entity]
+    hexadecimal = entity[2] in "xX"
+    code = int(entity[3:-1] if hexadecimal else entity[2:-1], 16 if hexadecimal else 10)
+    if (
+        code == 0
+        or 0xD800 <= code <= 0xDFFF
+        or code > 0x10FFFF
+        or (code < 0x20 and code not in (9, 10))
+    ):
+        return entity
+    return " " if code == 0xA0 else chr(code)
+
+
+def decode_literal_entities(text: str) -> str:
+    """Entities a site left in its text as letters: "&nbsp;", "know&#8230;",
+    "it&amp;#8217;s", and formatting tags it shows as letters ("<em>Almost
+    there,</em>"). The page shows them as written and a voice reads them
+    aloud. Decoded twice for a double escape. Kept identical to
+    TextCleaner.DecodeLiteralEntities in C#."""
+    if "&" not in text:
+        return _LITERAL_TAG.sub("", text) if "<" in text else text
+    text = _ENTITY_ONLY_LINE.sub("", text)
+    for _ in range(2):
+        decoded = _LITERAL_ENTITY.sub(_entity, text)
+        if decoded == text:
+            break
+        text = decoded
+    return _LITERAL_TAG.sub("", text)
+
+
 def clean_text(text: str, *, remove_links: bool = True, strip_ads: bool = True) -> CleanedText:
     """Normalise extracted body text.
 
@@ -330,6 +429,7 @@ def clean_text(text: str, *, remove_links: bool = True, strip_ads: bool = True) 
     collapses, which is why removing a URL on its own line leaves no blank gap.
     """
     if strip_ads:
+        text = decode_literal_entities(text)
         for pattern in _AD_PATTERNS:
             text = pattern.sub("", text)
         text = strip_site_notices(text)

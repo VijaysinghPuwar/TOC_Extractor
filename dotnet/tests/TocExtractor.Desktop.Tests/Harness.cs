@@ -85,6 +85,9 @@ internal sealed class FakeNovelService : INovelService
 
     public HashSet<int> Failing { get; } = [];
 
+    /// <summary>Chapters the fake site says it has no page for.</summary>
+    public HashSet<int> NotOnSite { get; } = [];
+
     /// <summary>When set, each chapter arrives checked against its page, as a real session's do.</summary>
     public bool Audited { get; set; }
 
@@ -168,6 +171,13 @@ internal sealed class FakeNovelService : INovelService
             }
 
             var url = $"https://novel.example/book/the-lighthouse/{n}";
+            if (this.NotOnSite.Contains(n))
+            {
+                observer.Failure(new FailedChapter(n, url, "not_found", "the site has no page here (HTTP 404)", 2));
+                missing.Add(n);
+                continue;
+            }
+
             if (this.Failing.Contains(n))
             {
                 observer.Failure(new FailedChapter(n, url, "selector_not_found", "article matched nothing", 1));
@@ -200,7 +210,10 @@ internal sealed class FakeNovelService : INovelService
         }
 
         var run = new Core.Models.RunResult(NovelUrl, new Core.Links.LinkTally(saved.Count, [.. saved.Select(record => record.RequestedUrl)]), Completed: saved);
-        return new RangeResult(missing.Count > 0 ? PipelineOutcome.Failed : PipelineOutcome.Ok, run, files, missing);
+        return new RangeResult(missing.Count > 0 ? PipelineOutcome.Failed : PipelineOutcome.Ok, run, files, missing)
+        {
+            NotOnSite = [.. missing.Where(this.NotOnSite.Contains)],
+        };
     }
 
     public Task BeginSignInAsync(string novelUrl, CancellationToken cancellationToken = default) => Task.CompletedTask;

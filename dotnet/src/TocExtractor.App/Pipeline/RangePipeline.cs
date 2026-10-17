@@ -54,6 +54,9 @@ public sealed record RangeResult(
 {
     /// <summary>Chapters in the range saved with exactly the same text as another, grouped: a page served twice.</summary>
     public IReadOnlyList<IReadOnlyList<int>> SameText { get; init; } = [];
+
+    /// <summary>Missing chapters the site said it has no page for: saving again will not fetch them.</summary>
+    public IReadOnlyList<int> NotOnSite { get; init; } = [];
 }
 
 /// <summary>Writes a finished range as one book, in PDF.</summary>
@@ -441,13 +444,19 @@ public static class RangePipeline
             }
         }
 
-        if (missing.Count > 0)
+        List<int> notOnSite = [.. missing.Where(n => result?.Failed.Any(f => f.Index == n && f.Reason == "not_found") == true)];
+        if (notOnSite.Count > 0)
         {
-            observer.Log($"Not saved: chapter(s) {BookFiles.Ranges(missing)}. Press Save again to fetch them.");
+            observer.Log($"The site has no page for chapter(s) {BookFiles.Ranges(notOnSite)}.");
+        }
+
+        if (missing.Count > notOnSite.Count)
+        {
+            observer.Log($"Not saved: chapter(s) {BookFiles.Ranges([.. missing.Except(notOnSite)])}. Press Save again to fetch them.");
         }
 
         var outcome = stopped || result is null || result.Failed.Count > 0 || missing.Count > 0 ? PipelineOutcome.Failed : PipelineOutcome.Ok;
-        return new RangeResult(outcome, result, files, missing, stopped) { SameText = sameText };
+        return new RangeResult(outcome, result, files, missing, stopped) { SameText = sameText, NotOnSite = notOnSite };
     }
 
     /// <summary>The same book's progress, carried over to the layout this scan found.</summary>

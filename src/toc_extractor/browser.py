@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import re
+import uuid
 from collections.abc import AsyncIterator, Awaitable, Sequence
 from contextlib import asynccontextmanager
 from functools import partial
@@ -47,6 +48,7 @@ from .pagesource import (
     ChapterPage,
     PageBlocked,
     PageError,
+    PageNotFound,
     PageTimeout,
     SelectorNotFound,
     TocPage,
@@ -540,12 +542,22 @@ class BrowserPageSource:
                 # a single 503, and each waited out the whole selector timeout
                 # first. A PageError is retried with backoff.
                 raise PageError(f"{url}: the site answered HTTP {slot.status}, busy")
+            if slot.status is not None and is_not_found_status(slot.status):
+                # Before any wait: fanmtl's "not found" page goes back a page
+                # three seconds after it loads, and the selector wait would
+                # then read whatever the tab showed before, another book's.
+                raise PageNotFound(f"{url}: the site has no page here (HTTP {slot.status})")
+            mark = await _mark_page(slot.page, final_url)
             title = await self._read_field(slot.page, title_selector, final_url)
             if await slot.page.evaluate(LOCKED_JS):
                 raise ChapterLocked(
                     f"{url}: the site shows only part of this chapter unless you are signed in"
                 )
             body = await self._read_field(slot.page, content_selector, final_url, readable=True)
+            # A page that went somewhere else while it was read (back in the
+            # tab's history, or a script's redirect) showed another page's
+            # text, perhaps another book's: never saved as this chapter.
+            await _raise_if_page_left(slot.page, mark, url)
         return ChapterPage(
             requested_url=url,
             final_url=final_url,
@@ -587,6 +599,41 @@ async def open_browser_source(**kwargs: Any) -> BrowserPageSource:
 
 
 __all__ = ["BrowserPageSource", "open_browser_source"]
+
+
+def is_not_found_status(status: int) -> bool:
+    """The site has no page at the address. Kept identical to IsNotFoundStatus in C#."""
+    return status in (404, 410)
+
+
+async def _mark_page(page: Page, url: str) -> str:
+    """Mark the document just loaded, so a later read can tell it is still the one showing.
+
+    Not the address: after a redirect the tab keeps the address asked for,
+    and some sites rewrite the address of a page they keep showing. Going to
+    any other page, back in the history included, replaces the document and
+    its mark with it.
+    """
+    mark = uuid.uuid4().hex
+    try:
+        await page.evaluate("m => { window.__tocExtractorPage = m; }", mark)
+    except PlaywrightError as exc:
+        raise PageError(
+            f"{url}: the page went on to another before it could be read: {exc}"
+        ) from exc
+    return mark
+
+
+async def _raise_if_page_left(page: Page, mark: str, url: str) -> None:
+    try:
+        same = await page.evaluate("m => window.__tocExtractorPage === m", mark)
+    except PlaywrightError as exc:
+        raise PageError(f"{url}: the page went on to another while it was read: {exc}") from exc
+    if not same:
+        raise PageError(
+            f"{url}: the page went on to {page.url} while it was read, "
+            "so its text is not this chapter's"
+        )
 
 
 def is_busy_status(status: int) -> bool:

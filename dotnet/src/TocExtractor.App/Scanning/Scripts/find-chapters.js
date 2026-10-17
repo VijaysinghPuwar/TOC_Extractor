@@ -99,7 +99,17 @@ async () => {
     // can appear twice ("chapter-1-number-1"), so every reading is kept and
     // the one most of the book's chapters share is chosen below.
     const last = parts[parts.length - 1];
-    const ats = [...last.matchAll(/\d+/g)].filter(m => Number(m[0]) === number);
+    const at = (n) => [...last.matchAll(/\d+/g)].filter(m => Number(m[0]) === n);
+    // A title can fall behind its address: novelfire splits a chapter into
+    // parts, so "chapter-196" is titled "Chapter 195 (Part 2)" and every
+    // later title runs a few behind. Read by the title's number alone, those
+    // links left the book's group, and a 938-chapter book listed 195. The
+    // address's own number places the link in its group instead.
+    let ats = at(number);
+    if (!ats.length) {
+      const own = numberInUrl(url.pathname);
+      if (own !== null) ats = at(own);
+    }
     const stems = ats.length ? ats.map(m => last.slice(0, m.index)) : [last.replace(/\d+/g, '#')];
     const keys = [...new Set(stems)].map(stem => url.hostname + '/' + folder + '|' + stem);
     candidates.push({ url: href, number, title: text || tip, keys });
@@ -219,16 +229,21 @@ async () => {
     if (data && Number.isFinite(Number(data.count_all)) && Number(data.count_all) > 0) total = Number(data.count_all);
   } catch (e) { /* no such data */ }
   if (total === null) {
-    const said = [...text.matchAll(/translated\s*[:：]?\s*(\d[\d,]{0,6})\s*chapters?/gi)]
-      .map(m => Number(m[1].replace(/,/g, '')));
+    // novelfire's list pages: "A total of 938 chapters have been
+    // translated", in the page and in its description. A count the scan
+    // knows catches a list it stopped reading early.
+    const described = clean((document.querySelector('meta[name="description"]') || {}).content);
+    const said = [...(text + ' ' + described).matchAll(/translated\s*[:：]?\s*(\d[\d,]{0,6})\s*chapters?|\ba total of\s*(\d[\d,]{0,6})\s*chapters?/gi)]
+      .map(m => Number((m[1] || m[2]).replace(/,/g, '')));
     if (new Set(said).size === 1) total = said[0];
   }
   if (total === null) {
-    // A tab or heading that is only the count: "Chapters (1472)".
+    // A tab or heading that is only the count: "Chapters (1472)"; or
+    // novelfire's novel page, "<strong>938</strong><small>Chapters</small>".
     const said = [...document.querySelectorAll('button, [role=tab], a, li, span, h2, h3, h4')]
-      .map(el => clean(el.textContent).match(/^chapters?\s*[(\[]\s*(\d[\d,]{0,6})\s*[)\]]$/i))
+      .map(el => clean(el.textContent).match(/^chapters?\s*[(\[]\s*(\d[\d,]{0,6})\s*[)\]]$|^(\d[\d,]{0,6})\s*chapters?$/i))
       .filter(Boolean)
-      .map(m => Number(m[1].replace(/,/g, '')));
+      .map(m => Number((m[1] || m[2]).replace(/,/g, '')));
     if (new Set(said).size === 1) total = said[0];
   }
 

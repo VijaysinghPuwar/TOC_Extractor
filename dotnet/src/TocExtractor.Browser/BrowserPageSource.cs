@@ -479,6 +479,8 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
     /// <remarks>Kept identical to is_busy_status in browser.py.</remarks>
     internal static bool IsBusyStatus(int status) => status is 429 or (>= 500 and <= 599);
 
+    internal static bool IsNotFoundStatus(int status) => status is 404 or 410;
+
     private static bool IsMainFrame(IRequest request)
     {
         try
@@ -989,6 +991,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         try
         {
             var finalUrl = await this.GotoAsync(slot, url, this.Remaining(deadline)).ConfigureAwait(false);
+            var mark = await MarkPageAsync(slot.Page, finalUrl).ConfigureAwait(false);
             await ThrowIfHumanCheckAsync(slot, url).ConfigureAwait(false);
             var watch = Stopwatch.StartNew();
             string? previous = null;
@@ -1004,6 +1007,10 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
                 {
                     throw new PageException($"{finalUrl}: could not inspect the page: {exception.Message}", exception);
                 }
+
+                // A list page that went elsewhere while it settled (a "not
+                // found" page going back) would hand over another book's list.
+                await ThrowIfPageLeftAsync(slot.Page, mark, url).ConfigureAwait(false);
 
                 // A floor as well as a ceiling: two empty answers half a
                 // second apart are not evidence the list is finished loading.
@@ -1439,6 +1446,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         try
         {
             var finalUrl = await this.GotoAsync(slot, url, this.Remaining(deadline)).ConfigureAwait(false);
+            var mark = await MarkPageAsync(slot.Page, finalUrl).ConfigureAwait(false);
             await ThrowIfHumanCheckAsync(slot, url, contentSelector).ConfigureAwait(false);
 
             // After the check, which some sites serve as a 503: that one wants
@@ -1451,6 +1459,15 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             {
                 throw new PageException(string.Create(
                     System.Globalization.CultureInfo.InvariantCulture, $"{url}: the site answered HTTP {status}, busy"));
+            }
+
+            // Before any wait: fanmtl's "not found" page goes back a page
+            // three seconds after it loads, and the selector wait would then
+            // read whatever the tab showed before, another book's chapter.
+            if (slot.Status is { } missing && IsNotFoundStatus(missing))
+            {
+                throw new PageNotFoundException(string.Create(
+                    System.Globalization.CultureInfo.InvariantCulture, $"{url}: the site has no page here (HTTP {missing})"));
             }
 
             string title;
@@ -1488,6 +1505,11 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             var body = await ReadFieldAsync(slot.Page, contentSelector, finalUrl, this.Remaining(deadline), readable: true)
                 .ConfigureAwait(false);
 
+            // A page that went somewhere else while it was read (back in the
+            // tab's history, or a script's redirect) showed another page's
+            // text, perhaps another book's: never saved as this chapter.
+            await ThrowIfPageLeftAsync(slot.Page, mark, url).ConfigureAwait(false);
+
             return new ChapterPage(url, finalUrl, title, body, next) { PageText = whole };
         }
         catch
@@ -1505,6 +1527,46 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         finally
         {
             await this.EmptyThenReleaseAsync(slot).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Mark the document just loaded, so a later read can tell it is still the one showing.</summary>
+    /// <remarks>
+    /// Not the address: after a redirect the tab keeps the address asked for,
+    /// and some sites rewrite the address of a page they keep showing. Going
+    /// to any other page, back in the history included, replaces the document
+    /// and its mark with it.
+    /// </remarks>
+    private static async Task<string> MarkPageAsync(IPage page, string url)
+    {
+        var mark = Guid.NewGuid().ToString("N");
+        try
+        {
+            await page.EvaluateAsync("m => { window.__tocExtractorPage = m; }", mark).ConfigureAwait(false);
+        }
+        catch (PlaywrightException exception)
+        {
+            throw new PageException($"{url}: the page went on to another before it could be read: {exception.Message}", exception);
+        }
+
+        return mark;
+    }
+
+    private static async Task ThrowIfPageLeftAsync(IPage page, string mark, string url)
+    {
+        bool same;
+        try
+        {
+            same = await page.EvaluateAsync<bool>("m => window.__tocExtractorPage === m", mark).ConfigureAwait(false);
+        }
+        catch (PlaywrightException exception)
+        {
+            throw new PageException($"{url}: the page went on to another while it was read: {exception.Message}", exception);
+        }
+
+        if (!same)
+        {
+            throw new PageException($"{url}: the page went on to {page.Url} while it was read, so its text is not this chapter's");
         }
     }
 

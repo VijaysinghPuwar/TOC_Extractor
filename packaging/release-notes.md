@@ -1,4 +1,4 @@
-Cleaner books and steadier saving, from a month of one Windows 11 machine's log and every chapter it saved: the "stolen from NovelFire, report it on Amazon" notices are gone from the text, saving more chapters into a book's folder works every time, and a connection that drops no longer costs chapters.
+Whole books and the right text: a 938-chapter novelfire.net book that scanned as 195 chapters is found in full, a chapter of one book is never saved into another when several save at once, and story sentences the NovelFire notice remover mistook for notices are kept.
 
 ## Download
 
@@ -14,7 +14,19 @@ Download only the file for your computer; "Source code" is for developers.
 
 **Windows:** run the setup and follow the steps; no administrator needed. It adds TOC Extractor to the Start menu. If SmartScreen appears, choose More info, then Run anyway.
 
-## What is new in 2.6.7
+## What is new in 2.6.8
+
+Tested on the book that went wrong, then under load: ten books saved at once from novelfire.net, fanmtl.com and mtl-novel.com (2,788 chapters), and ten local books of 200 to 1,000 chapters saved at once (6,000 chapters). Every saved novelfire chapter was compared word for word with its page on the site.
+
+- **Fixed: a novelfire.net book listed only its first 195 of 938 chapters.** From chapter 196 the site's titles fall behind their addresses ("chapter-196" is titled "Chapter 195 Slug landing (Part 2)", and the last, "chapter-938", is "Chapter 934"). The scan took those links for another book's, so a list page of 100 of them counted none and the scan stopped. Such links now join the book by their address, and every chapter is numbered by its place, so chapter 938 is saved as 938.
+- **A short scan no longer passes for the whole book.** The scan reads the count novelfire states ("938 Chapters"); a list that stops early is completed by address, or the scan says chapters are missing.
+- **Fixed: with several books saving at once, one book's chapter could be saved into another.** fanmtl.com has no page for some chapters, and its "not found" page goes back a page after three seconds, to whatever the shared browser tab showed before. A page the site says it does not have is now reported as missing ("The site has no page for chapter(s) 206, 210"), and a page that moves on while it is read is never saved.
+- **Fixed: story sentences removed as NovelFire notices.** 2.6.7's remover also took "a report given by 'One'... in the south of Amazon" and "she, who was reading a book, lifted her eyes". It is stricter now, and was checked against every paragraph of the 2,788 chapters.
+- **Fixed: "who leads by example" saved as "who le".** The ad-marker rule "Ads by ..." matched inside words (there since 1.0); it now matches whole words only.
+- **Cleaner text for listening:** entities and formatting tags some sites show as letters ("&nbsp;", "know&#8230;", "<em>Almost there,</em>") are cleaned, and a character such as "凸" an author puts after a sentence is no longer removed as a site tag.
+- Chapters you saved with 2.6.7 keep their text. To get them again with every sentence, tick Start over and press Save.
+
+## New in 2.6.7
 
 From a real Windows 11 machine (16 cores, 15.8 GB): its log of 23,879 rows from 2.4.0 to 2.6.6, and the 4,229 chapters it saved.
 

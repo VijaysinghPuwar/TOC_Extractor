@@ -132,6 +132,30 @@ public sealed class SelectorNotFoundException : PageException
     }
 }
 
+/// <summary>The site answered that it has no page at the address (HTTP 404 or 410).</summary>
+/// <remarks>
+/// Never read as a chapter. fanmtl's "not found" page goes back a page in
+/// the tab's history three seconds later, and with tabs shared between
+/// books that was another book's chapter: it was saved as this one. Tried
+/// once more, as a busy site can answer wrongly once, then reported missing.
+/// </remarks>
+public sealed class PageNotFoundException : PageException
+{
+    public PageNotFoundException()
+    {
+    }
+
+    public PageNotFoundException(string message)
+        : base(message)
+    {
+    }
+
+    public PageNotFoundException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}
+
 /// <summary>The site showed a "verify you are human" page instead of the one asked for.</summary>
 /// <remarks>
 /// Not a failure of the chapter and never retried on its own: loading again

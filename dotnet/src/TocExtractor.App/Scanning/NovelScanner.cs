@@ -536,7 +536,11 @@ public sealed partial class NovelScanner(
 
                 if (renumbered.Count > 0)
                 {
-                    this.notes.Add("Some chapters repeat an earlier number on the site: " + string.Join("; ", renumbered) + ".");
+                    // A book whose titles fall behind for good (novelfire's
+                    // split chapters) renumbers hundreds: name a few.
+                    var shown = string.Join("; ", renumbered.Take(3))
+                        + (renumbered.Count > 3 ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"; and {renumbered.Count - 3:N0} more") : "");
+                    this.notes.Add("Some chapters repeat an earlier number on the site: " + shown + ".");
                 }
 
                 return ordered;
@@ -557,9 +561,19 @@ public sealed partial class NovelScanner(
     private void ExtendToTotal()
     {
         if (this.positional || this.total is not { } count || count > 100_000 || this.chapters.Count == 0
-            || count <= this.chapters[^1].Number || this.chapters.Count >= 0.9 * count
-            || AddressPattern.Find(this.chapters) is not { } pattern)
+            || count <= this.chapters[^1].Number || this.chapters.Count >= 0.9 * count)
         {
+            return;
+        }
+
+        // Never a short book in silence: a list that stopped early (a 938-
+        // chapter book once scanned as 195) says so, even when the rest
+        // cannot be reached by address.
+        if (AddressPattern.Find(this.chapters) is not { } pattern)
+        {
+            this.notes.Add(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"The site counts {count:N0} chapters, but the scan found {this.chapters.Count:N0}, so some are missing from this scan. Scan again, or scan the site's chapter list page."));
             return;
         }
 

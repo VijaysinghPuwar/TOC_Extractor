@@ -144,6 +144,49 @@ public sealed class BrowserPageSourceTests
     }
 
     [Fact]
+    public async Task A_not_found_page_that_goes_back_is_not_saved_as_the_chapter()
+    {
+        // fanmtl: no chapter 206, and its "not found" page goes back a page
+        // after a moment. The tab had just shown another book's chapter 210,
+        // and that was saved as this book's.
+        using var site = new LocalSite();
+        site.Html("/other/210", "<h1 class=\"t\">Chapter 210 Dragon Beard Needle</h1><article class=\"c\"><p>Another book.</p></article>");
+        site.Answer("/book/206", 404, "<title>Message hint</title><h1>:(</h1><script>setTimeout(() => history.go(-1), 300);</script>");
+
+        await using var source = await StartAsync();
+        await source.LoadChapterAsync(site.Url("/other/210"), ".t", ".c", Token);
+
+        var missing = await Assert.ThrowsAsync<PageNotFoundException>(() => source.LoadChapterAsync(site.Url("/book/206"), ".t", ".c", Token));
+        Assert.Contains("HTTP 404", missing.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_page_that_goes_elsewhere_while_it_is_read_is_not_saved_as_the_chapter()
+    {
+        using var site = new LocalSite();
+        site.Html("/other/210", "<h1 class=\"t\">Chapter 210</h1><article class=\"c\"><p>Another book.</p></article>");
+        site.Html("/book/7", "<h1 class=\"t\">Chapter 7</h1><script>setTimeout(() => { location.href = '/other/210'; }, 300);</script>");
+
+        await using var source = await StartAsync();
+        var moved = await Assert.ThrowsAsync<PageException>(() => source.LoadChapterAsync(site.Url("/book/7"), ".t", ".c", Token));
+
+        Assert.Contains("went on to", moved.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_page_that_only_rewrites_its_address_still_loads()
+    {
+        using var site = new LocalSite();
+        site.Html("/book/8", "<h1 class=\"t\">Chapter 8</h1><article class=\"c\"><p>Eight.</p></article>"
+            + "<script>history.replaceState(null, '', '/book/8/the-gate');</script>");
+
+        await using var source = await StartAsync();
+        var chapter = await source.LoadChapterAsync(site.Url("/book/8"), ".t", ".c", Token);
+
+        Assert.Equal("Eight.", chapter.Body.Trim());
+    }
+
+    [Fact]
     public async Task A_tab_closed_under_the_app_is_replaced_and_the_next_chapter_loads()
     {
         using var site = new LocalSite();
@@ -705,15 +748,19 @@ public sealed class BrowserPageSourceTests
     }
 
     [Fact]
-    public async Task A_missing_page_is_still_a_missing_selector()
+    public async Task A_missing_page_is_reported_missing_not_busy()
     {
+        // Only "try again later" statuses are busy. A 404 says the site has
+        // no page there, at once, without waiting out the selector budget.
         using var site = new LocalSite();
         site.Answer("/ch/gone", 404, "<html><body>not here</body></html>");
 
         await using var source = await BrowserPageSource.StartAsync(
-            Guard, new BrowserPageSourceOptions { OperationBudget = TimeSpan.FromSeconds(2) }, Token);
-        await Assert.ThrowsAsync<SelectorNotFoundException>(
+            Guard, new BrowserPageSourceOptions { OperationBudget = TimeSpan.FromSeconds(20) }, Token);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        await Assert.ThrowsAsync<PageNotFoundException>(
             () => source.LoadChapterAsync(site.Url("/ch/gone"), ".t", ".c", Token));
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(10), "the missing page waited out the selector budget");
     }
 
     [Fact]
