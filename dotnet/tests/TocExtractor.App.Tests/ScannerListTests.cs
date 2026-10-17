@@ -81,6 +81,67 @@ public sealed class ScannerListTests
     }
 
     [Fact]
+    public async Task Titles_that_fall_behind_their_addresses_are_numbered_by_place_and_named_briefly()
+    {
+        // Novelfire: "chapter-196" is "Chapter 195 (Part 2)", and every later
+        // title runs a few behind its address, to "chapter-938" titled 934.
+        const string Book = "https://e.com/book/c";
+        static int Titled(int n) => n <= 195 ? n : n <= 197 ? 195 : n - 3;
+        var site = new ScriptedSite(url => url == Book
+            ? new { key = "k", chapters = Enumerable.Range(1, 300).Select(n => new { url = $"{Book}/chapter-{n}", number = Titled(n), title = $"Chapter {Titled(n)}", key = "k" }) }
+            : null);
+
+        var scan = await Scanner(site).ScanAsync(Book, Token);
+
+        Assert.Equal(Enumerable.Range(1, 300), scan.Chapters.Select(c => c.Number));
+        Assert.All(scan.Chapters, c => Assert.EndsWith("/chapter-" + c.Number.ToString(CultureInfo.InvariantCulture), c.Url, StringComparison.Ordinal));
+        var note = Assert.Single(scan.Notes, n => n.StartsWith("Some chapters repeat", StringComparison.Ordinal));
+        Assert.EndsWith("and 102 more.", note, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_list_that_stops_early_still_reaches_the_count_the_site_states()
+    {
+        // 2.6.7 on novelfire: the third list page counted no chapters, paging
+        // stopped, and a book the site counts as 938 chapters scanned as 195.
+        const string Book = "https://e.com/book/d";
+        const string List = Book + "/chapters";
+        var site = new ScriptedSite(url =>
+            url == Book ? new { key = "k", total = 938, chapters = new[] { Chapter(Book + "/chapter-1", 1) }, lists = new[] { new { url = List, text = "Chapters" } } }
+            : url == List ? new
+            {
+                key = "k",
+                total = 938,
+                chapters = Enumerable.Range(1, 195).Select(n => Chapter($"{Book}/chapter-{n}", n)),
+                pages = new[] { new { url = List + "?page=3", text = "3", pattern = List + "?page=#" }, new { url = List + "?page=4", text = "4", pattern = List + "?page=#" } },
+            }
+            : null);
+
+        var scan = await Scanner(site).ScanAsync(Book, Token);
+
+        Assert.Null(scan.Problem);
+        Assert.Equal(938, scan.LastNumber);
+        Assert.Equal(Book + "/chapter-938", scan.Chapters[^1].Url);
+        Assert.Contains(scan.Notes, n => n.StartsWith("The site counts 938 chapters and its list shows 195", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_short_scan_the_rest_of_cannot_be_built_says_chapters_are_missing()
+    {
+        // Addresses that do not follow the number: the rest cannot be built,
+        // so the scan must not pass for the whole book.
+        const string Book = "https://e.com/book/e";
+        var site = new ScriptedSite(url => url == Book
+            ? new { key = "k", total = 500, chapters = Enumerable.Range(1, 40).Select(n => Chapter($"{Book}/chapter-{n}-{(n * 7919) % 1000}x", n)) }
+            : null);
+
+        var scan = await Scanner(site).ScanAsync(Book, Token);
+
+        Assert.Equal(40, scan.Chapters.Count);
+        Assert.Contains(scan.Notes, n => n.StartsWith("The site counts 500 chapters, but the scan found 40", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task A_list_showing_only_the_first_chapters_reaches_the_sites_own_count()
     {
         // Novellunar: "Chapters (1472)", fifty listed, the rest behind

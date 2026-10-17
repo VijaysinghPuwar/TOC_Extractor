@@ -545,6 +545,53 @@ nothing is overwritten. The log mentions it.
 
 ## Version history
 
+**2.6.8** (2026-10-17)
+
+From a 938-chapter novelfire.net book that scanned as 195 chapters, then ten
+books saved at once from three live sites (2,788 chapters) and ten local books
+of 200 to 1,000 chapters (6,000), with every saved chapter compared word for
+word with its page on the site.
+- Fixed: a novelfire.net book of 938 chapters scanned as 195. From chapter
+  196 the site's titles run behind their addresses ("chapter-196" is titled
+  "Chapter 195 Slug landing (Part 2)", "chapter-938" is "Chapter 934"), and
+  the scan took those links for another book's: a list page of 100 such
+  chapters counted none, and paging stopped there. A link whose title and
+  address disagree now joins the book by its address's number, and the
+  chapters are numbered by their place, so chapter 938 is saved as 938.
+- A scan now reads the chapter count novelfire states ("938 Chapters", "A
+  total of 938 chapters have been translated"). A list that stops early for
+  any reason is then completed by address, or the scan says the site counts
+  more chapters than it found, instead of passing for the whole book.
+- Fixed: with several books saving at once, a chapter of one book could be
+  saved into another. fanmtl.com has no page for some chapters, and its "not
+  found" page goes back a page three seconds later; the browser tab had just
+  shown another book's chapter, and that was saved. A page the site says it
+  does not have (HTTP 404 or 410) is now never read as a chapter: it is tried
+  once more, then reported ("The site has no page for chapter(s) 206, 210"),
+  without "Press Save again". And a page that goes on to another while it is
+  read, back in the history or by a script, is never saved as the chapter.
+- Fixed: the NovelFire notice remover (2.6.7) also removed story sentences:
+  "a report given by 'One'... an SS+ dungeon in the south of Amazon", and
+  "she, who was reading a book, lifted her eyes". Amazon named alone now
+  counts only beside taking or a request ("kindly file a report"); "lifted"
+  only as "lifted from"; "head to" not after "his", "her", "the" and the like.
+  Checked against every paragraph of the 2,788 live chapters.
+- Fixed: the ad-marker rule "Ads by ..." (there since 1.0) also matched
+  inside words, so "who leads by example" was saved as "who le", and "heads
+  by", "roads by" and "threads by" lost words the same way. It now matches
+  whole words only. "Sponsored Content" likewise.
+- Fixed: a Chinese, Japanese or Korean character after a sentence (an
+  author's "Won't say who. 凸") was removed as a look-alike site tag. Those
+  scripts cannot pass for Latin letters, so they are kept.
+- With Remove ad markers on, entities and formatting tags a site shows as
+  letters (its markup escaped once too often) are cleaned: "&nbsp;",
+  "know&#8230;" (know...), "it&amp;#8217;s" (it's) and "<em>Almost
+  there,</em>" no longer reach a text-to-speech voice. Only a fixed set,
+  so "<The Authority...>" system messages and "AT&T" stay as written.
+- For developers: a stress test of ten whole books of 200 to 1,000 chapters
+  saved at once, and the live test can save a range per book, several books
+  at once (TOC_LIVE_PARALLEL, "url@from-to", TOC_LIVE_COUNT, TOC_LIVE_OUT).
+
 **2.6.7** (2026-10-16)
 
 From a month of a real Windows 11 machine's log (23,879 rows, 2.4.0 to

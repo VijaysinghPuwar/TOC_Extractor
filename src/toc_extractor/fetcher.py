@@ -29,6 +29,7 @@ from .pagesource import (
     ChapterPage,
     PageBlocked,
     PageError,
+    PageNotFound,
     PageSource,
     PageTimeout,
     SelectorNotFound,
@@ -315,7 +316,12 @@ class Fetcher:
                         attempt,
                     )
                     return
-                except (PageBlocked, SelectorNotFound, ChapterLocked) as exc:
+                except (PageBlocked, SelectorNotFound, ChapterLocked, PageNotFound) as exc:
+                    if isinstance(exc, PageNotFound) and attempt == 1:
+                        # A busy site can answer "not found" once for a page it
+                        # has; one more try, then the chapter is reported missing.
+                        await self._sleep(self._backoff(attempt))
+                        continue
                     missed_once = isinstance(exc, SelectorNotFound) and attempt == 1
                     if missed_once and self._selectors_matched:
                         # The same selectors found this run's other chapters, so
@@ -326,8 +332,9 @@ class Fetcher:
                         await self._sleep(self._backoff(attempt))
                         continue
                     # None is worth retrying: the target is disallowed, the
-                    # page loaded fine and simply lacks the selector, or it is
-                    # locked to visitors and will be locked again.
+                    # page loaded fine and simply lacks the selector, it is
+                    # locked to visitors and will be locked again, or the site
+                    # said twice that it has no page there.
                     self._record_failure(progress, index, url, exc, attempt)
                     return
                 except PageError as exc:
@@ -444,6 +451,8 @@ def _reason_for(exc: PageError) -> str:
         return "selector_not_found"
     if isinstance(exc, ChapterLocked):
         return "locked"
+    if isinstance(exc, PageNotFound):
+        return "not_found"
     return "error"
 
 

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using TocExtractor.Core.Politeness;
 
@@ -104,6 +105,45 @@ public sealed class ScannerScriptTests
         Assert.Equal(Enumerable.Range(1, 50), Chapters(json).Select(c => c.Number).Order());
         Assert.Equal(1472, JsonDocument.Parse(json).RootElement.GetProperty("total").GetInt32());
         Assert.Equal("A Book", JsonDocument.Parse(json).RootElement.GetProperty("title").GetString());
+    }
+
+    [Fact]
+    public async Task Chapters_whose_titles_fall_behind_their_addresses_stay_in_the_book()
+    {
+        // novelfire: from "chapter-196" on, titles run behind the address
+        // ("196 Chapter 195 Slug landing (Part 2)"); a later list page has
+        // only such links, and it counted none of them.
+        static string Link(int address, int titled) =>
+            $"<li><a href=\"/book/a-book/chapter-{address}\"><span>{address}</span> Chapter {titled} Part</a></li>";
+        var drifted = string.Concat(Enumerable.Range(201, 5).Select(n => Link(n, n - 3)));
+        using var site = new LocalSite();
+        site.Html("/book/a-book/chapters", "<h1>A Book</h1><ul>"
+            + string.Concat(Enumerable.Range(194, 3).Select(n => Link(n, n))) + Link(197, 196) + Link(198, 196) + drifted
+            + "</ul><a href=\"/book/other-book/chapter-9\">Chapter 9</a>");
+        site.Html("/book/a-book/chapters-3", "<h1>A Book</h1><ul>" + drifted + "</ul>");
+
+        await using var source = await StartAsync();
+        var (_, json) = await source.ProbeAsync(site.Url("/book/a-book/chapters"), FindChapters, TimeSpan.FromSeconds(2), Token);
+        var key = JsonDocument.Parse(json).RootElement.GetProperty("key").GetString()!;
+        Assert.Equal([194, 195, 196, 197, 198, 201, 202, 203, 204, 205], Chapters(json).Select(c => int.Parse(c.Url[(c.Url.LastIndexOf('-') + 1)..], CultureInfo.InvariantCulture)).Order());
+
+        var locked = "() => { window.__tocExtractorKey = " + JsonSerializer.Serialize(key) + "; return (" + FindChapters.Trim() + ")(); }";
+        var (_, later) = await source.ProbeAsync(site.Url("/book/a-book/chapters-3"), locked, TimeSpan.FromSeconds(2), Token);
+        Assert.Equal(5, Chapters(later).Count);
+    }
+
+    [Theory]
+    [InlineData("""<div class="header-stats"><span><strong><i class="icon-book-open"></i> 938</strong><small>Chapters</small></span><span><strong>373.2K</strong><small>Views</small></span></div>""")]
+    [InlineData("""<p>List of most recent chapters published for the A Book novel. A total of 938 chapters have been translated and the release date of the last chapter is Dec 1.</p>""")]
+    public async Task The_count_novelfire_states_is_read(string stated)
+    {
+        using var site = new LocalSite();
+        site.Html("/book/a-book", "<h1>A Book</h1>" + stated + "<a href=\"/book/a-book/chapter-1\">Chapter 1</a><a href=\"/book/a-book/chapter-2\">Chapter 2</a>");
+
+        await using var source = await StartAsync();
+        var (_, json) = await source.ProbeAsync(site.Url("/book/a-book"), FindChapters, TimeSpan.FromSeconds(2), Token);
+
+        Assert.Equal(938, JsonDocument.Parse(json).RootElement.GetProperty("total").GetInt32());
     }
 
     [Fact]

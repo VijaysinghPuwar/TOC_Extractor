@@ -372,6 +372,40 @@ public sealed class WindowTests
     }
 
     [AvaloniaFact]
+    public async Task Chapters_the_site_has_no_page_for_are_named_and_save_again_is_not_offered()
+    {
+        // fanmtl lists no chapter 206 or 210, and has no page at either address.
+        var harness = new Harness();
+        harness.Service.NotOnSite.UnionWith([14, 18]);
+        await harness.StartAsync();
+        await harness.ScannedAsync();
+        harness.Job.From = 12;
+        harness.Job.To = 20;
+
+        await harness.Job.SaveCommand.ExecuteAsync(null);
+        Harness.Pump();
+
+        Assert.Equal("7 of 9 saved. The site has no page for chapter(s) 14, 18.", harness.Job.Status);
+    }
+
+    [AvaloniaFact]
+    public async Task Some_chapters_missing_from_the_site_and_some_failed_say_both()
+    {
+        var harness = new Harness();
+        harness.Service.NotOnSite.Add(14);
+        harness.Service.Failing.Add(17);
+        await harness.StartAsync();
+        await harness.ScannedAsync();
+        harness.Job.From = 12;
+        harness.Job.To = 20;
+
+        await harness.Job.SaveCommand.ExecuteAsync(null);
+        Harness.Pump();
+
+        Assert.Equal("7 of 9 saved, 2 not. The site has no page for chapter(s) 14; press Save again to retry the rest.", harness.Job.Status);
+    }
+
+    [AvaloniaFact]
     public async Task Failed_chapters_are_marked_and_counted()
     {
         var harness = new Harness();

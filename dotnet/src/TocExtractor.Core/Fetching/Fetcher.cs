@@ -571,11 +571,23 @@ public sealed class Fetcher : IDisposable
                     await this.sleep(backoff, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
-                catch (Exception exception)
-                    when (exception is PageBlockedException or SelectorNotFoundException)
+                catch (PageNotFoundException exception) when (attempt == 1)
                 {
-                    // Neither is worth retrying: the target is disallowed, or the
-                    // page loaded fine and simply lacks the selector.
+                    // A busy site can answer "not found" once for a page it
+                    // has; one more try, then the chapter is reported missing.
+                    var backoff = this.Backoff(attempt);
+                    this.Trace("retry", index, url, string.Create(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        $"the site says it has no page here ({exception.Message}); trying once more in {backoff.TotalSeconds:0.0}s"));
+                    await this.sleep(backoff, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+                catch (Exception exception)
+                    when (exception is PageBlockedException or SelectorNotFoundException or PageNotFoundException)
+                {
+                    // None is worth retrying: the target is disallowed, the
+                    // page loaded fine and simply lacks the selector, or the
+                    // site said twice that it has no page there.
                     this.RecordFailure(progress, index, url, (PageException)exception, attempt);
                     return null;
                 }
@@ -770,6 +782,7 @@ public sealed class Fetcher : IDisposable
         PageTimeoutException => "timeout",
         PageBlockedException blocked => blocked.Reason.ToWireValue(),
         SelectorNotFoundException => "selector_not_found",
+        PageNotFoundException => "not_found",
         _ => "error",
     };
 

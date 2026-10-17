@@ -17,7 +17,13 @@ import pytest
 from toc_extractor.exporters.text import TextExporter
 from toc_extractor.fetcher import Fetcher, FetchOptions, observed_intervals
 from toc_extractor.models import ChapterRecord, PriorChapter
-from toc_extractor.pagesource import ChapterLocked, PageError, PageTimeout, SelectorNotFound
+from toc_extractor.pagesource import (
+    ChapterLocked,
+    PageError,
+    PageNotFound,
+    PageTimeout,
+    SelectorNotFound,
+)
 from toc_extractor.parser import SelectorSet
 from toc_extractor.politeness import RateLimiter, UrlGuard, parse_robots
 from toc_extractor.sinks import NullSink
@@ -185,6 +191,25 @@ async def test_zero_retries_means_one_attempt() -> None:
     fetcher, source, _, _ = build(chapters=1, pages=pages, retries=0, wait_after_load=0.0)
     await fetcher.run(TOC, SELECTORS)
     assert source.attempts_for("https://example.com/ch/1") == 1
+
+
+async def test_a_page_the_site_does_not_have_is_tried_once_more_then_reported_missing() -> None:
+    """A busy site can answer "not found" once; twice, the chapter is missing,
+    never saved."""
+    pages = {
+        "https://example.com/ch/2": StubPage(fail_times=99, failure=PageNotFound),
+        "https://example.com/ch/3": StubPage(
+            title="Chapter 3", body="Three.", fail_times=1, failure=PageNotFound
+        ),
+    }
+    fetcher, source, _, _ = build(
+        chapters=3, pages=pages, retries=5, concurrency=1, wait_after_load=0.0
+    )
+    result = await fetcher.run(TOC, SELECTORS)
+
+    assert [record.index for record in result.completed] == [1, 3]
+    assert source.attempts_for("https://example.com/ch/2") == 2
+    assert result.failed[0].reason == "not_found"
 
 
 async def test_selector_not_found_is_not_retried() -> None:

@@ -56,6 +56,30 @@
   [
    "First line. \ud835\udc11\ud835\ude22\u2115\nSecond line.",
    "First line.\nSecond line."
+  ],
+  [
+   "I could only chuckle at.\n&nbsp;\nWe landed on the unsettled land.",
+   "I could only chuckle at.\nWe landed on the unsettled land."
+  ],
+  [
+   "so they\u2019d know&#8230;\nEven this damned forest won\u2019t.",
+   "so they\u2019d know\u2026\nEven this damned forest won\u2019t."
+  ],
+  [
+   "bloody to the point that it&amp;#8217;s seeping through.",
+   "bloody to the point that it\u2019s seeping through."
+  ],
+  [
+   "Tom &amp;amp; Jerry &mdash; again &#x2014; &lt;The [Vengeful Spirits] are gazing at you.&gt;",
+   "Tom & Jerry \u2014 again \u2014 <The [Vengeful Spirits] are gazing at you.>"
+  ],
+  [
+   "<em>Almost there,</em> I informed Sylvie.",
+   "Almost there, I informed Sylvie."
+  ],
+  [
+   "&lt;i&gt;Hmm.&lt;/i&gt; She frowned.<br/>",
+   "Hmm. She frowned."
   ]
  ],
  "keep": [
@@ -72,6 +96,11 @@
   "The total was \u00a35. \u20ac",
   "The sign read \u2115 for natural numbers",
   "\u4ed6\u8bf4\u3002\u597d",
-  "The note said it all. Caf\u00e9-bar"
+  "The note said it all. Caf\u00e9-bar",
+  "Won\u2019t say who. \u51f8",
+  "\"Unlike me, who leads by example and cares for my disciples, I will have people truly follow me.\"",
+  "The farmer led the oxen to the fields that lay beside the roads by the river.",
+  "Fish & chips, R&D and AT&T; but &copy; and &bogus; stay as written.",
+  "<The Authority, [Vintage Clock (EX)] has confirmed the presence of Hostility.>"
  ]
 }

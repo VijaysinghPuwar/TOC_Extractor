@@ -12,15 +12,29 @@ namespace TocExtractor.Core.Text;
 /// </remarks>
 public static partial class TextCleaner
 {
+    // Whole words only: inside a word it took "ads by example" out of "who
+    // leads by example", and "heads by", "roads by" and "threads by" with it.
     [GeneratedRegex(
-        @"Ads by" + Whitespace.Class + @"+\w+",
+        @"\bAds by" + Whitespace.Class + @"+\w+",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex AdsBy { get; }
 
     [GeneratedRegex(
-        "Sponsored" + Whitespace.Class + "+Content",
+        @"\bSponsored" + Whitespace.Class + @"+Content\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex SponsoredContent { get; }
+
+    /// <summary>An HTML entity left in the text as letters: "know&amp;#8230;" as a site double-escaped it.</summary>
+    [GeneratedRegex(@"&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|nbsp|amp|quot|lt|gt|apos|hellip|mdash|ndash|lsquo|rsquo|ldquo|rdquo);", RegexOptions.CultureInvariant)]
+    private static partial Regex LiteralEntity { get; }
+
+    /// <summary>A formatting tag shown as letters: "&lt;em&gt;Almost there,&lt;/em&gt;". Only bare tags, so "&lt;The Authority...&gt;" stays.</summary>
+    [GeneratedRegex(@"</?(?:em|i|b|strong|u|s|br|p)[ \t]*/?>", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex LiteralTag { get; }
+
+    /// <summary>A line that is only "&amp;nbsp;": a site's empty paragraph, escaped once too often.</summary>
+    [GeneratedRegex(@"(?m)^[ \t]*(?:&(?:amp;)*nbsp;[ \t]*)+(?:\n|$)", RegexOptions.CultureInvariant)]
+    private static partial Regex EntityOnlyLine { get; }
 
     [GeneratedRegex(@"https?://" + Whitespace.Negated + "+")]
     private static partial Regex Url { get; }
@@ -116,6 +130,13 @@ public static partial class TextCleaner
             return false;
         }
 
+        // Chinese, Japanese and Korean cannot pass for Latin letters, so they
+        // are never a look-alike tag: "Won't say who. 凸" is the author's.
+        if (shapes.Any(IsCjk))
+        {
+            return false;
+        }
+
         // At least one letter; the letterlike block (U+2100-214F) holds look-alikes such as a prescription R.
         if (!shapes.Any(r => Rune.IsLetter(r) || r.Value is >= 0x2100 and <= 0x214F))
         {
@@ -130,6 +151,9 @@ public static partial class TextCleaner
 
         return shapes.Count <= 9 && shapes.Select(Family).Distinct(StringComparer.Ordinal).Count() >= 2;
     }
+
+    private static bool IsCjk(Rune rune) => rune.Value is (>= 0x3040 and <= 0x30FF) or (>= 0x3400 and <= 0x4DBF)
+        or (>= 0x4E00 and <= 0x9FFF) or (>= 0xAC00 and <= 0xD7AF) or (>= 0xF900 and <= 0xFAFF) or (>= 0x20000 and <= 0x2FFFF);
 
     /// <summary>The first character of each letter-with-its-marks in the token.</summary>
     private static List<Rune> Shapes(string token)
@@ -172,14 +196,21 @@ public static partial class TextCleaner
     [GeneratedRegex(@"\belsewhere\b|\banother (?:site|website)\b|\bother (?:sites|websites)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex NoticeElsewhere { get; }
 
-    [GeneratedRegex(@"\b(?:stolen|steal\w*|pilfer\w*|purloin\w*|unlawful\w*|illicit\w*|misappropriat\w*|lifted|unauthori[sz]ed|theft|infringement|violation)\b|\btaken without\b|\bwithout (?:the author['’]?s? )?(?:consent|permission|approval|authori[sz]ation)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    // "Lifted" alone is a story's eyes and hands ("she lifted her eyes"), and
+    // "head to" a turned head: with "reading the book" they removed story
+    // sentences. A notice's taking is "lifted from", its call "head to" a site.
+    [GeneratedRegex(@"\b(?:stolen|steal\w*|pilfer\w*|purloin\w*|unlawful\w*|illicit\w*|misappropriat\w*|unauthori[sz]ed|theft|infringement|violation)\b|\b(?:taken|lifted) (?:without|from)\b|\bwithout (?:the author['’]?s? )?(?:consent|permission|approval|authori[sz]ation)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex NoticeTheft { get; }
 
-    [GeneratedRegex(@"\b(?:report\w*|visit\w*|support\w*|check it out|head to|help (?:the author|them|out)|ensure the author|read(?:ing)? (?:it|this|the|their|on|from))\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\b(?:report\w*|visit\w*|support\w*|check it out|(?<!\b(?:his|her|their|its|my|your|our|the|a) )head to|help (?:the author|them|out)|ensure the author|read(?:ing)? (?:it|this|the|their|on|from))\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex NoticeAction { get; }
 
     [GeneratedRegex(@"\b(?:story|stories|tale|narrative|novel|content|book|chapter|text|work|translation)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex NoticeSubject { get; }
+
+    /// <summary>A notice asks: "kindly file a report", "please report it", "if found on Amazon".</summary>
+    [GeneratedRegex(@"\b(?:please|kindly)\b|\bif (?:you )?(?:found|find|see|seen|spot|spotted|encounter\w*|come across|came across)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex NoticeRequest { get; }
 
     /// <summary>A site's tag after the last sentence of a paragraph: " NovelFire", " View the correct content at NovelFire".</summary>
     [GeneratedRegex(@"(?<=[.!?~…""'”’\])])[ \t]+((?:[^.!?\n""“”]{0,60}?[ \t])?)" + SiteName + @"\.?[ \t]*$", RegexOptions.Multiline | RegexOptions.CultureInvariant)]
@@ -296,7 +327,14 @@ public static partial class TextCleaner
 
         var theft = NoticeTheft.IsMatch(text);
         var action = NoticeAction.IsMatch(text);
-        return (NoticeWhere.IsMatch(text) && (theft || action))
+
+        // Amazon is a rainforest as well as a shop, and a report is news as
+        // well as a request: "a report given by 'One'... an SS+ dungeon in the
+        // south of Amazon" was a story paragraph, and it was removed. Named
+        // alone, Amazon counts beside taking, or a call that asks.
+        var where = NoticeWhere.Matches(text);
+        var onlyAmazon = where.All(m => m.Value.Equals("amazon", StringComparison.OrdinalIgnoreCase));
+        return (where.Count > 0 && (theft || (action && (!onlyAmazon || NoticeRequest.IsMatch(text)))))
             || (action && NoticeElsewhere.IsMatch(text) && NoticeSubject.IsMatch(text))
             || (theft && action && text.Length <= 160 && NoticeSubject.IsMatch(text));
     }
@@ -324,6 +362,67 @@ public static partial class TextCleaner
         return line;
     }
 
+    /// <summary>
+    /// Entities a site left in its text as letters: "&amp;nbsp;", "know&amp;#8230;",
+    /// "it&amp;amp;#8217;s", and formatting tags it shows as letters
+    /// ("&lt;em&gt;Almost there,&lt;/em&gt;"). The page shows them as written and a
+    /// voice reads them aloud ("ampersand hash eight two one seven"). A fixed
+    /// set, so both implementations decode the same; decoded twice for a
+    /// double escape. Mirrors text.py.
+    /// </summary>
+    internal static string DecodeLiteralEntities(string text)
+    {
+        if (!text.Contains('&', StringComparison.Ordinal))
+        {
+            return text.Contains('<', StringComparison.Ordinal) ? LiteralTag.Replace(text, string.Empty) : text;
+        }
+
+        text = EntityOnlyLine.Replace(text, string.Empty);
+        for (var pass = 0; pass < 2; pass++)
+        {
+            var decoded = LiteralEntity.Replace(text, match => Entity(match.Value));
+            if (decoded == text)
+            {
+                break;
+            }
+
+            text = decoded;
+        }
+
+        return LiteralTag.Replace(text, string.Empty);
+    }
+
+    private static string Entity(string entity) => entity switch
+    {
+        "&nbsp;" => " ",
+        "&amp;" => "&",
+        "&quot;" => "\"",
+        "&lt;" => "<",
+        "&gt;" => ">",
+        "&apos;" => "'",
+        "&hellip;" => "\u2026",
+        "&mdash;" => "\u2014",
+        "&ndash;" => "\u2013",
+        "&lsquo;" => "\u2018",
+        "&rsquo;" => "\u2019",
+        "&ldquo;" => "\u201c",
+        "&rdquo;" => "\u201d",
+        _ => Numeric(entity),
+    };
+
+    private static string Numeric(string entity)
+    {
+        var hex = entity[2] is 'x' or 'X';
+        var digits = entity[(hex ? 3 : 2)..^1];
+        if (!int.TryParse(digits, hex ? NumberStyles.HexNumber : NumberStyles.None, CultureInfo.InvariantCulture, out var code)
+            || code is 0 or (>= 0xD800 and <= 0xDFFF) or > 0x10FFFF || (code < 0x20 && code is not ('\t' or '\n')))
+        {
+            return entity;
+        }
+
+        return code == 0xA0 ? " " : char.ConvertFromUtf32(code);
+    }
+
     /// <param name="text">Raw text as read out of the page.</param>
     /// <param name="removeLinks">
     /// When true (the default), URLs are deleted from the prose and counted.
@@ -335,6 +434,7 @@ public static partial class TextCleaner
 
         if (stripAds)
         {
+            text = DecodeLiteralEntities(text);
             text = AdsBy.Replace(text, string.Empty);
             text = SponsoredContent.Replace(text, string.Empty);
             text = StripSiteNotices(text);
