@@ -991,7 +991,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         try
         {
             var finalUrl = await this.GotoAsync(slot, url, this.Remaining(deadline)).ConfigureAwait(false);
-            var mark = await MarkPageAsync(slot.Page, finalUrl).ConfigureAwait(false);
+            (var mark, finalUrl) = await this.MarkPageAsync(slot.Page, finalUrl, deadline).ConfigureAwait(false);
             await ThrowIfHumanCheckAsync(slot, url).ConfigureAwait(false);
             var watch = Stopwatch.StartNew();
             string? previous = null;
@@ -1446,7 +1446,7 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
         try
         {
             var finalUrl = await this.GotoAsync(slot, url, this.Remaining(deadline)).ConfigureAwait(false);
-            var mark = await MarkPageAsync(slot.Page, finalUrl).ConfigureAwait(false);
+            (var mark, finalUrl) = await this.MarkPageAsync(slot.Page, finalUrl, deadline).ConfigureAwait(false);
             await ThrowIfHumanCheckAsync(slot, url, contentSelector).ConfigureAwait(false);
 
             // After the check, which some sites serve as a 503: that one wants
@@ -1536,21 +1536,70 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
     /// and some sites rewrite the address of a page they keep showing. Going
     /// to any other page, back in the history included, replaces the document
     /// and its mark with it.
+    ///
+    /// A page that moves on before it is marked is waited for when it moves
+    /// to the same address on another host: novelfire sends some chapters to
+    /// readnovel.site, which a script sends on to novelphoenix.com at once,
+    /// the same /novel/book/chapter-221. Failing those spent an attempt on a
+    /// fifth of novelfire's chapters, and three in a row lost the chapter.
+    /// Anywhere else (another chapter, the home page) still fails, and every
+    /// document the tab opens is screened on the way, this one included.
+    /// Kept identical to _mark_page in browser.py.
     /// </remarks>
-    private static async Task<string> MarkPageAsync(IPage page, string url)
+    /// <returns>The mark, and the address of the page it was put on.</returns>
+    private async Task<(string Mark, string FinalUrl)> MarkPageAsync(IPage page, string url, Stopwatch deadline)
     {
-        var mark = Guid.NewGuid().ToString("N");
-        try
+        for (var hop = 0; ; hop++)
         {
-            await page.EvaluateAsync("m => { window.__tocExtractorPage = m; }", mark).ConfigureAwait(false);
-        }
-        catch (PlaywrightException exception)
-        {
-            throw new PageException($"{url}: the page went on to another before it could be read: {exception.Message}", exception);
-        }
+            var mark = Guid.NewGuid().ToString("N");
+            try
+            {
+                await page.EvaluateAsync("m => { window.__tocExtractorPage = m; }", mark).ConfigureAwait(false);
+                return (mark, url);
+            }
+            catch (PlaywrightException exception)
+            {
+                if (hop >= MaxMirrorHops)
+                {
+                    throw new PageException($"{url}: the page went on to another before it could be read: {exception.Message}", exception);
+                }
 
-        return mark;
+                // Not a wait for the load state: the page that left had
+                // already loaded, so that returned at once. A function wait
+                // is run again in each new document until one has loaded.
+                try
+                {
+                    await page.WaitForFunctionAsync("() => document.readyState !== 'loading'", null, new PageWaitForFunctionOptions
+                    {
+                        Timeout = Milliseconds(this.Remaining(deadline)),
+                    }).ConfigureAwait(false);
+                }
+                catch (Exception waiting) when (waiting is PlaywrightException or TimeoutException)
+                {
+                    throw new PageException($"{url}: the page went on to another and did not finish loading: {waiting.Message}", exception);
+                }
+
+                if (!SameAddressElsewhere(url, page.Url))
+                {
+                    throw new PageException($"{url}: the page went on to {page.Url} before it could be read: {exception.Message}", exception);
+                }
+
+                url = page.Url;
+            }
+        }
     }
+
+    /// <summary>The most times a page may move on to a mirror before it is marked.</summary>
+    private const int MaxMirrorHops = 2;
+
+    /// <summary>Whether <paramref name="next"/> is the page at <paramref name="url"/>'s path, on any web host.</summary>
+    /// <remarks>Kept identical to _same_address_elsewhere in browser.py.</remarks>
+    internal static bool SameAddressElsewhere(string url, string next) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var from)
+        && Uri.TryCreate(next, UriKind.Absolute, out var to)
+        && to.Scheme is "http" or "https"
+        && from.AbsolutePath.Trim('/').Length > 0
+        && string.Equals(from.AbsolutePath.TrimEnd('/'), to.AbsolutePath.TrimEnd('/'), StringComparison.Ordinal);
 
     private static async Task ThrowIfPageLeftAsync(IPage page, string mark, string url)
     {

@@ -25,6 +25,10 @@ NAME_MAX_BYTES = 255
 _AD_PATTERNS = (
     re.compile(r"\bAds by\s+\w+", re.IGNORECASE),
     re.compile(r"\bSponsored\s+Content\b", re.IGNORECASE),
+    # The label a site prints alone on a line where an ad was (novelfire ends
+    # some chapters with "Advertisements"). Only the word on its own line, so
+    # "the news, advertisements, and programs" stays.
+    re.compile(r"^[^\S\n]*Advertisements?[^\S\n]*(?:\n|$)", re.IGNORECASE | re.MULTILINE),
 )
 # Some sites tag copied chapters with the source site's name spelled in
 # look-alike characters from other alphabets (a bold R, a Greek A, a
