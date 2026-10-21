@@ -545,6 +545,22 @@ nothing is overwritten. The log mentions it.
 
 ## Version history
 
+**2.6.9** (2026-10-21)
+
+From a real 2.6.8 run: chapters 196-500 of a 938-chapter novelfire.net book
+saved by three extractions at once, every one of the 305 chapters compared
+line by line with its page on the site.
+- Fixed: a line that is only "Advertisements", which novelfire ends some
+  chapters with (18 of 305), was kept with Remove ad markers on. It is
+  removed now; the word inside a sentence is kept.
+- Fixed: novelfire sends some chapters to readnovel.site, which sends them on
+  to novelphoenix.com at the same address. The second hop failed the attempt
+  (63 retries in the run, one chapter needed three). A page that moves on to
+  the same address on another host is now read there; anywhere else still
+  fails.
+- The log writes the settings again at each Save, so it names the folder the
+  books actually go to.
+
 **2.6.8** (2026-10-17)
 
 From a 938-chapter novelfire.net book that scanned as 195 chapters, then ten

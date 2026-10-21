@@ -1,4 +1,4 @@
-Whole books and the right text: a 938-chapter novelfire.net book that scanned as 195 chapters is found in full, a chapter of one book is never saved into another when several save at once, and story sentences the NovelFire notice remover mistook for notices are kept.
+Cleaner text and steadier novelfire.net saves: the "Advertisements" label some novelfire chapters end with is removed, and chapters the site sends on to a sister site are read there instead of failing and being tried again.
 
 ## Download
 
@@ -14,7 +14,15 @@ Download only the file for your computer; "Source code" is for developers.
 
 **Windows:** run the setup and follow the steps; no administrator needed. It adds TOC Extractor to the Start menu. If SmartScreen appears, choose More info, then Run anyway.
 
-## What is new in 2.6.8
+## What is new in 2.6.9
+
+From a real run of 2.6.8 on Windows 11: three extractions of one 938-chapter novelfire.net book saved at once (chapters 196-500, 305 chapters), its log, and the saved books. Every one of the 305 chapters was compared line by line with its page on the site: nothing was missing, nothing was saved twice, and every chapter was the right one. These are the problems that comparison and the log showed:
+
+- **Fixed: "Advertisements" left at the end of chapters.** novelfire puts the word on a line of its own at the end of some chapters, and 18 of the 305 chapters (and the 401-500 book) kept it, so a voice read it out. With Remove ad markers on (the default) a line that is only "Advertisement" or "Advertisements" is now removed. A sentence that uses the word ("the regular news, advertisements, and programs") is kept: on the 305 chapters exactly the 18 labels go and no story text.
+- **Fixed: one novelfire chapter in five failed on its first try.** The site sends some chapters to readnovel.site, which sends them straight on to novelphoenix.com, the same chapter at the same address. The app took that second hop for the page changing under it, failed the attempt and tried again (63 retries in the run; one chapter needed three tries, and the next failure would have lost it). A page that moves on to the same address on another site is now waited for and read there. A page that moves anywhere else (another chapter, a home page) still fails, so a wrong chapter is never saved.
+- **The log names the folder each save actually writes to.** The settings line was written only at the scan, so all three saves were logged with the previous book's folder ("E:\The Smiling Death\ch 151-200"). It is now written again when Save is pressed.
+
+## New in 2.6.8
 
 Tested on the book that went wrong, then under load: ten books saved at once from novelfire.net, fanmtl.com and mtl-novel.com (2,788 chapters), and ten local books of 200 to 1,000 chapters saved at once (6,000 chapters). Every saved novelfire chapter was compared word for word with its page on the site.
 

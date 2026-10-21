@@ -174,6 +174,37 @@ public sealed class BrowserPageSourceTests
     }
 
     [Fact]
+    public async Task A_page_that_sends_itself_to_the_same_chapter_on_a_mirror_is_read_there()
+    {
+        // novelfire's readnovel.site goes on to novelphoenix.com as soon as it
+        // loads, same path; each of those cost an attempt, three lost the chapter.
+        using var site = new LocalSite();
+        var mirror = $"http://localhost:{site.Port}/novel/b/chapter-221?noti=1";
+        site.Html("/novel/b/chapter-221", "<h1 class=\"t\">Chapter 218</h1><article class=\"c\"><p>Story.</p></article>"
+            + "<script>if (location.hostname === '127.0.0.1') { document.addEventListener('DOMContentLoaded', () => setTimeout(() => { location.replace('" + mirror + "'); const t = Date.now(); while (Date.now() - t < 400) { } }, 0)); }</script>");
+
+        await using var source = await StartAsync();
+        for (var i = 0; i < 5; i++)
+        {
+            var chapter = await source.LoadChapterAsync(site.Url("/novel/b/chapter-221"), ".t", ".c", Token);
+            // Read before the page moves on, or after it, on the mirror.
+            Assert.Equal("Story.", chapter.Body.Trim());
+            Assert.Contains(chapter.FinalUrl, new[] { site.Url("/novel/b/chapter-221"), mirror });
+        }
+    }
+
+    [Theory]
+    [InlineData("https://readnovel.site/novel/b/chapter-221", "https://novelphoenix.com/novel/b/chapter-221?noti=1", true)]
+    [InlineData("https://readnovel.site/novel/b/chapter-221/", "https://readnovel.site/novel/b/chapter-221", true)]
+    [InlineData("https://readnovel.site/novel/b/chapter-221", "https://novelphoenix.com/novel/b/chapter-222", false)]
+    [InlineData("https://readnovel.site/novel/b/chapter-221", "https://novelphoenix.com/", false)]
+    [InlineData("https://readnovel.site/", "https://novelphoenix.com/", false)]
+    [InlineData("https://readnovel.site/novel/b/chapter-221", "about:blank", false)]
+    [InlineData("https://readnovel.site/novel/b/chapter-221", "chrome-error://chromewebdata/", false)]
+    public void Only_the_same_path_counts_as_the_same_page_on_a_mirror(string url, string next, bool same) =>
+        Assert.Equal(same, BrowserPageSource.SameAddressElsewhere(url, next));
+
+    [Fact]
     public async Task A_page_that_only_rewrites_its_address_still_loads()
     {
         using var site = new LocalSite();

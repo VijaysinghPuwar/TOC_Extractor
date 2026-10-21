@@ -24,6 +24,14 @@ public static partial class TextCleaner
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex SponsoredContent { get; }
 
+    // The label a site prints alone on a line where an ad was (novelfire ends
+    // some chapters with "Advertisements"). Only the word on its own line, so
+    // "the news, advertisements, and programs" stays.
+    [GeneratedRegex(
+        @"(?m)^(?:(?!\n)" + Whitespace.Class + @")*Advertisements?(?:(?!\n)" + Whitespace.Class + @")*(?:\n|$)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex AdvertisementLine { get; }
+
     /// <summary>An HTML entity left in the text as letters: "know&amp;#8230;" as a site double-escaped it.</summary>
     [GeneratedRegex(@"&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|nbsp|amp|quot|lt|gt|apos|hellip|mdash|ndash|lsquo|rsquo|ldquo|rdquo);", RegexOptions.CultureInvariant)]
     private static partial Regex LiteralEntity { get; }
@@ -437,6 +445,7 @@ public static partial class TextCleaner
             text = DecodeLiteralEntities(text);
             text = AdsBy.Replace(text, string.Empty);
             text = SponsoredContent.Replace(text, string.Empty);
+            text = AdvertisementLine.Replace(text, string.Empty);
             text = StripSiteNotices(text);
             text = StripWatermarks(text);
         }

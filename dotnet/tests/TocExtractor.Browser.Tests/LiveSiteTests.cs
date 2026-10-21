@@ -37,11 +37,21 @@ public sealed class LiveSiteTests
         var headful = Environment.GetEnvironmentVariable("TOC_LIVE_HEADFUL") is { Length: > 0 };
         await using var browser = await playwright.Chromium.LaunchAsync(new() { Headless = !headful });
         var page = await browser.NewPageAsync();
+
+        // Every address the tab goes to, a script's redirect included.
+        var visits = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        page.FrameNavigated += (_, frame) =>
+        {
+            if (frame.ParentFrame is null)
+            {
+                visits.Enqueue($"{DateTime.Now:HH:mm:ss.fff} {frame.Url}");
+            }
+        };
         var response = await page.GotoAsync(url!);
         await Task.Delay(6000, Token);
         var json = await page.EvaluateAsync<string>(
             "() => JSON.stringify({ title: document.title, check: (" + BrowserPageSource.HumanCheckScript + ")(), length: (document.body ? document.body.innerText.length : 0), widgets: [...document.querySelectorAll('iframe[src*=\"challenges.cloudflare.com\"], .cf-turnstile, #challenge-form, #cf-challenge-running, .g-recaptcha, .h-captcha, [data-sitekey]')].map(e => e.outerHTML.slice(0, 300)), text: (document.body ? document.body.innerText.slice(0, 800) : '') })");
         var cookies = string.Join(", ", (await page.Context.CookiesAsync()).Select(c => c.Domain + ":" + c.Name));
-        await File.WriteAllTextAsync(Path.Combine(Path.GetTempPath(), "toc-probe.json"), $"{response?.Status} {page.Url}\ncookies: {cookies}\n{json}", Token);
+        await File.WriteAllTextAsync(Path.Combine(Path.GetTempPath(), "toc-probe.json"), $"{response?.Status} {page.Url}\nvisits:\n{string.Join("\n", visits)}\ncookies: {cookies}\n{json}", Token);
     }
 }

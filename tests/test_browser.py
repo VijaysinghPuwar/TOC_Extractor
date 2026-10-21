@@ -22,7 +22,7 @@ from typing import ClassVar
 
 import pytest
 
-from toc_extractor.browser import BrowserPageSource
+from toc_extractor.browser import BrowserPageSource, _same_address_elsewhere
 from toc_extractor.pagesource import (
     ChapterLocked,
     PageBlocked,
@@ -180,6 +180,16 @@ class Handler(BaseHTTPRequestHandler):
             self._html(
                 '<h1 class="t">Chapter 7</h1>'
                 "<script>setTimeout(() => { location.href = '/other-book/210'; }, 300);</script>"
+            )
+        elif self.path.startswith("/novel/b/chapter-221"):
+            # readnovel.site: goes on to the same chapter on novelphoenix.com.
+            self._html(
+                '<h1 class="t">Chapter 218</h1><article class="c"><p>Story.</p></article>'
+                "<script>if (location.hostname === '127.0.0.1') {"
+                " document.addEventListener('DOMContentLoaded', () => setTimeout(() => {"
+                " location.replace('http://localhost:' + location.port"
+                " + '/novel/b/chapter-221?noti=1');"
+                " const t = Date.now(); while (Date.now() - t < 400) { } }, 0)); }</script>"
             )
         elif self.path == "/rewrites-address":
             self._html(
@@ -694,6 +704,53 @@ async def test_a_page_that_goes_elsewhere_while_it_is_read_is_not_saved(server: 
             await source.load_chapter(
                 f"{server}/goes-elsewhere", title_selector="h1.t", content_selector="article.c"
             )
+
+
+async def test_a_page_that_sends_itself_to_the_same_chapter_on_a_mirror_is_read_there(
+    server: str,
+) -> None:
+    """novelfire's readnovel.site goes on to novelphoenix.com as soon as it
+    loads, same path; each of those cost an attempt, three lost the chapter."""
+    port = server.rsplit(":", 1)[1]
+    mirror = f"http://localhost:{port}/novel/b/chapter-221?noti=1"
+    async with BrowserPageSource(guard=loopback_permitted(), max_pages=1) as source:
+        for _ in range(5):
+            page = await source.load_chapter(
+                f"{server}/novel/b/chapter-221", title_selector="h1.t", content_selector="article.c"
+            )
+            # Read before the page moves on, or after it, on the mirror.
+            assert page.body.strip() == "Story."
+            assert page.final_url in (f"{server}/novel/b/chapter-221", mirror)
+
+
+@pytest.mark.parametrize(
+    ("url", "next_url", "same"),
+    [
+        (
+            "https://readnovel.site/novel/b/chapter-221",
+            "https://novelphoenix.com/novel/b/chapter-221?noti=1",
+            True,
+        ),
+        (
+            "https://readnovel.site/novel/b/chapter-221/",
+            "https://readnovel.site/novel/b/chapter-221",
+            True,
+        ),
+        (
+            "https://readnovel.site/novel/b/chapter-221",
+            "https://novelphoenix.com/novel/b/chapter-222",
+            False,
+        ),
+        ("https://readnovel.site/novel/b/chapter-221", "https://novelphoenix.com/", False),
+        ("https://readnovel.site/", "https://novelphoenix.com/", False),
+        ("https://readnovel.site/novel/b/chapter-221", "about:blank", False),
+        ("https://readnovel.site/novel/b/chapter-221", "chrome-error://chromewebdata/", False),
+    ],
+)
+def test_only_the_same_path_counts_as_the_same_page_on_a_mirror(
+    url: str, next_url: str, same: bool
+) -> None:
+    assert _same_address_elsewhere(url, next_url) is same
 
 
 async def test_a_page_that_only_rewrites_its_address_still_loads(server: str) -> None:

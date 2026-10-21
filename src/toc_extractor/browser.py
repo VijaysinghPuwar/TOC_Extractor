@@ -36,7 +36,7 @@ from functools import partial
 from pathlib import Path
 from types import TracebackType
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 from playwright.async_api import Browser, BrowserContext, Page, Request, Route, async_playwright
 from playwright.async_api import Error as PlaywrightError
@@ -547,7 +547,7 @@ class BrowserPageSource:
                 # three seconds after it loads, and the selector wait would
                 # then read whatever the tab showed before, another book's.
                 raise PageNotFound(f"{url}: the site has no page here (HTTP {slot.status})")
-            mark = await _mark_page(slot.page, final_url)
+            mark, final_url = await _mark_page(slot.page, final_url)
             title = await self._read_field(slot.page, title_selector, final_url)
             if await slot.page.evaluate(LOCKED_JS):
                 raise ChapterLocked(
@@ -606,22 +606,66 @@ def is_not_found_status(status: int) -> bool:
     return status in (404, 410)
 
 
-async def _mark_page(page: Page, url: str) -> str:
+async def _mark_page(page: Page, url: str) -> tuple[str, str]:
     """Mark the document just loaded, so a later read can tell it is still the one showing.
 
     Not the address: after a redirect the tab keeps the address asked for,
     and some sites rewrite the address of a page they keep showing. Going to
     any other page, back in the history included, replaces the document and
     its mark with it.
+
+    A page that moves on before it is marked is waited for when it moves to
+    the same address on another host: novelfire sends some chapters to
+    readnovel.site, which a script sends on to novelphoenix.com at once, the
+    same /novel/book/chapter-221. Anywhere else still fails, and every document
+    the tab opens is screened on the way. Kept identical to MarkPageAsync in C#.
+    Returns the mark and the address of the page it was put on.
     """
-    mark = uuid.uuid4().hex
-    try:
-        await page.evaluate("m => { window.__tocExtractorPage = m; }", mark)
-    except PlaywrightError as exc:
-        raise PageError(
-            f"{url}: the page went on to another before it could be read: {exc}"
-        ) from exc
-    return mark
+    hop = 0
+    while True:
+        mark = uuid.uuid4().hex
+        try:
+            await page.evaluate("m => { window.__tocExtractorPage = m; }", mark)
+            return mark, url
+        except PlaywrightError as exc:
+            if hop >= _MAX_MIRROR_HOPS:
+                raise PageError(
+                    f"{url}: the page went on to another before it could be read: {exc}"
+                ) from exc
+            # Not a wait for the load state: the page that left had already
+            # loaded, so that returned at once. A function wait is run again in
+            # each new document until one has loaded.
+            try:
+                await page.wait_for_function("() => document.readyState !== 'loading'")
+            except PlaywrightError as waiting:
+                raise PageError(
+                    f"{url}: the page went on to another and did not finish loading: {waiting}"
+                ) from waiting
+            if not _same_address_elsewhere(url, page.url):
+                raise PageError(
+                    f"{url}: the page went on to {page.url} before it could be read: {exc}"
+                ) from exc
+            url = page.url
+            hop += 1
+
+
+# The most times a page may move on to a mirror before it is marked.
+_MAX_MIRROR_HOPS = 2
+
+
+def _same_address_elsewhere(url: str, next_url: str) -> bool:
+    """Whether next_url is the page at url's path, on any web host.
+
+    Kept identical to SameAddressElsewhere in C#.
+    """
+    before = urlsplit(url)
+    after = urlsplit(next_url)
+    return (
+        bool(before.scheme)
+        and after.scheme in ("http", "https")
+        and bool(before.path.strip("/"))
+        and before.path.rstrip("/") == after.path.rstrip("/")
+    )
 
 
 async def _raise_if_page_left(page: Page, mark: str, url: str) -> None:

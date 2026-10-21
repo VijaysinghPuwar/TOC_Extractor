@@ -586,6 +586,7 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
         this.StartLog();
         this.PaceNote = this.session.CurrentPaceNote;
         this.log?.Info("save", $"Save pressed: chapters {plan.From}-{plan.To}. {plan.Summary}", url: scan.NovelUrl);
+        this.LogSettings();
         using var cancel = this.Begin();
         try
         {
@@ -841,11 +842,22 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
 
         this.log = common.For(this.LogName);
         this.log.Info("started", $"TOC Extractor {MainViewModel.Version} on {System.Runtime.InteropServices.RuntimeInformation.OSDescription} ({System.Runtime.InteropServices.RuntimeInformation.OSArchitecture}).");
+        this.LogSettings();
+        this.OnPropertyChanged(nameof(this.LogPath));
+    }
+
+    /// <summary>The settings as they stand, logged at the scan and again at each save.</summary>
+    /// <remarks>
+    /// Only at the scan, the log named the folder the window held then:
+    /// three books saved to "Dragon Ball\ch 301-400" were logged with the
+    /// output of the extraction before, "The Smiling Death\ch 151-200".
+    /// </remarks>
+    private void LogSettings()
+    {
         var pace = this.owner.Pace();
-        this.log.Info("settings", string.Create(
+        this.log?.Info("settings", string.Create(
             CultureInfo.InvariantCulture,
             $"{pace.Concurrency} at once, {pace.MinDelaySeconds:0.#}-{pace.MaxDelaySeconds:0.#}s between pages, keep links {pace.IncludeLinks}, remove ad markers {pace.StripAds}, output {this.OutputDirectory}"));
-        this.OnPropertyChanged(nameof(this.LogPath));
     }
 
     private CancellationTokenSource Begin()
