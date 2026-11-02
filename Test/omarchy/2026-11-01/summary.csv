@@ -1,0 +1,6 @@
+run,processes,processes_failed,exit_codes,elapsed_s,chapters_expected,chapters_completed,chapters_failed,chapters_per_s,peak_tree_pss_mb,mem_growth_mb_per_1000_chapters,peak_procs,peak_cpu_pct,mean_cpu_pct,min_mem_avail_mb,peak_load1,samples,peak_app_pss_mb,app_growth_mb_per_1000_chapters,peak_driver_pss_mb,driver_growth_mb_per_1000_chapters,peak_browser_pss_mb,browser_growth_mb_per_1000_chapters,mean_cpu_mhz,peak_pkg_temp_c
+single-c3,1,0,0,257.9,2334,2334,0,9.05,5282,1595.1,10,415,388,14018,6.55,80,,,,,,,,
+single-c8,1,0,0,152.2,2334,2334,0,15.34,5735,1834.0,15,576,541,13780,9.75,46,,,,,,,,
+single-c16,1,0,0,224.3,2334,2334,0,10.41,4344,1201.7,23,611,582,15269,15.37,58,,,,,,,,
+single-c32,1,0,0,379.0,2334,2334,0,6.16,4520,1069.9,39,585,548,15180,17.65,83,,,,,,,,
+swarm-n20,20,17,0;1,7989.3,46680,46649,31,5.84,14802,154.1,220,812,710,3573,218.5,57,,,,,,,,

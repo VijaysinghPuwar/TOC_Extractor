@@ -1,0 +1,28 @@
+{
+  "vendor": "LENOVO",
+  "model": "IdeaPad 3 15IAU7 (82RK)",
+  "cpu": {
+    "model": "12th Gen Intel(R) Core(TM) i3-1215U",
+    "logical_cpus": 8,
+    "cores_per_socket": 6,
+    "threads_per_core": 2,
+    "l3": "10 MiB (1 instance)",
+    "max_mhz_fastest_core_now": 1200,
+    "max_mhz_slowest_core_now": 900,
+    "turbo_enabled": false,
+    "governor": "powersave",
+    "energy_preference": "performance",
+    "package_power_limit_w": 35
+  },
+  "memory_mb": 23744,
+  "swap_mb": 47493,
+  "disk": "Micron MTFDKCD512QFM-1BD1AABLA, 476.9G, nvme, rotational=0",
+  "root_fs": "btrfs",
+  "gpu": "Intel Corporation Alder Lake-UP3 GT1 [UHD Graphics] (rev 0c)",
+  "os": "Omarchy",
+  "kernel": "7.2.8-9-omarchy",
+  "dotnet_sdk": "10.0.403",
+  "python": "3.14.8",
+  "on_ac_power": true,
+  "platform_profile": "performance"
+}
