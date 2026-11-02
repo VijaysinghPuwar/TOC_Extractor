@@ -1,0 +1,60 @@
+[
+  {
+    "run": "single-c8",
+    "processes": 1,
+    "processes_failed": 0,
+    "exit_codes": [
+      0
+    ],
+    "elapsed_s": 45.6,
+    "chapters_expected": 300,
+    "chapters_completed": 300,
+    "chapters_failed": 0,
+    "chapters_per_s": 6.58,
+    "peak_tree_pss_mb": 1507,
+    "mem_growth_mb_per_1000_chapters": 2372.9,
+    "peak_procs": 16,
+    "peak_cpu_pct": 555,
+    "mean_cpu_pct": 486,
+    "min_mem_avail_mb": 16767,
+    "peak_load1": 9.37,
+    "samples": 12,
+    "peak_app_pss_mb": 98,
+    "app_growth_mb_per_1000_chapters": 134.2,
+    "peak_driver_pss_mb": 282,
+    "driver_growth_mb_per_1000_chapters": 403.9,
+    "peak_browser_pss_mb": 1165,
+    "browser_growth_mb_per_1000_chapters": 1833.7,
+    "mean_cpu_mhz": 548,
+    "peak_pkg_temp_c": 70
+  },
+  {
+    "run": "swarm-n2",
+    "processes": 2,
+    "processes_failed": 0,
+    "exit_codes": [
+      0
+    ],
+    "elapsed_s": 105.8,
+    "chapters_expected": 600,
+    "chapters_completed": 600,
+    "chapters_failed": 0,
+    "chapters_per_s": 5.67,
+    "peak_tree_pss_mb": 2261,
+    "mem_growth_mb_per_1000_chapters": 2265.4,
+    "peak_procs": 24,
+    "peak_cpu_pct": 662,
+    "mean_cpu_pct": 617,
+    "min_mem_avail_mb": 16052,
+    "peak_load1": 15.71,
+    "samples": 24,
+    "peak_app_pss_mb": 172,
+    "app_growth_mb_per_1000_chapters": 117.5,
+    "peak_driver_pss_mb": 404,
+    "driver_growth_mb_per_1000_chapters": 213.6,
+    "peak_browser_pss_mb": 1683,
+    "browser_growth_mb_per_1000_chapters": 1933.5,
+    "mean_cpu_mhz": 399,
+    "peak_pkg_temp_c": 67
+  }
+]

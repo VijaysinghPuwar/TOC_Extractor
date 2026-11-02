@@ -1,0 +1,13 @@
+{
+  "run": "first of two identical runs",
+  "chapters": 61,
+  "attempts_gt_1": 0,
+  "span_s": 71.8,
+  "gap_s": {
+    "min": 0.44,
+    "max": 1.59,
+    "mean": 1.2
+  },
+  "unique_sha256": 61,
+  "second_run_identical_sha256": true
+}
