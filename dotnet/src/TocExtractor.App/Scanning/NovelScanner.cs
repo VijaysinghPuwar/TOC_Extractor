@@ -97,6 +97,21 @@ public sealed partial class NovelScanner(
     /// <summary>A few seconds, then longer: long enough for a dropped connection to come back.</summary>
     internal static TimeSpan TransientWait(int attempt) => TimeSpan.FromSeconds(attempt == 1 ? 3 : 8);
 
+    /// <summary>Longer for a site that said it is busy: it asked for less, and a quick knock is another one counted.</summary>
+    internal static TimeSpan BusyWait(int attempt) => TimeSpan.FromSeconds(attempt == 1 ? 6 : 20);
+
+    /// <summary>The site answered "too many requests" or a server error (HTTP 429, 5xx).</summary>
+    internal static bool IsBusy(PageException failure) =>
+        failure.GetType() == typeof(PageException) && failure.Message.EndsWith(", busy", StringComparison.Ordinal);
+
+    internal static string SiteBusy(int chapter) => string.Create(
+        System.Globalization.CultureInfo.InvariantCulture,
+        $"The site is busy and asked this app to slow down (it answered \"too many requests\"), so the scan could not open chapter {chapter}. ")
+        + "Wait a few minutes and scan again, and scan one book from this site at a time.";
+
+    // Whether the last chapter page the scan opened failed because the site was busy.
+    private bool lastBusy;
+
     // Keyed by address, not number: a site can give two chapters one number.
     private readonly Dictionary<string, ChapterLink> links = new(StringComparer.Ordinal);
     private string? locked;
@@ -215,7 +230,7 @@ public sealed partial class NovelScanner(
                     // drops now and then ("read ECONNRESET", "connect
                     // ETIMEDOUT") one reset lost the whole book, or left a
                     // 2,443-chapter book listing 601.
-                    var wait = TransientWait(attempt);
+                    var wait = IsBusy(failed) ? BusyWait(attempt) : TransientWait(attempt);
                     log?.Invoke($"scan: could not read {url} ({failed.Message.Split('\n')[0].Trim()}); trying again in {wait.TotalSeconds:0}s");
                     await this.delay(wait, cancellationToken).ConfigureAwait(false);
                 }
@@ -711,6 +726,14 @@ public sealed partial class NovelScanner(
             found = await this.ProbeContentAsync(sample.Url, FindContent, cancellationToken).ConfigureAwait(false);
         }
 
+        if (found is null && this.lastBusy)
+        {
+            // Not "may not be supported": the site is supported, and only
+            // asked for fewer pages.
+            this.notes.Add($"Could not open chapter page {sample.Url}: the site was busy.");
+            return (null, SiteBusy(sample.Number));
+        }
+
         if (found is null || found.Content is null || found.ContentChars < 200)
         {
             return (null, $"Could not find the story text on chapter {sample.Number}. This site may not be supported yet; Details shows what was tried.");
@@ -760,6 +783,7 @@ public sealed partial class NovelScanner(
             return null;
         }
 
+        this.lastBusy = false;
         try
         {
             await limiter.AcquireAsync(new Uri(url), cancellationToken).ConfigureAwait(false);
@@ -778,6 +802,7 @@ public sealed partial class NovelScanner(
         catch (PageException exception)
         {
             log?.Invoke($"scan: could not read {url}: {exception.Message}");
+            this.lastBusy = IsBusy(exception);
             return null;
         }
     }

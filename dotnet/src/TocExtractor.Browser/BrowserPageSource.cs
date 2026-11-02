@@ -993,6 +993,17 @@ public sealed partial class BrowserPageSource : IPageSource, IPageProbe, IHumanG
             var finalUrl = await this.GotoAsync(slot, url, this.Remaining(deadline)).ConfigureAwait(false);
             (var mark, finalUrl) = await this.MarkPageAsync(slot.Page, finalUrl, deadline).ConfigureAwait(false);
             await ThrowIfHumanCheckAsync(slot, url).ConfigureAwait(false);
+
+            // As for a chapter: a busy page has nothing on it. Read as one,
+            // novelfire's 429s were list pages with no chapters (paging
+            // stopped) and a sample chapter with no story, which said "this
+            // site may not be supported yet". A failure is retried.
+            if (slot.Status is { } status && IsBusyStatus(status))
+            {
+                throw new PageException(string.Create(
+                    System.Globalization.CultureInfo.InvariantCulture, $"{url}: the site answered HTTP {status}, busy"));
+            }
+
             var watch = Stopwatch.StartNew();
             string? previous = null;
             while (true)

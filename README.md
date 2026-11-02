@@ -545,6 +545,18 @@ nothing is overwritten. The log mentions it.
 
 ## Version history
 
+**2.6.10** (2026-11-02)
+
+From a real 2.6.9 log (17,439 rows): every finished save was whole, and all 79
+retries were novelfire.net answering 429 and recovered.
+- Fixed: the scan read a busy page (HTTP 429 or 5xx) as a page with nothing on
+  it. novelfire's 429s stopped the chapter list partway (one 1,612-chapter
+  book listed 1,601, 1,201, 1,001 and 701 on four scans) and failed the sample
+  chapter with "This site may not be supported yet". A busy page is now a
+  failed load, tried again after 6 and 20 seconds; a list page that stays busy
+  is one strike, not the end of the list; a sample chapter that stays busy
+  says the site is busy and to scan again in a few minutes.
+
 **2.6.9** (2026-10-21)
 
 From a real 2.6.8 run: chapters 196-500 of a 938-chapter novelfire.net book

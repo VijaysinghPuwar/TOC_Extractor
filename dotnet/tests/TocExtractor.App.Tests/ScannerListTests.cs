@@ -174,6 +174,108 @@ public sealed class ScannerListTests
         Assert.Equal(330, scan.LastNumber);
     }
 
+    /// <summary>A site that answers "busy" to the pages it is told to, a set number of times each.</summary>
+    private sealed class BusySite(IPageProbe inner, Func<string, int> busyTimes) : IPageProbe
+    {
+        private readonly Dictionary<string, int> refused = [];
+
+        public Task<(string FinalUrl, string Json)> ProbeAsync(string url, string script, TimeSpan settle, CancellationToken cancellationToken = default)
+        {
+            this.refused.TryGetValue(url, out var so);
+            if (so < busyTimes(url))
+            {
+                this.refused[url] = so + 1;
+                throw new PageException($"{url}: the site answered HTTP 429, busy");
+            }
+
+            return inner.ProbeAsync(url, script, settle, cancellationToken);
+        }
+    }
+
+    private static NovelScanner NoWaitScanner(IPageProbe site, List<TimeSpan>? waits = null) => new(
+        site, new UrlGuard(resolver: new PublicResolver()),
+        RobotsPolicy.Missing("https://e.com"), new RateLimiter(TimeSpan.Zero))
+    {
+        Delay = (wait, _) =>
+        {
+            waits?.Add(wait);
+            return Task.CompletedTask;
+        },
+    };
+
+    private const string Paged = "https://e.com/book/r";
+    private const string PagedList = Paged + "/chapters";
+
+    private static ScriptedSite PagedBook(int pages) => new(url =>
+    {
+        static string PageUrl(int p) => PagedList + "?page=" + p.ToString(CultureInfo.InvariantCulture);
+        object ListPage(int p) => new
+        {
+            key = "k",
+            chapters = Enumerable.Range(((p - 1) * 100) + 1, 100).Select(n => Chapter($"{Paged}/chapter-{n}", n)),
+            pages = Enumerable.Range(Math.Max(1, p - 2), 5).Where(q => q <= pages)
+                .Select(q => new { url = PageUrl(q), text = q.ToString(CultureInfo.InvariantCulture), pattern = PagedList + "?page=#" }),
+        };
+
+        return url == Paged ? new { key = "k", chapters = new[] { Chapter(Paged + "/chapter-1", 1) }, lists = new[] { new { url = PagedList, text = "Chapters" } } }
+            : url == PagedList ? ListPage(1)
+            : url.StartsWith(PagedList + "?page=", StringComparison.Ordinal) ? ListPage(int.Parse(url[(PagedList.Length + 6)..], CultureInfo.InvariantCulture))
+            : null;
+    });
+
+    [Fact]
+    public async Task A_list_page_the_site_was_busy_for_is_tried_again_and_the_whole_list_read()
+    {
+        // 2.6.9 on novelfire, Reborn As Noble: list page 13 of 17 answered 429,
+        // was read as a page with no chapters, and paging stopped there.
+        var waits = new List<TimeSpan>();
+        var site = new BusySite(PagedBook(17), url => url.EndsWith("?page=13", StringComparison.Ordinal) ? 2 : 0);
+
+        var scan = await NoWaitScanner(site, waits).ScanAsync(Paged, Token);
+
+        Assert.Null(scan.Problem);
+        Assert.Equal(Enumerable.Range(1, 1700), scan.Chapters.Select(c => c.Number));
+        Assert.Equal([NovelScanner.BusyWait(1), NovelScanner.BusyWait(2)], waits);
+    }
+
+    [Fact]
+    public async Task A_sample_chapter_the_site_stays_busy_for_says_busy_not_unsupported()
+    {
+        // The sample chapter answered 429 on every try, and the scan said
+        // "This site may not be supported yet" about a site it supports.
+        var site = new BusySite(PagedBook(4), url => url.Contains("/chapter-", StringComparison.Ordinal) ? int.MaxValue : 0);
+
+        var scan = await NoWaitScanner(site).ScanAsync(Paged, Token);
+
+        Assert.NotNull(scan.Problem);
+        Assert.StartsWith("The site is busy", scan.Problem, StringComparison.Ordinal);
+        Assert.Contains("chapter 201", scan.Problem, StringComparison.Ordinal);
+        Assert.DoesNotContain("not be supported", scan.Problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_sample_chapter_busy_once_is_read_on_the_next_try()
+    {
+        var site = new BusySite(PagedBook(4), url => url.Contains("/chapter-", StringComparison.Ordinal) ? 1 : 0);
+
+        var scan = await NoWaitScanner(site).ScanAsync(Paged, Token);
+
+        Assert.Null(scan.Problem);
+        Assert.Equal(400, scan.Chapters.Count);
+        Assert.NotNull(scan.Layout);
+    }
+
+    [Theory]
+    [InlineData("https://e.com/a: the site answered HTTP 429, busy", true)]
+    [InlineData("https://e.com/a: the site answered HTTP 503, busy", true)]
+    [InlineData("https://e.com/a: read ECONNRESET", false)]
+    [InlineData("https://e.com/a: the site has no page here (HTTP 404)", false)]
+    public void Only_a_busy_answer_counts_as_busy(string message, bool busy)
+    {
+        Assert.Equal(busy, NovelScanner.IsBusy(new PageException(message)));
+        Assert.True(NovelScanner.IsTransient(new PageException(message)));
+    }
+
     [Fact]
     public async Task Another_extraction_of_the_same_book_borrows_a_recent_scan_but_a_rescan_is_fresh()
     {

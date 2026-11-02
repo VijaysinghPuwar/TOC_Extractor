@@ -778,6 +778,37 @@ public sealed class BrowserPageSourceTests
         Assert.True(clock.Elapsed < TimeSpan.FromSeconds(10), "the busy page waited out the selector budget");
     }
 
+    [Theory]
+    [InlineData(503)]
+    [InlineData(429)]
+    public async Task A_busy_page_the_scan_reads_is_a_failure_not_an_empty_page(int status)
+    {
+        // 2.6.9 on novelfire: list pages answered 429 and were read as lists
+        // with no chapters, so paging stopped, and a sample chapter answered
+        // 429 and was read as a page with no story ("may not be supported").
+        using var site = new LocalSite();
+        site.Answer("/book/busy/chapters", status, "<html><body>Too many requests</body></html>");
+
+        await using var source = await StartAsync();
+        var failure = await Assert.ThrowsAnyAsync<PageException>(
+            () => source.ProbeAsync(site.Url("/book/busy/chapters"), "() => document.body.innerText", TimeSpan.FromSeconds(2), Token));
+
+        Assert.Equal(typeof(PageException), failure.GetType());
+        Assert.EndsWith($"HTTP {status}, busy", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_page_the_scan_reads_that_is_not_busy_is_still_read()
+    {
+        using var site = new LocalSite();
+        site.Html("/book/fine", "<p class='c'>Here.</p>");
+
+        await using var source = await StartAsync();
+        var (_, json) = await source.ProbeAsync(site.Url("/book/fine"), "() => document.querySelector('.c').innerText", TimeSpan.FromSeconds(2), Token);
+
+        Assert.Contains("Here.", json, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task A_missing_page_is_reported_missing_not_busy()
     {

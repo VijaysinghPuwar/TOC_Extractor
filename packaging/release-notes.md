@@ -1,4 +1,4 @@
-Cleaner text and steadier novelfire.net saves: the "Advertisements" label some novelfire chapters end with is removed, and chapters the site sends on to a sister site are read there instead of failing and being tried again.
+Steadier novelfire.net scans: when the site says it is busy, the scan waits and tries again instead of stopping partway through the chapter list or calling the site unsupported.
 
 ## Download
 
@@ -14,7 +14,13 @@ Download only the file for your computer; "Source code" is for developers.
 
 **Windows:** run the setup and follow the steps; no administrator needed. It adds TOC Extractor to the Start menu. If SmartScreen appears, choose More info, then Run anyway.
 
-## What is new in 2.6.9
+## What is new in 2.6.10
+
+From a real Windows 11 log of 2.6.9 (17,439 rows, Oct 21 to Nov 2). Every finished save was whole, and all 79 retries were novelfire.net answering "HTTP 429, too many requests" and recovered. One problem showed:
+
+- **Fixed: a busy site stopped scans and was called "not supported".** Scanning Reborn As Noble (1,612 chapters) four times in a row, the chapter list was read to 1,601, then 1,201, 1,001 and 701 chapters, and every scan ended "Could not find the story text on chapter 801 (601, 501, 351). This site may not be supported yet". novelfire was answering 429. Saving already knew a 429 page has no story and tried again, but the scan read the busy page as a list with no chapters (so paging stopped) and as a chapter with no story. The scan now treats a busy answer as a failed load and tries again after 6, then 20 seconds. A list page that stays busy is one strike, not the end of the list. If the sample chapter stays busy, the scan says the site is busy and to wait a few minutes, not that the site may not be supported.
+
+## New in 2.6.9
 
 From a real run of 2.6.8 on Windows 11: three extractions of one 938-chapter novelfire.net book saved at once (chapters 196-500, 305 chapters), its log, and the saved books. Every one of the 305 chapters was compared line by line with its page on the site: nothing was missing, nothing was saved twice, and every chapter was the right one. These are the problems that comparison and the log showed:
 
