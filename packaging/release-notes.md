@@ -1,4 +1,4 @@
-Steadier novelfire.net scans: when the site says it is busy, the scan waits and tries again instead of stopping partway through the chapter list or calling the site unsupported.
+Whole books where novelfire.net skips a chapter number, and scans that wait out a busy site instead of failing.
 
 ## Download
 
@@ -14,7 +14,19 @@ Download only the file for your computer; "Source code" is for developers.
 
 **Windows:** run the setup and follow the steps; no administrator needed. It adds TOC Extractor to the Start menu. If SmartScreen appears, choose More info, then Run anyway.
 
-## What is new in 2.6.10
+## What is new in 2.6.11
+
+From a real Windows 11 log of 2.6.10 (36,210 rows, Nov 2 to Nov 18). It covers 124 saves and 8,524 chapters. 2,576 of the 2,581 retries were novelfire.net answering "HTTP 429, too many requests", and every one of them recovered. Three problems showed:
+
+- **Fixed: "Missing: 283" on every Save, and a book file that stopped short.** novelfire's titles sometimes skip a number. In Bringing The Farm To Live In Another World, "chapter-283" is titled "Chapter 284 - Seeing West Wonder King" and comes straight after "Chapter 282". In AnimeMan, "chapter-364" is titled "Chapter : 365". No page is chapter 283 (or 364), but the save went looking for one. It then said "49 of 50 saved, 1 not" and wrote only "251-282.txt" (and "351-363.txt"), and pressing Save again could never fill the gap. The scan now recognises a title that skips ahead when the next address follows straight on with no page between. It notes that number as one the site does not have, and the save writes the whole range ("Done. 49 of 49 saved. The site has no chapter 283"). Chapter numbers are not changed, so ranges you already saved still join up. Folders saved with 2.6.10 are finished by pressing Save again, without fetching anything.
+- **Fixed: "The novel page could not be read" when the site was only busy.** That happened four times. The novel page answered 429 three times in 26 seconds while other books were still saving from the site. The scan now tries a busy page five times over about two minutes (6, 20, 40 and 60 seconds apart). If the page is still busy after that, it says the site is busy and to scan again in a few minutes. A dropped connection is still tried three times.
+- **Two extractions of one book no longer scan it twice at the same time.** 83 of the 155 scans in the log began within 90 seconds of another scan of the same book (101-150 and 151-200 opened together). Each read every list page, which doubled what the site was asked for and brought on the 429s above. The second extraction now waits for the first one's scan and uses it.
+
+Also checked in the log, with nothing to fix: Deus Necros 695-700 "saved with the same text as another chapter" is the site's own doing ("chapter-695" and "chapter-696" are both "Chapter 695: To be King"), and the app was right to say so. The two "Not saved: 601-650" and "6-50" saves were stopped by closing the app.
+
+Tested before release: all 3,116 automated tests pass. New tests cover each fault above, among them 16 extractions asking to scan one book at the same instant: exactly one scans and the rest wait for it. A live run with a real browser on novelfire.net saved Bringing The Farm 251-300 and AnimeMan 351-400, the two ranges that failed in the log. Both are now whole: 49 of 49 chapters, each checked against the site's pages, and the book reads "Chapter 282" then "Chapter 284". The scans also found the same skip later in both books (Farm 2274 and 2294, AnimeMan 706), so later ranges are whole too. A second live run opened two extractions of AnimeMan together (360-366 and 701-710): the book was scanned once, the other extraction waited for it, and both saves were whole ("Done. 6 of 6 saved. The site has no chapter 364"). The long stress test (40 extractions at once) was not run for this release: the test machine was out of memory.
+
+## New in 2.6.10
 
 From a real Windows 11 log of 2.6.9 (17,439 rows, Oct 21 to Nov 2). Every finished save was whole, and all 79 retries were novelfire.net answering "HTTP 429, too many requests" and recovered. One problem showed:
 

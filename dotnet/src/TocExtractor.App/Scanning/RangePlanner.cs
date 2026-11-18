@@ -85,12 +85,16 @@ public static class RangePlanner
         var direct = known.Values.Where(c => c.Number >= from && c.Number <= to)
             .Select(c => new NumberedLink(c.Number, c.Url)).ToList();
 
+        // A number the site's titles skip has no page to look for: a walk
+        // to it only reached the next chapter and called it missing.
+        IEnumerable<int> placed = [.. known.Keys, .. scan.Skipped];
+
         // Chapters no page lists, when their addresses can be built instead.
         // Never from a place in the book: addresses follow the site's numbers.
         List<NumberedLink> predicted = [];
         if (predict && !scan.PositionalNumbers && AddressPattern.Find(scan.Chapters) is { } pattern)
         {
-            foreach (var (start, end) in Gaps(from, to, known.Keys))
+            foreach (var (start, end) in Gaps(from, to, placed))
             {
                 for (var n = start; n <= end; n++)
                 {
@@ -106,7 +110,7 @@ public static class RangePlanner
         List<WalkSpec> walks = [];
         var extra = 0;
         List<string> unreachable = [];
-        foreach (var (start, end) in Gaps(from, to, known.Keys))
+        foreach (var (start, end) in Gaps(from, to, placed))
         {
             var below = scan.Chapters.LastOrDefault(c => c.Number < start);
             var above = scan.Chapters.FirstOrDefault(c => c.Number > end);

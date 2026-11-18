@@ -136,30 +136,83 @@ public sealed class NovelSession : INovelService
         this.robots = this.PrepareRobots(url, log);
         this.report = log;
 
-        ScanResult scan;
+        ScanResult? scan = null;
         if (this.host.RecentScan(url, this.SignedIn, this, DateTimeOffset.UtcNow) is { } recent)
         {
             log?.Invoke("scan: another extraction scanned this book a few minutes ago; using its scan instead of reading the list again");
             scan = recent;
         }
-        else
-        {
-            var scanner = new NovelScanner(
-                (IPageProbe)source, this.host.Guard, this.robots.Policy, this.robots.Limiter,
-                this.SignedIn, log, this.WaitForPersonAsync);
-            scan = await scanner.ScanAsync(url, cancellationToken).ConfigureAwait(false);
 
-            // The book lives on another site (pandanovel.co sends every
-            // book to novelfire.net): scan it there, once, so its own
-            // robots.txt, pace and chapter list are the ones used.
-            if (followMove && scanner.MovedTo is { } moved)
+        var done = new TaskCompletionSource<ScanResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = false;
+
+        // Two scans of one book at once ask the site for every list page
+        // twice, and a busy site refused one of them. Waited for at most
+        // twice: a scan that keeps failing is not waited on for ever.
+        for (var round = 0; scan is null && round < 2; round++)
+        {
+            if (this.host.JoinOrStartScan(url, this.SignedIn, this, done.Task) is not { } theirs)
             {
-                log?.Invoke($"scan: {new Uri(url).Host} sends this book to {new Uri(moved).Host}; scanning it there");
-                var there = await this.ScanAsync(moved, log, followMove: false, cancellationToken).ConfigureAwait(false);
-                return there with { Notes = [$"{new Uri(url).Host} sends this book to {moved}, so it is read and saved from there.", .. there.Notes] };
+                started = true;
+                break;
             }
 
-            this.host.KeepScan(url, this.SignedIn, this, scan, DateTimeOffset.UtcNow);
+            log?.Invoke("scan: another extraction is scanning this book right now; waiting for its scan instead of reading the list a second time");
+            try
+            {
+                var shared = await theirs.WaitAsync(cancellationToken).ConfigureAwait(false);
+                scan = shared.Ready ? shared : null;
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                // That scan was stopped or failed: this one scans for itself.
+            }
+
+            if (scan is null)
+            {
+                log?.Invoke("scan: that scan did not find the book; scanning it here");
+            }
+        }
+
+        if (scan is null)
+        {
+            try
+            {
+                var scanner = new NovelScanner(
+                    (IPageProbe)source, this.host.Guard, this.robots.Policy, this.robots.Limiter,
+                    this.SignedIn, log, this.WaitForPersonAsync);
+                scan = await scanner.ScanAsync(url, cancellationToken).ConfigureAwait(false);
+
+                // The book lives on another site (pandanovel.co sends every
+                // book to novelfire.net): scan it there, once, so its own
+                // robots.txt, pace and chapter list are the ones used.
+                if (followMove && scanner.MovedTo is { } moved)
+                {
+                    log?.Invoke($"scan: {new Uri(url).Host} sends this book to {new Uri(moved).Host}; scanning it there");
+                    var there = await this.ScanAsync(moved, log, followMove: false, cancellationToken).ConfigureAwait(false);
+                    return there with { Notes = [$"{new Uri(url).Host} sends this book to {moved}, so it is read and saved from there.", .. there.Notes] };
+                }
+
+                this.host.KeepScan(url, this.SignedIn, this, scan, DateTimeOffset.UtcNow);
+            }
+            finally
+            {
+                // Kept before it is let go, so an extraction that finds no
+                // running scan finds the kept one.
+                if (scan is not null)
+                {
+                    done.TrySetResult(scan);
+                }
+                else
+                {
+                    done.TrySetCanceled(CancellationToken.None);
+                }
+
+                if (started)
+                {
+                    this.host.EndScan(url, this.SignedIn, this);
+                }
+            }
         }
 
         // A site that lists its chapters but closes the chapter pages

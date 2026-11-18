@@ -244,7 +244,8 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
         : scan.Chapters.Count == 0
             ? "No chapters found."
             : string.Create(CultureInfo.InvariantCulture, $"Chapters {scan.FirstNumber:N0} to {scan.LastNumber:N0}")
-                + (scan.Chapters.Count < scan.ChapterSpan
+                // Numbers the site's titles skip are not chapters it failed to list.
+                + (scan.Chapters.Count + scan.Skipped.Count < scan.ChapterSpan
                     ? string.Create(CultureInfo.InvariantCulture, $", {scan.Chapters.Count:N0} listed by the site")
                     : "")
                 + (this.session.SignedIn ? ". Signed in." : ".");
@@ -577,7 +578,8 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
 
         this.Problem = null;
         this.Files.Clear();
-        this.ResetChapters([.. Enumerable.Range(plan.From, plan.To - plan.From + 1)]);
+        // A number the site's titles skip is no chapter: "49 of 49", not "50 of 50".
+        this.ResetChapters([.. Enumerable.Range(plan.From, plan.To - plan.From + 1).Where(n => !scan.Skipped.Contains(n))]);
         this.CurrentTab = Tab.Chapters;
         this.Stage = Stage.Saving;
         this.Status = "Saving...";
@@ -608,14 +610,16 @@ public sealed partial class JobViewModel : ObservableObject, IAsyncDisposable
 
             // From the result, not the rows: the last reports can still be
             // on their way to the list when the run returns.
-            var total = plan.To - plan.From + 1;
+            var skipped = Enumerable.Range(plan.From, plan.To - plan.From + 1).Where(scan.Skipped.Contains).ToList();
+            var total = plan.To - plan.From + 1 - skipped.Count;
             var saved = total - result.Missing.Count;
             this.HasOutput = result.Files.Count > 0 || saved > 0;
             this.Status = result.Stopped
                 ? $"Stopped. {saved} of {total} saved. Press Save to carry on."
                 : result.Outcome switch
                 {
-                    PipelineOutcome.Ok => string.Create(CultureInfo.InvariantCulture, $"Done. {saved} of {total} saved."),
+                    PipelineOutcome.Ok => string.Create(CultureInfo.InvariantCulture, $"Done. {saved} of {total} saved.")
+                        + (skipped.Count > 0 ? $" The site has no chapter {BookFiles.Ranges(skipped)}: its titles skip that number." : ""),
                     PipelineOutcome.Refused => "This folder holds another book's progress. Tick Start over, or choose another folder.",
                     _ when result.NotOnSite.Count > 0 && result.NotOnSite.Count == result.Missing.Count => string.Create(CultureInfo.InvariantCulture,
                         $"{saved} of {total} saved. The site has no page for chapter(s) {BookFiles.Ranges(result.NotOnSite)}."),
