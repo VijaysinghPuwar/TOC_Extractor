@@ -121,6 +121,60 @@ public sealed class FollowUpSaveTests
         Assert.All(Enumerable.Range(1, 5), n => Assert.Contains($"The body of chapter {n},", text, StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task A_number_the_sites_titles_skip_is_not_missing_and_the_book_file_goes_on_past_it()
+    {
+        // Bringing The Farm To Live In Another World, saved as 251-300 with
+        // 2.6.10: "chapter-283" is titled 284, the book file stopped at 282
+        // ("Missing: 283"), and Save again could never fill the gap.
+        var root = Scratch.Directory();
+        var pages = Book.Pages(6);
+        pages["https://e.com/ch/4"] = new StubPage { Title = "Chapter 5", Body = "The body of chapter 4, with a few words in it." };
+        pages["https://e.com/ch/5"] = new StubPage { Title = "Chapter 5", Body = "The body of chapter 5, with a few words in it." };
+        var source = new StubPageSource(pages);
+        int[] numbers = [1, 2, 3, 5, 6, 7];
+        var scan = Scan() with
+        {
+            Chapters = [.. numbers.Select((n, i) => new ScannedChapter(n, $"Chapter {n}", $"https://e.com/ch/{i + 1}"))],
+            Skipped = new HashSet<int> { 4 },
+        };
+        var observer = new RecordingObserver();
+
+        var result = await Save(scan, 1, 7, root, source, observer);
+
+        Assert.Equal(PipelineOutcome.Ok, result.Outcome);
+        Assert.Empty(result.Missing);
+        Assert.Equal(6, source.UrlsLoaded.Count);
+        var text = await File.ReadAllTextAsync(Path.Combine(root, "Stub Book", "Stub Book 1-7.txt"), Token);
+        Assert.All(Enumerable.Range(1, 6), n => Assert.Contains($"The body of chapter {n},", text, StringComparison.Ordinal));
+        Assert.Contains(observer.Lines, line => line.StartsWith("The site has no chapter 4:", StringComparison.Ordinal));
+        Assert.DoesNotContain(observer.Lines, line => line.StartsWith("Not saved", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_folder_saved_before_the_fix_is_finished_without_fetching_again()
+    {
+        // The real folder: 49 chapters saved, "Missing: 283". Save again with
+        // the new scan writes the whole book from what is there.
+        var root = Scratch.Directory();
+        var pages = Book.Pages(6);
+        pages["https://e.com/ch/4"] = new StubPage { Title = "Chapter 5", Body = "The body of chapter 4, with a few words in it." };
+        var source = new StubPageSource(pages);
+        int[] numbers = [1, 2, 3, 5, 6, 7];
+        var old = Scan() with { Chapters = [.. numbers.Select((n, i) => new ScannedChapter(n, $"Chapter {n}", $"https://e.com/ch/{i + 1}"))] };
+
+        var before = await Save(old, 1, 7, root, source);
+        Assert.Equal([4], before.Missing);
+        var loaded = source.UrlsLoaded.Count;
+
+        var after = await Save(old with { Skipped = new HashSet<int> { 4 } }, 1, 7, root, source);
+
+        Assert.Equal(PipelineOutcome.Ok, after.Outcome);
+        Assert.Equal(loaded, source.UrlsLoaded.Count);
+        Assert.True(File.Exists(Path.Combine(root, "Stub Book", "Stub Book 1-7.txt")));
+        Assert.False(File.Exists(Path.Combine(root, "Stub Book", "Stub Book 1-3.txt")));
+    }
+
     private static ScanResult Scan() => new()
     {
         NovelUrl = Book.Toc,
@@ -179,6 +233,26 @@ public sealed class MergedChapterTests
         Assert.Equal(32, BookFiles.LastCovered(saved[31]));
         Assert.Equal([30, 31, 32, 33, 34], BookFiles.Covered(saved).Order());
         Assert.Equal([30, 31, 33, 34], BookFiles.FirstRun(saved).Keys);
+    }
+
+    [Fact]
+    public void A_run_passes_numbers_the_site_skips_but_not_real_gaps()
+    {
+        SortedDictionary<int, SavedChapter> saved = new()
+        {
+            [281] = new(281, "Chapter 281", "a"),
+            [282] = new(282, "Chapter 282", "b"),
+            [284] = new(284, "Chapter 284", "c"),
+            [285] = new(285, "Chapter 285", "d"),
+            [287] = new(287, "Chapter 287", "e"),
+        };
+
+        Assert.Equal([281, 282], BookFiles.FirstRun(saved).Keys);
+        Assert.Equal([281, 282, 284, 285], BookFiles.FirstRun(saved, new HashSet<int> { 283 }).Keys);
+        Assert.Equal([281, 282, 284, 285, 287], BookFiles.FirstRun(saved, new HashSet<int> { 283, 286 }).Keys);
+
+        // A skipped number before the first saved chapter changes nothing.
+        Assert.Equal([281, 282], BookFiles.FirstRun(saved, new HashSet<int> { 280 }).Keys);
     }
 
     [Theory]

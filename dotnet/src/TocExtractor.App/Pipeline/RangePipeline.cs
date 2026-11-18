@@ -360,7 +360,12 @@ public static class RangePipeline
         // page of its own for the second: it is saved, inside the first.
         var covered = BookFiles.Covered(saved);
         var missing = Enumerable.Range(request.From, request.To - request.From + 1)
-            .Where(n => !covered.Contains(n)).ToList();
+            .Where(n => !covered.Contains(n) && !request.Scan.Skipped.Contains(n)).ToList();
+        List<int> skipped = [.. request.Scan.Skipped.Where(n => n >= request.From && n <= request.To && !covered.Contains(n)).Order()];
+        if (skipped.Count > 0)
+        {
+            observer.Log($"The site has no chapter {BookFiles.Ranges(skipped)}: its titles skip that number, with no page between the chapters either side, so the book goes straight on.");
+        }
         List<string> files = [];
 
         // The folder may have been deleted since the chapters were saved.
@@ -374,7 +379,7 @@ public static class RangePipeline
         // it is "1-26", never "1-50": a name must not promise chapters the
         // file does not have. Chapters after a gap stay saved on their own and
         // join the book once Save again fills the gap.
-        var chapters = BookFiles.FirstRun(saved);
+        var chapters = BookFiles.FirstRun(saved, request.Scan.Skipped);
         var stem = chapters.Count == 0
             ? ""
             : BookFiles.RangeName(request.Scan.BookTitle, chapters.Keys.First(), chapters.Keys.Last());
@@ -665,13 +670,20 @@ public static partial class BookFiles
     }
 
     /// <summary>The first unbroken run of chapter numbers, so a book file never has a hole in it.</summary>
-    public static SortedDictionary<int, SavedChapter> FirstRun(SortedDictionary<int, SavedChapter> saved)
+    /// <param name="saved">The saved chapters, by number.</param>
+    /// <param name="skipped">Numbers the site's titles skip (no such chapter), which the run passes over.</param>
+    public static SortedDictionary<int, SavedChapter> FirstRun(SortedDictionary<int, SavedChapter> saved, IReadOnlySet<int>? skipped = null)
     {
         ArgumentNullException.ThrowIfNull(saved);
         SortedDictionary<int, SavedChapter> run = [];
         var last = 0;
         foreach (var (number, chapter) in saved)
         {
+            while (skipped is not null && run.Count > 0 && skipped.Contains(last + 1) && last + 1 < number)
+            {
+                last++;
+            }
+
             if (run.Count > 0 && number != last + 1)
             {
                 break;

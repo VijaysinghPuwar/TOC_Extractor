@@ -98,7 +98,18 @@ public sealed partial class NovelScanner(
     internal static TimeSpan TransientWait(int attempt) => TimeSpan.FromSeconds(attempt == 1 ? 3 : 8);
 
     /// <summary>Longer for a site that said it is busy: it asked for less, and a quick knock is another one counted.</summary>
-    internal static TimeSpan BusyWait(int attempt) => TimeSpan.FromSeconds(attempt == 1 ? 6 : 20);
+    internal static TimeSpan BusyWait(int attempt) => TimeSpan.FromSeconds(attempt switch { 1 => 6, 2 => 20, 3 => 40, _ => 60 });
+
+    /// <summary>
+    /// Tries for a page the site keeps saying it is busy for: more than for a
+    /// dropped connection. Three tries, 26 seconds, was not enough: on 2.6.10
+    /// novelfire refused a novel page that long four times in two weeks, while
+    /// other books saved from it, and the scan ended "could not be read". A
+    /// saved chapter is tried five times over about a minute and none was lost.
+    /// </summary>
+    internal const int BusyAttempts = 5;
+
+    private static int AttemptsFor(PageException failure) => IsBusy(failure) ? BusyAttempts : LoadAttempts;
 
     /// <summary>The site answered "too many requests" or a server error (HTTP 429, 5xx).</summary>
     internal static bool IsBusy(PageException failure) =>
@@ -109,8 +120,15 @@ public sealed partial class NovelScanner(
         $"The site is busy and asked this app to slow down (it answered \"too many requests\"), so the scan could not open chapter {chapter}. ")
         + "Wait a few minutes and scan again, and scan one book from this site at a time.";
 
+    internal const string NovelPageBusy =
+        "The site is busy and asked this app to slow down (it answered \"too many requests\" for about two minutes), so the scan could not open the novel page. "
+        + "Wait a few minutes and scan again. Books already saving from this site carry on.";
+
     // Whether the last chapter page the scan opened failed because the site was busy.
     private bool lastBusy;
+
+    // Whether the last list page the scan read failed because the site was busy.
+    private bool listBusy;
 
     // Keyed by address, not number: a site can give two chapters one number.
     private readonly Dictionary<string, ChapterLink> links = new(StringComparer.Ordinal);
@@ -128,6 +146,12 @@ public sealed partial class NovelScanner(
     private bool positional;
     private List<ScannedChapter> chapters = [];
 
+    // Numbers the site's titles skip with no page between (see Order).
+    private readonly HashSet<int> skipped = [];
+
+    /// <summary>The most numbers one title is taken to skip: a slip of a few, not a missing stretch.</summary>
+    internal const int MostSkipped = 3;
+
     public async Task<ScanResult> ScanAsync(string novelUrl, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(novelUrl);
@@ -139,7 +163,9 @@ public sealed partial class NovelScanner(
                 ? this.Result(novelUrl, "", CheckWontPass, Obstacle.HumanCheck)
                 : this.robotsRefused
                     ? this.Result(novelUrl, "", RobotsRefused)
-                    : this.Result(novelUrl, "", problem: "The novel page could not be read. See the activity log for why.");
+                    : this.listBusy
+                        ? this.Result(novelUrl, "", NovelPageBusy)
+                        : this.Result(novelUrl, "", problem: "The novel page could not be read. See the activity log for why.");
         }
 
         // pandanovel.co answers every book page with a redirect to the same
@@ -222,7 +248,7 @@ public sealed partial class NovelScanner(
                 {
                     return await probe.ProbeAsync(url, script, settle, cancellationToken).ConfigureAwait(false);
                 }
-                catch (PageException failed) when (attempt < LoadAttempts && IsTransient(failed))
+                catch (PageException failed) when (attempt < AttemptsFor(failed) && IsTransient(failed))
                 {
                     // A chapter that fails to load is tried again, and the
                     // novel page and list pages deserve the same: in a 25-book
@@ -422,6 +448,7 @@ public sealed partial class NovelScanner(
         {
             log?.Invoke($"scan: could not read {url}: {exception.Message}");
             this.notes.Add($"Could not read {url}: {exception.Message}");
+            this.listBusy = IsBusy(exception);
             return null;
         }
     }
@@ -536,8 +563,10 @@ public sealed partial class NovelScanner(
             {
                 List<ScannedChapter> ordered = [];
                 List<string> renumbered = [];
+                List<string> skipped = [];
                 var previous = 0;
-                foreach (var link in byId)
+                long? previousId = null;
+                foreach (var (link, id) in byId.Select(link => (link, TrailingId(link.Url)!.Value)))
                 {
                     var number = link.Number > previous ? link.Number : previous + 1;
                     if (number != link.Number)
@@ -545,8 +574,34 @@ public sealed partial class NovelScanner(
                         renumbered.Add($"\"{Short(link.Title)}\" is numbered {number} by its place (the site says {link.Number})");
                     }
 
+                    // A title a few ahead of the chapter before it, at the very
+                    // next address: the site skipped a number, and no page lies
+                    // between. novelfire's "chapter-283" is "Chapter 284" right
+                    // after "chapter-282"; 283 was planned as a gap, reached by
+                    // following links, never found, and every Save after said
+                    // "Not saved: 283" and left the book file stopping at 282.
+                    if (previous > 0 && number > previous + 1 && number - previous - 1 <= MostSkipped && previousId + 1 == id)
+                    {
+                        for (var n = previous + 1; n < number; n++)
+                        {
+                            this.skipped.Add(n);
+                        }
+
+                        skipped.Add($"\"{Short(link.Title)}\" comes right after chapter {previous}");
+                    }
+
                     ordered.Add(new ScannedChapter(number, link.Title, link.Url));
                     previous = number;
+                    previousId = id;
+                }
+
+                if (skipped.Count > 0)
+                {
+                    this.notes.Add(string.Create(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        $"The site's titles skip chapter(s) {Pipeline.BookFiles.Ranges([.. this.skipped.Order()])}: ")
+                        + string.Join("; ", skipped.Take(3)) + (skipped.Count > 3 ? "; and more" : "")
+                        + ". No page is missing there, so those numbers are left out of the book.");
                 }
 
                 if (renumbered.Count > 0)
@@ -720,7 +775,9 @@ public sealed partial class NovelScanner(
         // One more try before giving up: a single slow or interrupted page
         // load must not decide the whole scan.
         var found = await this.ProbeContentAsync(sample.Url, FindContent, cancellationToken).ConfigureAwait(false);
-        if (found is null || found.Content is null || found.ContentChars < 200)
+        // Not after a busy answer: that page was already tried five times
+        // over two minutes, and five more only keep the site busier.
+        if ((found is null || found.Content is null || found.ContentChars < 200) && !this.lastBusy)
         {
             log?.Invoke($"scan: chapter {sample.Number} did not show its story; trying once more");
             found = await this.ProbeContentAsync(sample.Url, FindContent, cancellationToken).ConfigureAwait(false);
@@ -817,6 +874,7 @@ public sealed partial class NovelScanner(
         Obstacle = obstacle,
         PagesRead = this.visited.Count,
         PositionalNumbers = this.positional,
+        Skipped = this.skipped.ToHashSet(),
     };
 
     private sealed record ListPage(string Url, ListProbe Probe, string FinalUrl = "");

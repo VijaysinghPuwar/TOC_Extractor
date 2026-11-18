@@ -59,6 +59,58 @@ public sealed class BrowserHost(NovelEnvironment environment) : IAsyncDisposable
             : null;
     }
 
+    // Scans running now, by book address and sign-in.
+    private readonly ConcurrentDictionary<(string Url, bool SignedIn), (Task<ScanResult> Scan, object Owner)> running = new();
+
+    /// <summary>
+    /// A scan of this book another extraction is making right now, or null.
+    /// </summary>
+    /// <remarks>
+    /// Two extractions of one book opened together (101-150 and 151-200) both
+    /// read its whole chapter list at the same moment: novelfire answered
+    /// "too many requests" to one of them on the novel page itself, three
+    /// times, and that scan ended "The novel page could not be read".
+    /// </remarks>
+    public Task<ScanResult>? RunningScan(string url, bool signedIn, object asker) =>
+        this.running.TryGetValue((url, signedIn), out var scan) && !ReferenceEquals(scan.Owner, asker) && !scan.Scan.IsCompleted
+            ? scan.Scan
+            : null;
+
+    /// <summary>
+    /// Another extraction's scan of this book that is running now, to wait
+    /// for; or null, and <paramref name="scan"/> is now the running one.
+    /// </summary>
+    /// <remarks>
+    /// One step, not a look and then a claim: two extractions opened together
+    /// both waited for the browser to start, both looked, found nothing yet,
+    /// and both read the whole list.
+    /// </remarks>
+    public Task<ScanResult>? JoinOrStartScan(string url, bool signedIn, object owner, Task<ScanResult> scan)
+    {
+        lock (this.running)
+        {
+            if (this.RunningScan(url, signedIn, owner) is { } theirs)
+            {
+                return theirs;
+            }
+
+            this.running[(url, signedIn)] = (scan, owner);
+            return null;
+        }
+    }
+
+    /// <summary>The scan <paramref name="owner"/> started has ended.</summary>
+    public void EndScan(string url, bool signedIn, object owner)
+    {
+        lock (this.running)
+        {
+            if (this.running.TryGetValue((url, signedIn), out var scan) && ReferenceEquals(scan.Owner, owner))
+            {
+                this.running.TryRemove((url, signedIn), out _);
+            }
+        }
+    }
+
     /// <summary>Keep a ready scan for other extractions of the same book.</summary>
     public void KeepScan(string url, bool signedIn, object owner, ScanResult scan, DateTimeOffset now)
     {

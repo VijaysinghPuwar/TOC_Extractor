@@ -45,6 +45,13 @@ public sealed record ScanResult
     /// </summary>
     public bool PositionalNumbers { get; init; }
 
+    /// <summary>
+    /// Chapter numbers the site's own titles skip: "chapter-283" is titled
+    /// "Chapter 284" and follows "chapter-282" with nothing between, so the
+    /// book has no chapter 283. Never fetched, never missing.
+    /// </summary>
+    public IReadOnlySet<int> Skipped { get; init; } = new HashSet<int>();
+
     public bool Ready => this.Problem is null && this.Chapters.Count > 0 && this.Layout is not null;
 
     public int FirstNumber => this.Chapters.Count > 0 ? this.Chapters[0].Number : 0;

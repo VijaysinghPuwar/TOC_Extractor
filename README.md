@@ -545,6 +545,21 @@ nothing is overwritten. The log mentions it.
 
 ## Version history
 
+**2.6.11** (2026-11-18)
+
+From a real 2.6.10 log (36,210 rows, 124 saves): every retry recovered, and
+three problems showed.
+- Fixed: where novelfire's titles skip a number ("chapter-283" is titled
+  "Chapter 284"), the save looked for a chapter 283 that does not exist, said
+  "Missing: 283" on every Save, and the book file stopped at 282. The scan now
+  notes such a number as one the site does not have, and the book file covers
+  the whole range. Chapter numbers are unchanged, so saved ranges still join.
+- Fixed: a novel page the site was busy for (HTTP 429) for 26 seconds ended
+  the scan with "could not be read". A busy page is now tried for about two
+  minutes, then the scan says the site is busy.
+- Two extractions of one book opened together now share one scan instead of
+  reading the whole chapter list twice at once.
+
 **2.6.10** (2026-11-02)
 
 From a real 2.6.9 log (17,439 rows): every finished save was whole, and all 79
